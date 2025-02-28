@@ -69,7 +69,6 @@ lfoGain.connect(delay.delayTime);
 
 //start everything
 const startAudio = function() {
-  audioElement.play();
   myAudioCtx.resume();
   constantSource.start();
   lfo.start();
