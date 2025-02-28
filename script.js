@@ -66,6 +66,10 @@ const lfoGain = myAudioCtx.createGain();
 lfoGain.gain.value = 0.002;
 lfo.connect(lfoGain);
 lfoGain.connect(delay.delayTime);
+startAudio = function() {
+  audioElement.play();
+  myAudioCtx.resume();
+}
 
 //Add event listener to button
 let myButton = document.getElementById('startAudio');
