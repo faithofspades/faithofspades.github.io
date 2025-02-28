@@ -47,7 +47,7 @@ source.connect(filter);
 //create create Constant Source Node
 const constantSource = myAudioCtx.createConstantSource();
 constantSource.offset.value = 0.00001;
-constantSource.start();
+
 constantSource.connect(delay.delayTime);
 //create feedback 
 const feedback = myAudioCtx.createGain();
@@ -59,7 +59,7 @@ delay.connect(master);
 //modulate delay time
 const lfo = myAudioCtx.createOscillator();
 lfo.frequency.value = 0.5;
-lfo.start();
+
 
 //create a gain node for the lfo
 const lfoGain = myAudioCtx.createGain();
@@ -69,6 +69,8 @@ lfoGain.connect(delay.delayTime);
 startAudio = function() {
   audioElement.play();
   myAudioCtx.resume();
+  constantSource.start();
+  lfo.start();
 }
 
 //Add event listener to button
