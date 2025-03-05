@@ -1,0 +1,2729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>ARDIST - Thule</title>
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #f5f5dc;
+            color: #3f2101;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .container {
+    max-width: 1500px; /* Increased from 1200px - 25% wider */
+    width: 100%;
+}
+        
+        h2 {
+            color: #8b4513;
+            margin-bottom: 5px;
+        }
+        
+        p {
+            margin-top: 5px;
+            margin-bottom: 15px;
+        }
+        
+        /* Synth panel styling */
+        /* Update the synth-panel class */
+.synth-panel {
+    display: flex;  /* Change from grid to flex */
+    flex-direction: row;
+    gap: 2px;
+    background-color: #f0e6d2;
+    border: 2px solid #3f2101;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    overflow-x: auto;  /* Allow horizontal scrolling if needed */
+}
+        
+        .module {
+    background-color: #f5f5dc;
+    border: 1px solid #3f2101;
+    border-radius: 5px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    width: 80px; /* Fixed width, reduced by ~30% from original */
+    min-width: 80px; /* Same as width to prevent resizing */
+    max-width: 80px; /* Same as width to prevent resizing */
+}
+        
+        .module-title {
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 14px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #3f2101;
+        }
+        .wave-select-container {
+    position: relative;
+    width: 100%;
+    margin: 10px 0;
+}
+
+.wave-select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #3f2101;
+    border-radius: 4px;
+    background-color: #e6e6e6;
+    color: #3f2101;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+/* Custom dropdown arrow */
+.wave-select-container::after {
+    content: '';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid #3f2101;
+    pointer-events: none;
+}
+
+/* Hover and focus states */
+.wave-select:hover {
+    background-color: #d4c6a8;
+}
+
+.wave-select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(139, 69, 19, 0.2);
+    background-color: #f5f5dc;
+}
+
+.tooltip {
+    position: absolute;
+    background: rgba(63, 33, 1, 0.9);
+    color: #f5f5dc;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+/* Style for options */
+.wave-select option {
+    background-color: #f5f5dc;
+    color: #3f2101;
+    padding: 8px;
+}
+        /* Sliders and knobs */
+        .knob {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #e6e6e6;
+    border: 1px solid #3f2101;
+    position: relative;
+    margin: 10px auto;
+    cursor: grab;
+    transform-origin: center center;
+    transition: transform 0.05s ease-out;
+}
+
+.knob:active {
+    cursor: grabbing;
+}
+
+.knob::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 3px;    /* Changed from 3px to 2px for consistency */
+    height: 14px;   /* Changed from 14px to 10px for consistency */
+    background-color: #3f2101;
+    transform-origin: bottom center;
+    transform: translateX(-50%);
+}
+        
+.slider-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    height: 120px;
+    margin: 0 10px;
+}
+
+.slider-container label {
+    font-size: 12px;
+    color: #3f2101;
+    margin-top: 10px;
+}
+
+.slider-container input[type="range"] {
+    width: 100px;
+    height: 30px;
+    -webkit-appearance: none;
+    background: transparent;
+    transform: rotate(270deg) translate(-35px, 35px);
+}
+
+.slider-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 28px;
+    width: 16px;
+    border-radius: 3px;
+    background: #d4c6a8;
+    border: 1px solid #3f2101;
+    cursor: grab;
+    margin-top: -12px;
+}
+
+.slider-container input[type="range"]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    background: #e6e6e6;
+    border: 1px solid #3f2101;
+    border-radius: 2px;
+}
+
+.slider-container span {
+    font-size: 12px;
+    color: #3f2101;
+    margin-top: 5px;
+}
+        
+        /* Radio button group styling */
+        .radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin: 10px 0;
+        }
+        
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .radio-option input[type="radio"] {
+            margin: 0;
+        }
+        
+        /* Keyboard */
+        .keyboard {
+    display: flex;
+    width: 125%;
+    height: 188px; /* Increased from 150px to 188px (25% taller) */
+    margin-top: 70px;
+    background-color: #f0e6d2;
+    border: 2px solid #3f2101;
+    border-radius: 5px;
+    position: relative;
+}
+
+.key {
+    flex: 1;
+    height: 100%;
+    background-color: #f5f5dc;
+    border: 1px solid #3f2101;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Update black key dimensions */
+.key.black {
+    background-color: #3f2101;
+    position: absolute;
+    width: 50px;
+    height: 60%; /* Keep same proportion */
+    z-index: 1;
+    border: none;
+    transform: translateX(-50%);
+}
+
+/* Maintain black key positioning with new width */
+.key.black:nth-of-type(15) { left: calc(100% * 1/14); }   /* C# */
+.key.black:nth-of-type(16) { left: calc(100% * 2/14); }   /* D# */
+.key.black:nth-of-type(17) { left: calc(100% * 4/14); }   /* F# */
+.key.black:nth-of-type(18) { left: calc(100% * 5/14); }   /* G# */
+.key.black:nth-of-type(19) { left: calc(100% * 6/14); }   /* A# */
+.key.black:nth-of-type(20) { left: calc(100% * 8/14); }   /* C# (second octave) */
+.key.black:nth-of-type(21) { left: calc(100% * 9/14); }   /* D# (second octave) */
+.key.black:nth-of-type(22) { left: calc(100% * 11/14); }  /* F# (second octave) */
+.key.black:nth-of-type(23) { left: calc(100% * 12/14); }  /* G# (second octave) */
+.key.black:nth-of-type(24) { left: calc(100% * 13/14); }  /* A# (second octave) */
+/* Make sure the black keys overflow is visible */
+/* Update keyboard dimensions */
+.keyboard {
+    display: flex;
+    width: 100%;
+    height: 190px; /* Increased from 120px */
+    margin-top: 20px;
+    background-color: #f0e6d2;
+    border: 2px solid #3f2101;
+    border-radius: 5px;
+    position: relative;
+}
+.key.pressed {
+    background-color: #d4c6a8;
+}
+
+.key.black.pressed {
+    background-color: #6b4e29;
+}
+        
+        /* Voice monitoring */
+        .voice-monitor {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #3f2101;
+            border-radius: 4px;
+            background-color: #f0e6d2;
+        }
+        
+        .voice-item {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 5px;
+            background-color: #e0e0e0;
+            border-radius: 3px;
+            border: 1px solid #3f2101;
+        }
+        
+        .active-voice {
+            background-color: #8b4513;
+            color: white;
+        }
+        
+        /* File section styling */
+        .file-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        input[type="file"] {
+            background-color: #f0e6d2;
+            border: 1px solid #3f2101;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        
+        /* ADSR graph visualization */
+        .adsr-graph {
+            height: 100px;
+            width: 100%;
+            border: 1px solid #3f2101;
+            background-color: #f5f5dc;
+            margin: 10px 0;
+            position: relative;
+        }
+        
+        .adsr-line {
+            position: absolute;
+            background-color: #8b4513;
+            width: 2px;
+            height: 100%;
+            top: 0;
+            left: 0;
+        }
+        
+body {
+    user-select: none; /* Prevent text selection */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+/* Base knob style */
+.knob.notched {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #e6e6e6;
+    border: 1px solid #3f2101;
+    position: absolute;
+    top: 0;
+    left: 0;
+    cursor: grab;
+    z-index: 2;
+}
+
+/* Notch marks around the knob */
+.knob.notched::before {
+    content: '';
+    position: absolute;
+    top: -4px;  /* Position outside the knob */
+    left: -4px;
+    width: 48px;  /* Larger than the knob */
+    height: 48px;
+    border-radius: 50%;
+    background: conic-gradient(
+        from 60deg,
+        transparent 0deg 2deg,
+        #3f2101 2deg 4deg,      /* -2 octave notch */
+        transparent 4deg 58deg,
+        #3f2101 58deg 60deg,    /* -1 octave notch */
+        transparent 60deg 118deg,
+        #3f2101 118deg 120deg,  /* 0 octave notch */
+        transparent 120deg 178deg,
+        #3f2101 178deg 180deg,  /* +1 octave notch */
+        transparent 180deg 238deg,
+        #3f2101 238deg 240deg,  /* +2 octave notch */
+        transparent 240deg 360deg
+    );
+    opacity: 0.6;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Indicator line */
+.knob.notched::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 2px;
+    height: 10px;
+    background-color: #3f2101;
+    transform-origin: bottom center;
+    transform: translateX(-50%);
+    z-index: 3;
+}
+
+.knob-container {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    margin: 10px auto;
+}
+/* Fixed notch ring */
+.knob-container::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: conic-gradient(
+        from 240deg,
+        #3f2101 0deg 2deg,      /* -2 octave notch */
+        transparent 2deg 58deg,
+        #3f2101 58deg 60deg,    /* -1 octave notch */
+        transparent 60deg 118deg,
+        #3f2101 118deg 120deg,  /* 0 octave notch */
+        transparent 120deg 178deg,
+        #3f2101 178deg 180deg,  /* +1 octave notch */
+        transparent 180deg 238deg,
+        #3f2101 238deg 240deg,  /* +2 octave notch */
+        transparent 240deg 360deg
+    );
+    opacity: 0.6;
+    pointer-events: none;
+    z-index: 1;
+}
+.knob-value {
+    font-size: 12px;
+    margin-top: 4px;
+    color: #3f2101;
+}
+
+.octave-control {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin: 10px 0;
+    position: relative;
+    height: 120px;
+}
+
+.octave-slider {
+    width: 100px;
+    height: 30px;
+    -webkit-appearance: none;
+    background: transparent;
+    transform: rotate(270deg) translate(0%, 22%);
+    margin: 35px 0;
+
+}
+
+.octave-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 28px;
+    width: 16px;
+    border-radius: 3px;
+    background: #d4c6a8;
+    border: 1px solid #3f2101;
+    cursor: grab;
+    margin-top: -12px;
+}
+
+.octave-slider::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    background: #e6e6e6;
+    border: 1px solid #3f2101;
+    border-radius: 2px;
+}
+
+.octave-ticks {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100px;
+    font-size: 12px;
+    color: #3f2101;
+    margin-left: -80px; /* Adjust space between slider and ticks */
+}
+/* Adjust the label position */
+.octave-control label {
+    position: absolute;
+    bottom: -10px; /* Moved down by 10px */
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 15px;
+    color: #3f2101;
+}
+.octave-ticks span {
+    line-height: 20px;
+}
+/* Update the ADSR module layout */
+.module[style="grid-column: span 2;"] {
+    width: 160px;
+    min-width: 160px;
+    max-width: 160px;
+}
+
+.slider-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 60px;
+    height: 140px;
+    position: relative;
+    margin-bottom: 30px; /* Add space for the lower labels */
+}
+
+.slider-container label {
+    position: absolute;
+    bottom: -30px; /* Move labels much lower */
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    color: #3f2101;
+}
+
+.slider-container span {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    color: #3f2101;
+}
+
+.slider-group {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-evenly;
+    align-items: center;
+    width: 100%;
+    height: 170px;
+    margin: 10px 0;
+    padding-bottom: 30px; /* Increased padding for lower labels */
+}
+.module[style="grid-column: span 0;"] {
+    display: flex;
+    flex-direction: column;
+    min-height: 250px;
+    min-width: 400px; /* Add minimum width */
+    padding: 15px;
+}
+
+.adsr-graph {
+    width: 100%;
+    height: 100px;
+    min-height: 100px;
+    border: 1px solid #3f2101;
+    background-color: #f5f5dc;
+    margin: 10px 0;
+    position: relative;
+    overflow: hidden; /* Prevent overflow */
+}
+
+.slider-group {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-evenly; /* Changed from space-around */
+    align-items: center;
+    width: 100%;
+    height: 150px;
+    margin: 10px 0;
+}
+
+.slider-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 60px; /* Fixed width for container */
+    height: 140px;
+    position: relative;
+}
+
+.slider-container input[type="range"] {
+    width: 100px;
+    height: 30px;
+    -webkit-appearance: none;
+    background: transparent;
+    transform: rotate(270deg) translate(-35px, 35px);
+    margin: 35px 0;
+}
+
+.slider-container span {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    color: #3f2101;
+}
+
+.slider-container label {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    color: #3f2101;
+}
+/* ADSR module styles */
+.module[style="grid-column: span 0;"] {
+    display: flex;
+    flex-direction: column;
+    width: 160px; /* Match graph width */
+    min-width: 160px;
+    padding: 15px;
+    align-items: center;
+}
+
+.adsr-graph {
+    width: 105%; /* Reduced from 100% to 80% */
+    height: 80px;
+    border: 1px solid #3f2101;
+    background-color: #f5f5dc;
+    margin-bottom: 20px;
+    position: relative;
+}
+
+/* Values row */
+.slider-values {
+    display: flex;
+    justify-content: space-between;
+    width: 220px; /* Match slider group width */
+    margin-bottom: 5px;
+}
+
+.slider-values span {
+    font-size: 12px;
+    color: #3f2101;
+    width: 40px;
+    text-align: center;
+}
+
+.slider-group {
+    width: 160px; /* Match graph width */
+    display: flex;
+    justify-content: center;
+    margin: 10px 0;
+    gap: 7%;
+}
+
+.slider-group input[type="range"] {
+    width: 120px; /* Reduced width */
+    height: 30px;
+    -webkit-appearance: none;
+    background: transparent;
+    transform: rotate(270deg) translate(0px, -50px); /* Adjusted translation */
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 28px;
+    width: 16px;
+    border-radius: 3px;
+    background: #d4c6a8;
+    border: 1px solid #3f2101;
+    cursor: grab;
+    margin-top: -12px;
+}
+
+.slider-group input[type="range"]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    background: #e6e6e6;
+    border: 1px solid #3f2101;
+    border-radius: 2px;
+}
+
+/* Labels row */
+.slider-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 220px;
+    margin-top: -10px;
+}
+
+.slider-labels label {
+    font-size: 12px;
+    color: #3f2101;
+    width: 40px;
+    text-align: center;
+}
+/* ADSR container styles */
+.module[style="grid-column: span 2;"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 170px;
+    max-width: 170px;
+    padding: 15px;
+    align-items: center;
+    
+}
+input[type="range"] {
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+}
+
+input[type="range"]:focus {
+    outline: none;
+}
+
+input[type="range"]::-moz-focus-outer {
+    border: 0;
+}
+
+.slider-group {
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+}
+
+.slider-container {
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+}
+
+* {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+}
+/* Individual slider containers */
+.slider-attack, .slider-decay, .slider-sustain, .slider-release {
+    position: relative;
+    width: 35px; /* Unchanged base width */
+    height: 120px;
+    margin: 0 7%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    user-select: none; /* Prevent text selection */
+    pointer-events: none; /* Prevent container from capturing clicks */
+
+}
+
+/* Common slider styles */
+.slider-group input[type="range"] {
+    position: absolute;
+    width: 160px;
+    height: 30px;
+    -webkit-appearance: none;
+    background: transparent;
+    transform: rotate(270deg) translate(-40%, 40%);
+    /* Center the slider over its label */
+    left: -89.5px;
+    pointer-events: auto; /* Re-enable clicks for slider */
+}
+
+/* Values above sliders */
+#attack-value, #decay-value, #sustain-value, #release-value {
+    position: absolute;
+    top: -20px;
+    width: 35px;
+    text-align: center;
+    font-size: 12px;
+    color: #3f2101;
+}
+
+/* Labels below sliders */
+.slider-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 180px;
+    margin-top: 5px;
+}
+
+.slider-labels label {
+    width: 35px;
+    text-align: center;
+    font-size: 12px;
+    color: #3f2101;
+}
+
+/* Slider group containing all sliders */
+.slider-group {
+    display: flex;
+    justify-content: center;
+    width: 180px;
+    margin: 10px 0;
+    gap: 7%; /* Added gap property to match margin */
+    
+}
+/* Add to your existing CSS */
+.file-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    margin: 5px 0;
+}
+
+.custom-file-input {
+    position: relative;
+    width: 80%;
+    height: 45px;
+    overflow: hidden;
+}
+
+.custom-file-input input[type="file"] {
+    position: absolute;
+    font-size: 100px;
+    opacity: 0;
+    right: 0;
+    top: 0;
+    cursor: pointer;
+}
+
+.custom-file-input label {
+    display: block;
+    background: #e6e6e6;
+    border: 1px solid #3f2101;
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: #3f2101;
+    text-align: center;
+    cursor: pointer;
+}
+
+#file-status {
+    font-size: 10px;
+    color: #3f2101;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 90%;
+    text-align: center;
+}
+/* Add vertical switch styling */
+.switch-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px 0;
+}
+
+.switch-label {
+    font-size: 10px;
+    margin-bottom: 5px;
+    color: #3f2101;
+    text-align: center;
+}
+
+/* Update vertical switch styling */
+.vertical-switch {
+    width: 20px;
+    height: 40px;
+    background: #e6e6e6;
+    border: 1px solid #3f2101;
+    border-radius: 10px;
+    position: relative;
+    cursor: grab;
+}
+
+.vertical-switch::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 18px;
+    background: #d4c6a8;
+    border: 1px solid #3f2101;
+    border-radius: 8px;
+    left: 1px;
+    top: 1px;
+    transition: top 0.1s;
+}
+
+.vertical-switch.active::after {
+    top: 19px;
+}
+
+/* Mono controls container */
+.mono-controls {
+    width: 100%;
+    transition: opacity 0.3s;
+}
+
+.legato-controls {
+    width: 100%;
+    transition: opacity 0.3s;
+}
+    </style>
+</head>
+<body>
+    </style>
+</head>
+<body>
+    <div class="container">
+        
+        <div class="synth-panel">
+            
+          <!-- SAMPLER Module -->
+          <div class="module">
+            <div class="module-title">SAMPLER</div>
+            <div class="file-section">
+                <div class="custom-file-input">
+                    <input type="file" id="audio-file" accept="audio/*">
+                    <label for="audio-file">Load Sample</label>
+                </div>
+                <!-- Add the file status element -->
+                <div id="file-status"></div>
+            </div>
+            <div class="knob" id="sample-volume-knob"></div>
+            <label for="sample-volume-knob" style="text-align: center;">Volume</label>
+            <div class="knob" id="sample-pitch-knob"></div>
+            <label for="sample-pitch-knob" style="text-align: center;">Pitch</label>
+        </div>
+            <!-- OSC 1 Module -->
+            <div class="module">
+                <div class="module-title">OSC 1</div>
+                <div class="wave-select-container">
+                    <select class="wave-select" name="osc1-wave">
+                        <option value="sine">Sine</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="saw">Saw</option>
+                        <option value="square">Square</option>
+                        <option value="pulse">Pulse</option>
+                    </select>
+                </div>
+                <div class="knob" id="osc1-pwm-knob"></div>
+                <label for="osc1-pwm-knob" style="text-align: center;">PWM</label>
+                <div class="knob" id="osc1-gain-knob"></div>
+                <label for="osc1-gain-knob" style="text-align: center;">Gain</label>
+                <div class="octave-control">
+                    <input type="range" class="octave-slider" min="-2" max="2" step="1" value="0">
+                    <div class="octave-ticks">
+                        <span>+2</span>
+                        <span>+1</span>
+                        <span>0</span>
+                        <span>-1</span>
+                        <span>-2</span>
+                    </div>
+                    <label>Octave</label>
+                </div>
+            </div>
+
+            <!-- OSC 2 Module -->
+            <div class="module">
+                <div class="module-title">OSC 2</div>
+                <div class="wave-select-container">
+                    <select class="wave-select" name="osc2-wave">
+                        <option value="sine">Sine</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="saw">Saw</option>
+                        <option value="square">Square</option>
+                        <option value="pulse">Pulse</option>
+                    </select>
+                </div>
+                <div class="knob" id="osc2-pwm-knob"></div>
+                <label for="osc2-pwm-knob" style="text-align: center;">PWM</label>
+                <div class="knob" id="osc2-gain-knob"></div>
+                <label for="osc2-gain-knob" style="text-align: center;">Gain</label>
+                <div class="octave-control">
+                    <input type="range" class="octave-slider" min="-2" max="2" step="1" value="0">
+                    <div class="octave-ticks">
+                        <span>+2</span>
+                        <span>+1</span>
+                        <span>0</span>
+                        <span>-1</span>
+                        <span>-2</span>
+                    </div>
+                    <label>Octave</label>
+                </div>
+            </div>
+
+            
+
+            <!-- ADSR Module -->
+            <div class="module" style="grid-column: span 2;">
+    <div class="module-title">ADSR Envelope</div>
+    
+    <div class="adsr-graph" id="adsr-visualization">
+        <div class="adsr-line"></div>
+    </div>
+
+    <div class="slider-group">
+    <div class="slider-attack">
+        <span id="attack-value">0.1</span>
+        <input type="range" id="attack" min="0" max="5" step="0.01" value="0.1">
+    </div>
+    <div class="slider-decay">
+        <span id="decay-value">0.1</span>
+        <input type="range" id="decay" min="0" max="5" step="0.01" value="0.1">
+    </div>
+    <div class="slider-sustain">
+        <span id="sustain-value">0.7</span>
+        <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
+    </div>
+    <div class="slider-release">
+        <span id="release-value">0.5</span>
+        <input type="range" id="release" min="0" max="5" step="0.01" value="0.5">
+    </div>
+</div>
+<div class="slider-labels">
+    <label>A</label>
+    <label>D</label>
+    <label>S</label>
+    <label>R</label>
+</div>
+</div>
+
+            
+
+<div class="module">
+    <div class="module-title">MASTER</div>
+    
+    <!-- Voice Mode Switch -->
+    <div class="switch-container">
+        <label class="switch-label">POLY/MONO</label>
+        <div class="vertical-switch" id="voice-mode-switch"></div>
+    </div>
+    
+    <!-- Mono controls -->
+    <div class="mono-controls">
+        <!-- Trigger Mode Switch -->
+        <div class="switch-container">
+            <label class="switch-label">MULTI/LEGATO</label>
+            <div class="vertical-switch" id="trigger-mode-switch"></div>
+        </div>
+        
+        <!-- Portamento controls -->
+        <div class="legato-controls">
+            <div class="switch-container">
+                <label class="switch-label">PORTA ON/OFF</label>
+                <div class="vertical-switch" id="portamento-switch"></div>
+            </div>
+            
+            <!-- Glide Time Knob -->
+            <div class="knob" id="glide-time-knob"></div>
+            <label for="glide-time-knob">GLIDE</label>
+        </div>
+    </div>
+    
+    <!-- Master Volume -->
+    <div class="knob" id="master-volume-knob"></div>
+    <label for="master-volume-knob">Volume</label>
+</div>
+    
+   
+      
+
+        </div> <!-- End of synth-panel -->
+        
+        <!-- Keyboard -->
+        <div class="keyboard" id="keyboard">
+            <!-- Keys will be generated by JavaScript -->
+        </div>
+        
+        <div class="voice-monitor">
+            <h3>Active Voices: <span id="voice-count">0</span>/6</h3>
+            <div id="voice-display"></div>
+        </div>
+    </div>
+
+    <script>
+        const D = x => document.getElementById(x);
+        const TR2 = 2 ** (1.0 / 12.0);
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const masterGain = audioCtx.createGain();
+        masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        masterGain.connect(audioCtx.destination);
+
+        // Replace the existing keys definition with:
+        const keys = [
+     'Z', 'S', 'X', 'D', 'C', 'V', 'G', 'B', 'H', 'N', 'J', 'M',// First octave (C through B)
+    'Q', '2', 'W', '3', 'E', 'R', '5', 'T', '6', 'Y', '7', 'U', // Second octave (C through B)
+];
+// Add this after the masterGain initialization
+let currentVolume = 0.5; // Initial volume
+masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
+// Add these global variables at the top with other audio-related variables
+// Add to your global variables
+let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
+let lastPlayedNote = null;
+let sampleSource = null;
+let isPlaying = false;
+// Add at top with other global variables
+sampleGainNode = audioCtx.createGain();
+sampleGainNode.gain.value = 0.5;
+// Update the createNote function to use a reference to the current gain value
+let currentSampleGain = 0.5; // Add this with other global variables
+let currentSamplePosition = 0; // Add this with other global variables
+
+// Replace all knob-related code with this single implementation
+function initializeKnob(knob, onChange) {
+    let rotation = -150;
+    let isDragging = false;
+    let lastY;
+    const defaultValue = 0.5;
+
+    function resetToDefault() {
+        rotation = -150 + (defaultValue * 300);
+        knob.style.transform = `rotate(${rotation}deg)`;
+        if (onChange) {
+            onChange(defaultValue);
+        }
+    }
+
+    function handleMouseMove(e) {
+        if (!isDragging) return;
+        
+        // Apply different sensitivity based on shift key state
+        const sensitivity = e.shiftKey ? 0.25 : 1.0;
+        const deltaY = (lastY - e.clientY) * sensitivity;
+        lastY = e.clientY;
+        
+        // Range from -150 to +150 degrees
+        const newRotation = Math.min(150, Math.max(-150, rotation + deltaY));
+        
+        if (newRotation !== rotation) {
+            rotation = newRotation;
+            knob.style.transform = `rotate(${rotation}deg)`;
+            
+            if (onChange) {
+                const normalizedValue = (rotation + 150) / 300;
+                onChange(normalizedValue);
+            }
+        }
+        
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function handleMouseUp() {
+        isDragging = false;
+        knob.style.cursor = 'grab';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    // Add click handlers for reset functionality
+    knob.addEventListener('click', (e) => {
+        if (e.altKey) {
+            resetToDefault();
+        }
+    });
+
+    knob.addEventListener('dblclick', () => {
+        resetToDefault();
+    });
+
+    knob.addEventListener('mousedown', (e) => {
+        if (!e.altKey) { // Only start dragging if not alt-clicking
+            isDragging = true;
+            lastY = e.clientY;
+            knob.style.cursor = 'grabbing';
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+        }
+        e.preventDefault();
+    });
+
+    return {
+        getValue: () => (rotation + 150) / 300,
+        setValue: (value) => {
+            const newRotation = (value * 300) - 150;
+            rotation = Math.min(150, Math.max(-150, newRotation));
+            knob.style.transform = `rotate(${rotation}deg)`;
+        }
+    };
+}
+
+
+// Place this code right after the initializeKnob function and before any initialization calls
+
+function initializeNotchedKnob(knob, onChange) {
+    let rotation = 0;
+    let isDragging = false;
+    let lastY;
+    const degreesPerStep = 60; // 240 degrees total / 4 steps
+    const steps = [-2, -1, 0, 1, 2]; // Octave values
+
+    function snapToNotch(rotation) {
+        const step = Math.round(rotation / degreesPerStep);
+        const limitedStep = Math.max(-2, Math.min(2, step));
+        return limitedStep * degreesPerStep;
+    }
+
+    function handleMouseMove(e) {
+        if (!isDragging) return;
+        
+        const sensitivity = 1.5;
+        const deltaY = (lastY - e.clientY) * sensitivity;
+        lastY = e.clientY;
+        
+        let newRotation = rotation + deltaY;
+        let snappedRotation = snapToNotch(newRotation);
+        
+        if (snappedRotation !== rotation) {
+            rotation = snappedRotation;
+            knob.style.transform = `rotate(${rotation}deg)`;
+            
+            if (onChange) {
+                const octaveValue = -Math.round(rotation / degreesPerStep);
+                onChange(octaveValue);
+            }
+        }
+        
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function handleMouseUp() {
+        isDragging = false;
+        knob.style.cursor = 'grab';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    knob.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        lastY = e.clientY;
+        knob.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        e.preventDefault();
+    });
+
+    return {
+        getValue: () => -Math.round(rotation / degreesPerStep),
+        setValue: (octave) => {
+            rotation = -octave * degreesPerStep;
+            knob.style.transform = `rotate(${rotation}deg)`;
+        }
+    };
+}
+
+const knobInitializations = {
+    'osc1-pwm-knob': (value) => {
+        const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
+        tooltip.textContent = `PWM: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        console.log('OSC1 PWM:', value.toFixed(2));
+    },
+    'osc1-gain-knob': (value) => {
+        const tooltip = createTooltipForKnob('osc1-gain-knob', value);
+        tooltip.textContent = `Gain: ${value.toFixed(2)}`;
+        tooltip.style.opacity = '1';
+        console.log('OSC1 Gain:', value.toFixed(2));
+    },
+    'osc2-pwm-knob': (value) => {
+        const tooltip = createTooltipForKnob('osc2-pwm-knob', value);
+        tooltip.textContent = `PWM: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        console.log('OSC2 PWM:', value.toFixed(2));
+    },
+    'osc2-gain-knob': (value) => {
+        const tooltip = createTooltipForKnob('osc2-gain-knob', value);
+        tooltip.textContent = `Gain: ${value.toFixed(2)}`;
+        tooltip.style.opacity = '1';
+        console.log('OSC2 Gain:', value.toFixed(2));
+    },
+    'master-volume-knob': (value) => {
+        const tooltip = createTooltipForKnob('master-volume-knob', value);
+        tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        masterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
+        console.log('Master Volume:', value.toFixed(2));
+    },
+    'sample-volume-knob': (value) => {
+        const tooltip = createTooltipForKnob('sample-volume-knob', value);
+        tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        currentSampleGain = value;
+        // Update all active notes' sample gain
+        Object.values(activeNotes).forEach(note => {
+            if (note && note.sampleNode) {
+                note.sampleNode.gain.value = currentSampleGain;
+            }
+        });
+        console.log('Sample Gain:', value.toFixed(2));
+    },
+    // ... existing knobs ...
+    'sample-pitch-knob': (value) => {
+        // Convert 0-1 range to -1200 to +1200 cents
+        currentSampleDetune = (value * 2400) - 1200;
+    
+    // Show and update tooltip
+    const tooltip = document.getElementById('pitch-tooltip') || createTooltip();
+    tooltip.textContent = `${currentSampleDetune.toFixed(0)} cents`;
+    tooltip.style.opacity = '1';
+    
+    // Update all active notes' sample pitch
+    Object.values(activeNotes).forEach(note => {
+        if (note && note.source) {
+            note.source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
+        }
+    });
+    
+    console.log('Sample Pitch:', currentSampleDetune.toFixed(0) + ' cents');
+},
+'sample-position-knob': (value) => {
+    // Store the position value (0-1 range)
+    currentSamplePosition = value;
+    
+    // Update all currently playing notes' playback position
+    Object.values(activeNotes).forEach(note => {
+        if (note && note.source && note.state === "playing") {
+            // Stop the current source
+            note.source.stop();
+            
+            // Create and configure new source
+            const newSource = audioCtx.createBufferSource();
+            newSource.buffer = audioBuffer;
+            newSource.playbackRate.value = note.source.playbackRate.value;
+            newSource.detune.value = currentSampleDetune;
+            
+            // Calculate position in seconds
+            const position = currentSamplePosition * audioBuffer.duration;
+            
+            // Connect new source through the same gain nodes
+            newSource.connect(note.sampleNode);
+            
+            // Start at new position
+            newSource.start(0, position);
+            
+            // Update note object with new source
+            note.source = newSource;
+        }
+    });
+    console.log('Sample Position:', (currentSamplePosition * 100).toFixed(0) + '%');
+},
+'glide-time-knob': (value) => {
+    const tooltip = createTooltipForKnob('glide-time-knob', value);
+    tooltip.textContent = `${(value * 2000).toFixed(0)}ms`;
+    tooltip.style.opacity = '1';
+    glideTime = value * 2; // 0-2 seconds range
+    console.log('Glide Time:', (value * 2000).toFixed(0) + 'ms');
+},
+};
+// Update the createNote function to use proper note IDs
+function createNote(noteNumber, buffer, audioCtx, destination) {
+    const noteId = `${noteNumber}_${Date.now()}`;
+    
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = TR2 ** (noteNumber - 12);
+    source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
+    
+    const startPosition = currentSamplePosition * buffer.duration;
+    
+    const gainNode = audioCtx.createGain();
+    const sampleNode = audioCtx.createGain();
+    gainNode.gain.value = 0.5;
+    sampleNode.gain.value = currentSampleGain;
+    
+    source.connect(sampleNode);
+    sampleNode.connect(gainNode);
+    gainNode.connect(destination);
+    
+    const note = {
+        id: noteId,
+        noteNumber: noteNumber,
+        source: source,
+        gainNode: gainNode,
+        sampleNode: sampleNode,
+        startTime: audioCtx.currentTime,
+        state: "starting",
+        releaseTimer: null,
+        scheduledEvents: []
+    };
+    
+    source.start(0, startPosition);
+    activeNotes[noteId] = note;
+    return note;
+}
+
+
+// Update the DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize all regular knobs
+    Object.entries(knobInitializations).forEach(([id, callback]) => {
+        const knob = D(id);
+        if (knob) {
+            const control = initializeKnob(knob, callback);
+            control.setValue(0.5);
+        }
+    });
+
+    // Initialize octave knobs
+    ['osc1-octave-knob', 'osc2-octave-knob'].forEach(id => {
+        const knob = D(id);
+        const valueId = id.replace('-knob', '-value');
+        if (knob) {
+            const control = initializeNotchedKnob(knob, (value) => {
+                D(valueId).textContent = value > 0 ? `+${value}` : value;
+                console.log(`${id} octave:`, value);
+            });
+            control.setValue(0);
+        }
+    });
+});
+
+// Remove any other knob initialization code
+        const keyStates = {};
+        keys.forEach(key => keyStates[key] = false);
+// Add to global variables
+
+const MAX_MONO = 1;
+        let audioBuffer = null;
+        const MAX_POLYPHONY = 6;
+        const activeVoices = []; // FIFO queue of active notes with their key info
+        const activeNotes = {}; // Stores active notes
+        const playingNotes = [];
+        let playingNoteCount = 0;
+
+        // Generate piano keyboard
+        function generateKeyboard() {
+            
+    const keyboard = D('keyboard');
+    keyboard.innerHTML = '';
+    
+    // Create white keys first
+    const whiteKeys = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 
+                      'C', 'D', 'E', 'F', 'G', 'A', 'B']; // Two octaves
+    
+    for (let i = 0; i < whiteKeys.length; i++) {
+        const key = document.createElement('div');
+        key.className = 'key';
+        // Map to the correct index in the keys array
+        const keyIndex = getWhiteKeyIndex(i);
+        key.dataset.noteIndex = keyIndex;
+        keyboard.appendChild(key);
+        
+        // Add mouse events
+        key.addEventListener('mousedown', () => {
+            noteOn(parseInt(key.dataset.noteIndex));
+            key.classList.add('pressed');
+        });
+        
+        key.addEventListener('mouseup', () => {
+            noteOff(parseInt(key.dataset.noteIndex));
+            key.classList.remove('pressed');
+        });
+        
+        key.addEventListener('mouseleave', () => {
+            if (key.classList.contains('pressed')) {
+                noteOff(parseInt(key.dataset.noteIndex));
+                key.classList.remove('pressed');
+            }
+        });
+    }
+  // Add this after your existing initializeKnob function
+  function initializeNotchedKnob(knob, onChange) {
+    let rotation = 0;
+    let isDragging = false;
+    let lastY;
+    const degreesPerStep = 60;
+
+    function snapToNotch(rotation) {
+        const steps = Math.round(rotation / degreesPerStep);
+        const limitedSteps = Math.max(-2, Math.min(2, steps));
+        return limitedSteps * degreesPerStep;
+    }
+
+    function handleMouseMove(e) {
+        if (!isDragging) return;
+        
+        const sensitivity = 1.0; // Increased sensitivity
+        const deltaY = (lastY - e.clientY) * sensitivity;
+        lastY = e.clientY;
+        
+        let newRotation = rotation + deltaY;
+        newRotation = snapToNotch(newRotation);
+        
+        if (newRotation !== rotation) {
+            rotation = newRotation;
+            knob.style.transform = `rotate(${rotation}deg)`;
+            
+            if (onChange) {
+                // Convert rotation to octave value (-2 to +2)
+                const octaveValue = Math.round(-rotation / degreesPerStep);
+                onChange(octaveValue);
+            }
+        }
+        
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function handleMouseUp() {
+        isDragging = false;
+        knob.style.cursor = 'grab';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    knob.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        lastY = e.clientY;
+        knob.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        e.preventDefault();
+    });
+
+    return {
+        getValue: () => Math.round(-rotation / degreesPerStep),
+        setValue: (octave) => {
+            rotation = -octave * degreesPerStep;
+            knob.style.transform = `rotate(${rotation}deg)`;
+        }
+    };
+}
+
+// Replace the octave initialization code with this
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize octave sliders
+    ['osc1', 'osc2'].forEach(id => {
+        const slider = document.querySelector(`#${id}-octave-slider`);
+        if (slider) {
+            slider.addEventListener('input', (e) => {
+                console.log(`${id.toUpperCase()} Octave:`, e.target.value);
+            });
+        }
+    });
+});
+// Update the black keys creation in generateKeyboard
+const blackKeys = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]; // Positions for all black keys
+
+blackKeys.forEach((position) => {
+    const key = document.createElement('div');
+    key.className = 'key black';
+    const keyIndex = getBlackKeyIndex(position);
+    key.dataset.noteIndex = keyIndex;
+    keyboard.appendChild(key);
+    
+    // Add mouse events
+    key.addEventListener('mousedown', () => {
+        noteOn(parseInt(key.dataset.noteIndex));
+        key.classList.add('pressed');
+    });
+    
+    key.addEventListener('mouseup', () => {
+        noteOff(parseInt(key.dataset.noteIndex));
+        key.classList.remove('pressed');
+    });
+    
+    key.addEventListener('mouseleave', () => {
+        if (key.classList.contains('pressed')) {
+            noteOff(parseInt(key.dataset.noteIndex));
+            key.classList.remove('pressed');
+        }
+    });
+})};
+// Helper functions to map key positions to note indices
+function getWhiteKeyIndex(position) {
+    // Maps white key position to the corresponding index in the keys array
+    const whiteKeyMap = [0, 2, 4, 5, 7, 9, 11]; // C, D, E, F, G, A, B positions
+    const octave = Math.floor(position / 7);
+    const noteInOctave = position % 7;
+    return whiteKeyMap[noteInOctave] + (octave * 12);
+}
+
+function getBlackKeyIndex(position) {
+    // Black key mapping for the entire keyboard
+    const blackKeyIndices = [
+        1,  // C#
+        3,  // D#
+        6,  // F#
+        8,  // G#
+        10, // A#
+        13, // C# (second octave)
+        15, // D# (second octave)
+        18, // F# (second octave)
+        20, // G# (second octave)
+        22  // A# (second octave)
+    ];
+    
+    return blackKeyIndices[position];
+}
+
+        // Add interface updating functions
+        function updateSliderValues() {
+            D('attack-value').textContent = D('attack').value;
+            D('decay-value').textContent = D('decay').value;
+            D('sustain-value').textContent = D('sustain').value;
+            D('release-value').textContent = D('release').value;
+            updateADSRVisualization();
+        }
+
+        // ADSR visualization
+        function updateADSRVisualization() {
+            const attack = parseFloat(D('attack').value);
+            const decay = parseFloat(D('decay').value);
+            const sustain = parseFloat(D('sustain').value);
+            const release = parseFloat(D('release').value);
+            
+            const graph = D('adsr-visualization');
+            const totalTime = attack + decay + 2 + release; // 2 seconds for sustain
+            const width = graph.offsetWidth;
+            const height = graph.offsetHeight;
+            
+            // Calculate points for ADSR envelope
+            const attackX = (attack / totalTime) * width;
+            const decayX = attackX + ((decay / totalTime) * width);
+            const releaseStartX = decayX + ((2 / totalTime) * width); // 2 seconds sustain
+            const releaseEndX = width;
+            
+            // Create SVG path for visualization
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            ctx.strokeStyle = '#8b4513';
+            ctx.lineWidth = 2;
+            
+            // Draw ADSR path
+            ctx.beginPath();
+            ctx.moveTo(0, height); // Start at bottom left
+            ctx.lineTo(attackX, 0); // Attack to peak
+            ctx.lineTo(decayX, height - (sustain * height)); // Decay to sustain level
+            ctx.lineTo(releaseStartX, height - (sustain * height)); // Sustain
+            ctx.lineTo(releaseEndX, height); // Release
+            ctx.stroke();
+            
+            // Update visualization
+            graph.innerHTML = '';
+            graph.appendChild(canvas);
+        }
+    
+        // Update the voice monitoring display
+        // Update the voice display function to handle releasing state
+// Update the updateVoiceDisplay function
+// Update the updateVoiceDisplay function to also update keyboard
+function updateVoiceDisplay() {
+    const displayEl = D('voice-display');
+    displayEl.innerHTML = '';
+    
+    // Only count and display notes that are in "playing" state
+    const playingNotes = Object.values(activeNotes).filter(
+        note => note && note.state === "playing"
+    );
+    
+    // Update count first
+    const activeNoteCount = Math.min(playingNotes.length, MAX_POLYPHONY);
+    D('voice-count').textContent = activeNoteCount;
+    
+    // Create display items for keyboard keys
+    keys.forEach((key, index) => {
+        const voiceItem = document.createElement('div');
+        voiceItem.className = 'voice-item';
+        voiceItem.textContent = key;
+        
+        // Only show as active if the note is actually playing
+        const isPlaying = playingNotes.some(
+            note => note.noteNumber === index
+        );
+        
+        if (isPlaying) {
+            voiceItem.classList.add('active-voice');
+        }
+        
+        displayEl.appendChild(voiceItem);
+    });
+
+    // Update keyboard visual state
+    updateKeyboardDisplay();
+}
+// you're the best <3 and you should put french fries in my car so that my car smells like fries forever :) - from Asher to Faith
+        // Add event listeners for sliders
+        D('attack').addEventListener('input', updateSliderValues);
+        D('decay').addEventListener('input', updateSliderValues);
+        D('sustain').addEventListener('input', updateSliderValues);
+        D('release').addEventListener('input', updateSliderValues);
+
+        // Update createNote to use unique IDs instead of note numbers as keys
+       
+
+       // Update releaseNote to properly handle keyboard display
+
+    function startNote(noteNumber, audioCtx, destination, buffer) {
+    // Create new note
+    const note = createNote(noteNumber, buffer, audioCtx, destination);
+    
+    // Apply ADSR envelope
+    const attack = parseFloat(D('attack').value);
+    const decay = parseFloat(D('decay').value);
+    const sustain = parseFloat(D('sustain').value);
+    const now = audioCtx.currentTime;
+    
+    note.gainNode.gain.setValueAtTime(0, now);
+    note.gainNode.gain.linearRampToValueAtTime(1, now + attack);
+    note.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    
+    note.state = "playing";
+    updateVoiceDisplay();
+    return note;
+}
+// Update releaseNote function to use noteId instead of noteNumber
+function releaseNote(noteId, audioCtx) {
+    const note = activeNotes[noteId];
+    if (!note || note.state !== "playing") return;
+
+    note.state = "releasing";
+    const release = parseFloat(D('release').value);
+    const now = audioCtx.currentTime;
+
+    note.gainNode.gain.cancelScheduledValues(now);
+    const currentGain = note.gainNode.gain.value;
+
+    note.gainNode.gain.setValueAtTime(currentGain, now);
+    note.gainNode.gain.linearRampToValueAtTime(0, now + release);
+
+    try {
+        note.source.stop(now + release + 0.05);
+    } catch (e) {
+        console.log("Error stopping source:", e);
+    }
+
+    const releaseTimer = setTimeout(() => {
+        if (note.state === "releasing") {
+            killNote(note.id);
+            updateVoiceDisplay();
+        }
+    }, (release * 1000) + 100);
+
+    note.releaseTimer = releaseTimer;
+    note.scheduledEvents.push({ type: "timeout", id: releaseTimer });
+
+    updateVoiceDisplay();
+}
+
+// Rename existing noteOn/noteOff to these:
+// Update handlePolyNoteOn function
+// Update handlePolyNoteOn function
+function handlePolyNoteOn(noteNumber) {
+    if (!heldNotes.includes(noteNumber)) {
+    heldNotes.push(noteNumber);
+}
+
+// Gather all notes that are still alive (playing or releasing)
+let active = Object.values(activeNotes).filter(
+    n => n.state === "playing" || n.state === "releasing"
+);
+
+// While we are at or above the poly limit,
+// kill the oldest note to free a slot
+while (active.length >= MAX_POLYPHONY) {
+    // Sort oldest first
+    active.sort((a, b) => a.startTime - b.startTime);
+    const oldest = active[0];
+
+    // Mark it as "fadingOut" so it won't be counted in active[] next loop
+    oldest.state = "fadingOut";
+    quickFadeOut(oldest, 0.15); // short forced fade
+
+    // Re-check the active list
+    active = Object.values(activeNotes).filter(
+        n => n.state === "playing" || n.state === "releasing"
+    );
+}
+
+// Now that we freed up a slot, start the new note
+startNewPolyNote(noteNumber);
+updateVoiceDisplay();
+}
+// Helper to start a note with portamento if needed
+function startNewPolyNote(noteNumber) {
+    if (isPortamentoOn && lastPlayedNote !== null) {
+        const note = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
+        const startRate = TR2 ** (lastPlayedNote - 12);
+        const targetRate = TR2 ** (noteNumber - 12);
+
+        note.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
+        note.source.playbackRate.linearRampToValueAtTime(
+            targetRate,
+            audioCtx.currentTime + glideTime
+        );
+    } else {
+        startNote(noteNumber, audioCtx, masterGain, audioBuffer);
+    }
+    lastPlayedNote = noteNumber;
+}
+// Fix handlePolyNoteOff function
+function handlePolyNoteOff(noteNumber) {
+    // Remove from held notes
+    heldNotes = heldNotes.filter(n => n !== noteNumber);
+
+    // Release all instances of this note
+    Object.values(activeNotes).forEach(note => {
+        if (note.noteNumber === noteNumber && note.state === "playing") {
+            releaseNote(note.id, audioCtx);
+        }
+    });
+    updateVoiceDisplay();
+}updateVoiceDisplay();
+
+
+// Initialize switches on DOM load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeSwitches();
+});
+
+        // Fix the killNote function
+        function killNote(noteId) {
+    const note = activeNotes[noteId];
+    if (!note) return false;
+
+    // Clean up scheduled events
+    note.scheduledEvents.forEach(event => {
+        if (event.type === "timeout") {
+            clearTimeout(event.id);
+        }
+    });
+
+    // Stop the source and disconnect nodes
+    try {
+        note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+        note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+        if (note.source) {
+            note.source.stop(audioCtx.currentTime);
+        }
+    } catch (e) {
+        console.log("Error during cleanup:", e);
+    }
+
+    // Remove note from active notes
+    delete activeNotes[noteId];
+    return true;
+}
+function killNote(noteId) {
+    const note = activeNotes[noteId];
+    if (!note) return false;
+
+    // Clean up scheduled events
+    note.scheduledEvents.forEach(event => {
+        if (event.type === "timeout") {
+            clearTimeout(event.id);
+        }
+    });
+
+    // Stop the source and disconnect nodes
+    try {
+        note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+        note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+        if (note.source) {
+            note.source.stop(audioCtx.currentTime);
+        }
+    } catch (e) {
+        console.log("Error during cleanup:", e);
+    }
+
+    // Remove note from active notes
+    delete activeNotes[noteId];
+    return true;
+}
+function updateKeyboardDisplay() {
+    // Update all keyboard keys based on active notes
+    document.querySelectorAll('.key').forEach(keyElement => {
+        const noteIndex = parseInt(keyElement.dataset.noteIndex);
+        const isNotePlaying = Object.values(activeNotes).some(
+            note => note.noteNumber === noteIndex && note.state === "playing"
+        );
+        
+        keyElement.classList.toggle('pressed', isNotePlaying);
+    });
+}
+// Update quickFadeOut with smoother fade
+// Update quickFadeOut with smoother fade
+function quickFadeOut(note, duration = 0.015) {
+    if (!note) return;
+    
+    const now = audioCtx.currentTime;
+    const currentGain = note.gainNode.gain.value || 0.001;
+
+    // DON'T change the state here - keep the "fadingOut" state set by the caller
+    // note.state = "releasing";  <-- REMOVE THIS LINE
+
+    // Cancel any previous scheduled events
+    note.gainNode.gain.cancelScheduledValues(now);
+    if (note.source && note.source.playbackRate) {
+        note.source.playbackRate.cancelScheduledValues(now);
+    }
+
+    const safeGain = Math.max(0.001, currentGain);
+    note.gainNode.gain.setValueAtTime(safeGain, now);
+    note.gainNode.gain.linearRampToValueAtTime(0, now + duration);
+
+    // Clear existing timers
+    note.scheduledEvents.forEach(event => {
+        if (event.type === "timeout") {
+            clearTimeout(event.id);
+        }
+    });
+    note.scheduledEvents = [];
+
+    // Schedule cleanup after fade
+    const cleanupTimer = setTimeout(() => {
+        if (note.id in activeNotes) {
+            killNote(note.id);
+            updateVoiceDisplay();
+        }
+    }, duration * 1000 + 20);
+
+    note.scheduledEvents.push({ type: "timeout", id: cleanupTimer });
+}
+// Update noteOn to handle polyphony with unique note instances
+// Update noteOn to ensure proper mode handling
+function noteOn(noteNumber) {
+    if (!audioBuffer) {
+        console.error("No audio buffer available!");
+        return;
+    }
+
+    if (isMonoMode) {
+        handleMonoNoteOn(noteNumber);
+    } else {
+        handlePolyNoteOn(noteNumber);
+    }
+    updateKeyboardDisplay();
+}
+
+function noteOff(noteNumber) {
+    if (isMonoMode) {
+        handleMonoNoteOff(noteNumber);
+    } else {
+        handlePolyNoteOff(noteNumber);
+    }
+    updateKeyboardDisplay();
+}
+
+// Update keyboard event listeners
+document.onkeydown = function(e) {
+    if (e.repeat) return; // Prevent key repeat
+    const key = e.key.toUpperCase();
+    if (keys.includes(key) && !keyStates[key]) {
+        keyStates[key] = true;
+        const noteNumber = keys.indexOf(key);
+        noteOn(noteNumber);
+        updateKeyboardDisplay();
+    }
+};
+
+document.onkeyup = function(e) {
+    const key = e.key.toUpperCase();
+    if (keys.includes(key) && keyStates[key]) {
+        keyStates[key] = false;
+        const noteNumber = keys.indexOf(key);
+        noteOff(noteNumber);
+        updateKeyboardDisplay();
+    }
+};
+
+// Update the keyboard generation to use correct note triggering
+function generateKeyboard() {
+    const keyboard = D('keyboard');
+    keyboard.innerHTML = '';
+
+    // Create white keys first
+    const whiteKeys = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 
+                      'C', 'D', 'E', 'F', 'G', 'A', 'B']; // Two octaves
+    
+    for (let i = 0; i < whiteKeys.length; i++) {
+        const key = document.createElement('div');
+        key.className = 'key';
+        // Map to the correct index in the keys array
+        const keyIndex = getWhiteKeyIndex(i);
+        key.dataset.noteIndex = keyIndex;
+        keyboard.appendChild(key);
+        
+        // Add mouse events
+        key.addEventListener('mousedown', () => {
+            noteOn(parseInt(key.dataset.noteIndex));
+            key.classList.add('pressed');
+        });
+        
+        key.addEventListener('mouseup', () => {
+            noteOff(parseInt(key.dataset.noteIndex));
+            key.classList.remove('pressed');
+        });
+        
+        key.addEventListener('mouseleave', () => {
+            if (key.classList.contains('pressed')) {
+                noteOff(parseInt(key.dataset.noteIndex));
+                key.classList.remove('pressed');
+            }
+        });
+    }
+
+      // Create black keys
+      for (let i = 0; i < 10; i++) { // 5 black keys per octave, 2 octaves
+        const key = document.createElement('div');
+        key.className = 'key black';
+        const keyIndex = getBlackKeyIndex(i);
+        key.dataset.noteIndex = keyIndex;
+        
+        key.addEventListener('mousedown', () => {
+            noteOn(parseInt(key.dataset.noteIndex));
+            key.classList.add('pressed');
+        });
+        
+        key.addEventListener('mouseup', () => {
+            noteOff(parseInt(key.dataset.noteIndex));
+            key.classList.remove('pressed');
+        });
+        
+        key.addEventListener('mouseleave', () => {
+            if (key.classList.contains('pressed')) {
+                noteOff(parseInt(key.dataset.noteIndex));
+                key.classList.remove('pressed');
+            }
+        });
+        
+        keyboard.appendChild(key);
+    }
+}
+
+        document.onkeydown = function (e) {
+            const key = e.key.toUpperCase();
+            if (keys.includes(key) && !keyStates[key]) {
+                keyStates[key] = true;
+                noteOn(keys.indexOf(key));
+            }
+        };
+
+        document.onkeyup = function (e) {
+            const key = e.key.toUpperCase();
+            if (keys.includes(key) && keyStates[key]) {
+                keyStates[key] = false;
+                noteOff(keys.indexOf(key));
+            }
+        };
+        function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            audioCtx.decodeAudioData(e.target.result, function(buffer) {
+                audioBuffer = buffer;
+                
+                // Create new source node
+                if (sampleSource) {
+                    sampleSource.stop();
+                }
+                sampleSource = audioCtx.createBufferSource();
+                sampleSource.buffer = buffer;
+                
+                // Connect the audio chain
+                sampleSource.connect(sampleGainNode);
+                sampleSource.start();
+                
+                D('file-status').textContent = `Loaded: ${file.name}`;
+                D('file-status').style.color = 'rgb(63, 33, 1)';
+            });
+        };
+        reader.readAsArrayBuffer(file);
+    }
+}
+
+function checkAudioAvailable() {
+    if (!audioBuffer) {
+        console.warn("No audio buffer available - load a sample first!");
+        return false;
+    }
+    return true;
+}
+
+        D('audio-file').addEventListener('change', handleFileSelect);
+        
+        // Clean up everything
+        function cleanupAllNotes() {
+            for (const noteNum in activeNotes) {
+                killNote(parseInt(noteNum));
+            }
+            
+            // Reset all key states
+            for (const key in keyStates) {
+                keyStates[key] = false;
+            }
+            
+            updateVoiceDisplay();
+        }
+
+        // Add additional safety with blur/focus event handling
+        window.addEventListener('blur', cleanupAllNotes);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                cleanupAllNotes();
+            }
+        });
+
+        // Initialize interface
+        generateKeyboard();
+        updateSliderValues();
+        updateVoiceDisplay();
+        updateADSRVisualization();
+
+        document.addEventListener('DOMContentLoaded', () => {
+    // Initialize all knobs with placeholder functionality
+    const knobInitializations = {
+        'osc1-pwm-knob': (value) => console.log('OSC1 PWM:', value.toFixed(2)),
+        'osc1-gain-knob': (value) => console.log('OSC1 Gain:', value.toFixed(2)),
+        'osc2-pwm-knob': (value) => console.log('OSC2 PWM:', value.toFixed(2)),
+        'osc2-gain-knob': (value) => console.log('OSC2 Gain:', value.toFixed(2)),
+        'vcf-cutoff-knob': (value) => console.log('VCF Cutoff:', value.toFixed(2)),
+        'vcf-resonance-knob': (value) => console.log('VCF Resonance:', value.toFixed(2)),
+        'lfo-rate-knob': (value) => console.log('LFO Rate:', value.toFixed(2)),
+        'arp-rate-knob': (value) => console.log('ARP Rate:', value.toFixed(2)),
+        'sample-volume-knob': (value) => {
+            if (sampleGainNode) {
+                sampleGainNode.gain.setValueAtTime(value, audioCtx.currentTime);
+                console.log('Sample Gain:', value.toFixed(2));
+            }
+        }
+    };
+});
+
+    // Initialize all regular knobs
+    Object.entries(knobInitializations).forEach(([id, callback]) => {
+        const knob = D(id);
+        if (knob) {
+            const control = initializeKnob(knob, callback);
+            control.setValue(0.5); // Set initial position
+        }
+    });
+
+    // Initialize octave knobs
+    ['osc1-octave-knob', 'osc2-octave-knob'].forEach(id => {
+        const knob = D(id);
+        const valueId = id.replace('-knob', '-value');
+        if (knob) {
+            const control = initializeNotchedKnob(knob, (value) => {
+                D(valueId).textContent = value > 0 ? `+${value}` : value;
+                console.log(`${id} octave:`, value);
+            });
+            control.setValue(0); // Set initial position to center
+        }
+    });
+
+// Add tooltip creation function
+function createTooltip() {
+    const tooltip = document.createElement('div');
+    tooltip.id = 'pitch-tooltip';
+    tooltip.className = 'tooltip';
+    document.body.appendChild(tooltip);
+    
+    // Position tooltip near the pitch knob
+    const knob = D('sample-pitch-knob');
+    const knobRect = knob.getBoundingClientRect();
+    tooltip.style.left = `${knobRect.left + knobRect.width + 5}px`;
+    tooltip.style.top = `${knobRect.top + (knobRect.height / 2) - 10}px`;
+    
+    return tooltip;
+}
+function createTooltipForKnob(knobId, value) {
+    const tooltip = document.getElementById(`${knobId}-tooltip`) || (() => {
+        const newTooltip = document.createElement('div');
+        newTooltip.id = `${knobId}-tooltip`;
+        newTooltip.className = 'tooltip';
+        document.body.appendChild(newTooltip);
+        
+        // Position tooltip near its knob
+        const knob = D(knobId);
+        const knobRect = knob.getBoundingClientRect();
+        newTooltip.style.left = `${knobRect.left + knobRect.width + 5}px`;
+        newTooltip.style.top = `${knobRect.top + (knobRect.height / 2) - 10}px`;
+        
+        return newTooltip;
+    })();
+    
+    return tooltip;
+}
+function initializeOctaveSlider(slider, onChange) {
+    const handle = slider.querySelector('.octave-slider-handle');
+    const sliderHeight = slider.offsetHeight - handle.offsetHeight;
+    const positions = 5; // -2 to +2
+    const stepSize = sliderHeight / (positions - 1);
+    let currentPosition = 2; // Start at middle (0)
+    
+    // Set initial position
+    handle.style.top = (currentPosition * stepSize) + 'px';
+    
+    function snapToPosition(y) {
+        const relativeY = y - slider.getBoundingClientRect().top;
+        let position = Math.round(relativeY / stepSize);
+        position = Math.max(0, Math.min(positions - 1, position));
+        return position;
+    }
+    
+    function updatePosition(position) {
+        handle.style.top = (position * stepSize) + 'px';
+        const value = 2 - position; // Convert position to octave value
+        if (onChange) onChange(value);
+    }
+    
+    let isDragging = false;
+    
+    handle.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        handle.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const position = snapToPosition(e.clientY);
+        updatePosition(position);
+        currentPosition = position;
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            handle.style.cursor = 'grab';
+        }
+    });
+    
+    // Initialize at center position (0 octave)
+    updatePosition(2);
+    
+    return {
+        setValue: (octave) => {
+            const position = 2 - octave; // Convert octave value to position
+            updatePosition(Math.max(0, Math.min(positions - 1, position)));
+        }
+    };
+}
+// Update the document mouseup handler to hide all tooltips
+document.addEventListener('mouseup', () => {
+    document.querySelectorAll('.tooltip').forEach(tooltip => {
+        tooltip.style.opacity = '0';
+    });
+});
+
+function initializePrecisionSlider(slider) {
+    let lastY;
+    let isDragging = false;
+    const range = parseFloat(slider.max) - parseFloat(slider.min);
+    const totalHeight = 120; // Height of slider in pixels
+    
+    function handleMouseMove(e) {
+        if (!isDragging) return;
+        
+        // Calculate sensitivity based on shift key
+        const sensitivity = e.shiftKey ? 0.2 : 1.0;
+        const deltaY = (lastY - e.clientY) * sensitivity;
+        lastY = e.clientY;
+        
+        // Calculate value change
+        const valueChange = (deltaY / totalHeight) * range;
+        const currentValue = parseFloat(slider.value);
+        let newValue = currentValue + valueChange;
+        
+        // Clamp to min/max
+        newValue = Math.min(Math.max(newValue, slider.min), slider.max);
+        
+        // Update slider value
+        slider.value = newValue;
+        
+        // Trigger input event for ADSR visualization
+        slider.dispatchEvent(new Event('input'));
+        
+        e.preventDefault();
+    }
+    
+    function handleMouseUp() {
+        isDragging = false;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+    }
+    
+    slider.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        lastY = e.clientY;
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        e.preventDefault();
+    });
+}
+
+// Initialize precision control for ADSR sliders
+document.addEventListener('DOMContentLoaded', () => {
+    ['attack', 'decay', 'sustain', 'release'].forEach(id => {
+        const slider = D(id);
+        if (slider) {
+            initializePrecisionSlider(slider);
+        }
+    });
+});
+
+// Add to your global variables
+let isMonoMode = false;
+let isLegatoMode = false;
+let isPortamentoOn = false;
+let glideTime = 0.1; // seconds
+let heldNotes = []; // Keep track of held notes in mono mode
+let currentNote = null; // Currently sounding note in mono mode
+
+
+// Add to initializeSwitch function
+function initializeSwitch(switchEl, options = { onText: 'ON', offText: 'OFF' }) {
+    let isDragging = false;
+    let isActive = false;
+    
+    // Create tooltip for this switch
+    const tooltip = document.createElement('div');
+    tooltip.className = 'tooltip';
+    document.body.appendChild(tooltip);
+    
+    function updateTooltip() {
+        const switchRect = switchEl.getBoundingClientRect();
+        tooltip.style.left = `${switchRect.left + switchRect.width + 5}px`;
+        tooltip.style.top = `${switchRect.top + (switchRect.height / 2) - 10}px`;
+        tooltip.textContent = isActive ? options.onText : options.offText;
+        tooltip.style.opacity = '1';
+    }
+    
+    function handleMouseDown(e) {
+        isDragging = true;
+        switchEl.style.cursor = 'grabbing';
+        updateTooltip();
+        e.preventDefault();
+    }
+    
+    function handleMouseUp() {
+        isDragging = false;
+        switchEl.style.cursor = 'grab';
+        tooltip.style.opacity = '0';
+    }
+    
+    function handleClick() {
+        isActive = !isActive;
+        switchEl.classList.toggle('active');
+        updateTooltip();
+        return isActive;
+    }
+    
+    switchEl.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mouseup', handleMouseUp);
+    switchEl.addEventListener('click', handleClick);
+    
+    return {
+        getValue: () => isActive,
+        setValue: (value) => {
+            isActive = value;
+            switchEl.classList.toggle('active', isActive);
+            updateTooltip();
+        }
+    };
+}
+
+// Update switch initialization with custom text
+function initializeSwitches() {
+    // Initialize all switches with custom tooltip text
+    const voiceModeSwitch = initializeSwitch(D('voice-mode-switch'), {
+        onText: 'MONO',
+        offText: 'POLY'
+    });
+    
+    const triggerModeSwitch = initializeSwitch(D('trigger-mode-switch'), {
+        onText: 'LEGATO',
+        offText: 'MULTI'
+    });
+    
+    const portamentoSwitch = initializeSwitch(D('portamento-switch'), {
+        onText: 'PORTA ON',
+        offText: 'PORTA OFF'
+    });
+    
+    // Rest of the initialization code remains the same...
+}
+
+// Initialize the switches
+function initializeSwitches() {
+    function initializeSwitch(switchEl) {
+        let isDragging = false;
+        let isActive = false;
+        
+        function handleMouseDown(e) {
+            isDragging = true;
+            switchEl.style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+        
+        function handleMouseUp() {
+            isDragging = false;
+            switchEl.style.cursor = 'grab';
+        }
+        
+        function handleClick() {
+            isActive = !isActive;
+            switchEl.classList.toggle('active');
+            return isActive;
+        }
+        
+        switchEl.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('mouseup', handleMouseUp);
+        switchEl.addEventListener('click', handleClick);
+        
+        return {
+            getValue: () => isActive,
+            setValue: (value) => {
+                isActive = value;
+                switchEl.classList.toggle('active', isActive);
+            }
+        };
+    }
+    
+    // Initialize all switches
+    const voiceModeSwitch = initializeSwitch(D('voice-mode-switch'));
+    const triggerModeSwitch = initializeSwitch(D('trigger-mode-switch'));
+    const portamentoSwitch = initializeSwitch(D('portamento-switch'));
+    
+    // Handle voice mode changes
+    voiceModeSwitch.onChange = (isActive) => {
+        isMonoMode = isActive;
+        cleanupAllNotes();
+    };
+    
+    // Handle trigger mode changes
+    triggerModeSwitch.onChange = (isActive) => {
+        isLegatoMode = isActive;
+    };
+    
+    // Handle portamento changes
+    portamentoSwitch.onChange = (isActive) => {
+        isPortamentoOn = isActive;
+    };
+}
+
+// Initialize switches on DOM load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeSwitches();
+});
+
+        // Update noteOn function to handle mono mode
+function noteOn(noteNumber) {
+    if (isMonoMode) {
+        handleMonoNoteOn(noteNumber);
+    } else {
+        handlePolyNoteOn(noteNumber);
+    }
+}
+// Fix for voice limiting in mono mode
+function handleMonoNoteOn(noteNumber) {
+    if (!checkAudioAvailable()) return;
+    
+    // Add note to held notes
+    if (!heldNotes.includes(noteNumber)) {
+        heldNotes.push(noteNumber);
+    }
+    
+    // Clean up any stale notes that aren't the current note
+    Object.values(activeNotes).forEach(note => {
+        if (note !== currentNote && note.state === "releasing") {
+            quickFadeOut(note, 0.015);
+        }
+    });
+
+    const shouldTrigger = !isLegatoMode || !currentNote;
+    const shouldGlide = isPortamentoOn && lastPlayedNote !== null;
+
+    if (shouldTrigger) {
+        if (currentNote) {
+            const prevNote = currentNote;
+            quickFadeOut(prevNote, 0.015);
+            setTimeout(() => {
+                // Make sure we're really in mono mode - kill any remaining notes
+                Object.values(activeNotes).forEach(note => {
+                    if (note !== prevNote) {
+                        killNote(note.id);
+                    }
+                });
+                
+                currentNote = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
+                
+                if (shouldGlide) {
+                    const startRate = TR2 ** (lastPlayedNote - 12);
+                    const targetRate = TR2 ** (noteNumber - 12);
+                    currentNote.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
+                    currentNote.source.playbackRate.linearRampToValueAtTime(
+                        targetRate,
+                        audioCtx.currentTime + glideTime
+                    );
+                }
+                updateVoiceDisplay();
+            }, 20);
+            return;
+        }
+        
+        currentNote = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
+        if (shouldGlide) {
+            const startRate = TR2 ** (lastPlayedNote - 12);
+            const targetRate = TR2 ** (noteNumber - 12);
+            currentNote.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
+            currentNote.source.playbackRate.linearRampToValueAtTime(
+                targetRate,
+                audioCtx.currentTime + glideTime
+            );
+        }
+    } else if (currentNote) {
+        // Handle pitch changes in legato mode
+        currentNote.source.playbackRate.cancelScheduledValues(audioCtx.currentTime);
+        const currentRate = currentNote.source.playbackRate.value;
+        const targetRate = TR2 ** (noteNumber - 12);
+        
+        currentNote.source.playbackRate.setValueAtTime(currentRate, audioCtx.currentTime);
+        currentNote.source.playbackRate.linearRampToValueAtTime(
+            targetRate,
+            audioCtx.currentTime + glideTime
+        );
+    }
+
+    lastPlayedNote = noteNumber;
+    updateVoiceDisplay();
+}
+
+// Update handleMonoNoteOff function
+function handleMonoNoteOff(noteNumber) {
+    // Remove note from held notes array
+    heldNotes = heldNotes.filter(n => n !== noteNumber);
+
+    if (heldNotes.length > 0) {
+        // If there are still held notes, move to the last pressed note
+        const lastNote = heldNotes[heldNotes.length - 1];
+
+        if (!isLegatoMode) {
+            // In multi-trigger mode, only retrigger if we're releasing the currently playing note
+            if (currentNote && currentNote.noteNumber === noteNumber) {
+                quickFadeOut(currentNote);
+                setTimeout(() => {
+                    currentNote = startNote(lastNote, audioCtx, masterGain, audioBuffer);
+                    updateVoiceDisplay();
+                }, 20);
+            }
+        } else {
+            // In legato mode, glide if needed
+            if (currentNote) {
+                currentNote.source.playbackRate.cancelScheduledValues(audioCtx.currentTime);
+                const currentRate = currentNote.source.playbackRate.value;
+                const targetRate = TR2 ** (lastNote - 12);
+                
+                currentNote.source.playbackRate.setValueAtTime(currentRate, audioCtx.currentTime);
+                currentNote.source.playbackRate.linearRampToValueAtTime(
+                    targetRate,
+                    audioCtx.currentTime + glideTime
+                );
+            }
+        }
+    } else {
+        if (currentNote) {
+            releaseNote(currentNote.id, audioCtx);
+            currentNote = null;
+        }
+    }
+
+    updateVoiceDisplay();
+}
+// Initialize switches on DOM load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeSwitches();
+});
+
+// Add this function for switch tooltips
+function createTooltipForSwitch(switchId, options = { onText: 'ON', offText: 'OFF' }) {
+    const tooltip = document.getElementById(`${switchId}-tooltip`) || (() => {
+        const newTooltip = document.createElement('div');
+        newTooltip.id = `${switchId}-tooltip`;
+        newTooltip.className = 'tooltip';
+        document.body.appendChild(newTooltip);
+        return newTooltip;
+    })();
+    
+    // Position tooltip near its switch
+    const switchEl = D(switchId);
+    if (switchEl) {
+        const rect = switchEl.getBoundingClientRect();
+        tooltip.style.left = `${rect.left + rect.width + 5}px`;
+        tooltip.style.top = `${rect.top + (rect.height / 2) - 10}px`;
+    }
+    
+    return tooltip;
+}
+
+function initializeSwitches() {
+    function initializeSwitch(switchEl, options = { onText: 'ON', offText: 'OFF' }) {
+        let isDragging = false;
+        let isActive = false;
+        
+        function updateTooltip() {
+            const tooltip = createTooltipForSwitch(switchEl.id, options);
+            tooltip.textContent = isActive ? options.onText : options.offText;
+            tooltip.style.opacity = '1';
+        }
+        
+        function handleMouseDown(e) {
+            isDragging = true;
+            switchEl.style.cursor = 'grabbing';
+            updateTooltip();
+            e.preventDefault();
+        }
+        
+        function handleMouseUp() {
+            isDragging = false;
+            switchEl.style.cursor = 'grab';
+        }
+        
+        function handleClick() {
+            isActive = !isActive;
+            switchEl.classList.toggle('active');
+            updateTooltip();
+            return isActive;
+        }
+        
+        switchEl.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('mouseup', handleMouseUp);
+        switchEl.addEventListener('click', handleClick);
+        
+        return {
+            getValue: () => isActive,
+            setValue: (value) => {
+                isActive = value;
+                switchEl.classList.toggle('active', isActive);
+                updateTooltip();
+            }
+        };
+    }
+    
+    // Initialize switches with custom tooltip text
+    const voiceModeSwitch = initializeSwitch(D('voice-mode-switch'), {
+        onText: 'MONO',
+        offText: 'POLY'
+    });
+    
+    const triggerModeSwitch = initializeSwitch(D('trigger-mode-switch'), {
+        onText: 'LEGATO',
+        offText: 'MULTI'
+    });
+    
+    const portamentoSwitch = initializeSwitch(D('portamento-switch'), {
+        onText: 'PORTA ON',
+        offText: 'PORTA OFF'
+    });
+}
+
+// Update document mouseup to hide all tooltips
+document.addEventListener('mouseup', () => {
+    document.querySelectorAll('.tooltip').forEach(tooltip => {
+        tooltip.style.opacity = '0';
+    });
+});
+
+function initializeSwitches() {
+    const switches = {
+        'voice-mode-switch': {
+            onText: 'MONO',
+            offText: 'POLY',
+            onChange: (active) => {
+                isMonoMode = active;
+                cleanupAllNotes();
+                console.log('Voice Mode:', active ? 'MONO' : 'POLY');
+            }
+        },
+        'trigger-mode-switch': {
+            onText: 'LEGATO',
+            offText: 'MULTI',
+            onChange: (active) => {
+                isLegatoMode = active;
+                console.log('Trigger Mode:', active ? 'LEGATO' : 'MULTI');
+            }
+        },
+        'portamento-switch': {
+            onText: 'PORTA ON',
+            offText: 'PORTA OFF',
+            onChange: (active) => {
+                isPortamentoOn = active;
+                console.log('Portamento:', active ? 'ON' : 'OFF');
+            }
+        }
+    };
+
+    Object.entries(switches).forEach(([id, config]) => {
+        const switchEl = D(id);
+        if (!switchEl) return;
+
+        let isActive = false;
+        
+        function updateSwitch() {
+            switchEl.classList.toggle('active', isActive);
+            const tooltip = createTooltipForSwitch(id);
+            tooltip.textContent = isActive ? config.onText : config.offText;
+            tooltip.style.opacity = '1';
+            config.onChange(isActive);
+        }
+
+        switchEl.addEventListener('click', () => {
+            isActive = !isActive;
+            updateSwitch();
+        });
+
+        switchEl.addEventListener('mousedown', (e) => {
+            const tooltip = createTooltipForSwitch(id);
+            tooltip.textContent = isActive ? config.onText : config.offText;
+            tooltip.style.opacity = '1';
+            e.preventDefault();
+        });
+    });
+}
+    </script>
+</body>
+</html>
