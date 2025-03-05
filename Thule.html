@@ -227,16 +227,19 @@
             margin: 0;
         }
         
-        /* Keyboard */
-        .keyboard {
+        /* Keyboard responsive resizing */
+.keyboard {
     display: flex;
-    width: 125%;
-    height: 188px; /* Increased from 150px to 188px (25% taller) */
-    margin-top: 70px;
+    width: 100%;
+    position: relative;
     background-color: #f0e6d2;
     border: 2px solid #3f2101;
     border-radius: 5px;
-    position: relative;
+    /* Create an aspect ratio container */
+    aspect-ratio: 4 / 1; /* Width:Height ratio for the keyboard */
+    max-height: 190px; /* Maximum height */
+    margin-top: 20px;
+    overflow: hidden;
 }
 
 .key {
@@ -251,18 +254,18 @@
     padding: 0;
 }
 
-/* Update black key dimensions */
 .key.black {
     background-color: #3f2101;
     position: absolute;
-    width: 50px;
-    height: 60%; /* Keep same proportion */
+    width: 7%; /* Relative width instead of fixed pixels */
+    height: 60%; /* Height relative to keyboard height */
     z-index: 1;
     border: none;
     transform: translateX(-50%);
+    max-width: 5.5%; /* Maximum width for larger screens */
 }
 
-/* Maintain black key positioning with new width */
+/* Update black key positioning calculations */
 .key.black:nth-of-type(15) { left: calc(100% * 1/14); }   /* C# */
 .key.black:nth-of-type(16) { left: calc(100% * 2/14); }   /* D# */
 .key.black:nth-of-type(17) { left: calc(100% * 4/14); }   /* F# */
@@ -273,18 +276,25 @@
 .key.black:nth-of-type(22) { left: calc(100% * 11/14); }  /* F# (second octave) */
 .key.black:nth-of-type(23) { left: calc(100% * 12/14); }  /* G# (second octave) */
 .key.black:nth-of-type(24) { left: calc(100% * 13/14); }  /* A# (second octave) */
-/* Make sure the black keys overflow is visible */
-/* Update keyboard dimensions */
-.keyboard {
-    display: flex;
-    width: 100%;
-    height: 190px; /* Increased from 120px */
-    margin-top: 20px;
-    background-color: #f0e6d2;
-    border: 2px solid #3f2101;
-    border-radius: 5px;
-    position: relative;
+/* Add a responsive adjustment for small screens */
+@media (max-width: 768px) {
+    .keyboard {
+        max-height: 150px; /* Smaller maximum height on small screens */
+    }
+    
+    .key.black {
+        width: 8%; /* Slightly wider on small screens for better touch targets */
+    }
 }
+
+/* For very small screens */
+@media (max-width: 480px) {
+    .keyboard {
+        max-height: 120px; /* Even smaller on very small screens */
+    }
+}
+/* Make sure the black keys overflow is visible */
+
 .key.pressed {
     background-color: #d4c6a8;
 }
@@ -510,10 +520,12 @@ body {
     line-height: 20px;
 }
 /* Update the ADSR module layout */
-.module[style="grid-column: span 2;"] {
-    width: 160px;
-    min-width: 160px;
-    max-width: 160px;
+.module[style="grid-column: span 2;"] .module-title {
+    margin-top: -5px; /* Adjust to move text up by 5px */
+    margin-bottom: 14px;
+    padding-top: 0;
+    padding-bottom: 5px; /* Add padding-bottom to put the underline in the right spot */
+    display: block;
 }
 
 .slider-container {
@@ -829,15 +841,21 @@ input[type="range"]::-moz-focus-outer {
 }
 
 .custom-file-input label {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: #e6e6e6;
     border: 1px solid #3f2101;
     border-radius: 3px;
-    padding: 4px 8px;
+    padding: 8px;
     font-size: 12px;
     color: #3f2101;
     text-align: center;
     cursor: pointer;
+    height: 32px;  /* Fixed height */
+    min-height: 32px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 #file-status {
@@ -921,14 +939,21 @@ input[type="range"]::-moz-focus-outer {
                     <input type="file" id="audio-file" accept="audio/*">
                     <label for="audio-file">Load Sample</label>
                 </div>
-                <!-- Add the file status element -->
-                <div id="file-status"></div>
             </div>
             <div class="knob" id="sample-volume-knob"></div>
             <label for="sample-volume-knob" style="text-align: center;">Volume</label>
             <div class="knob" id="sample-pitch-knob"></div>
             <label for="sample-pitch-knob" style="text-align: center;">Pitch</label>
-        </div>
+            <div class="knob" id="sample-start-knob"></div>
+            <label for="sample-start-knob" style="text-align: center;">Start</label>
+            <div class="knob" id="sample-end-knob"></div>
+            <label for="sample-end-knob" style="text-align: center;">End</label>
+            <!-- Loop switch -->
+            <div class="switch-container">
+                <label class="switch-label">LOOP</label>
+                <div class="vertical-switch" id="sample-loop-switch"></div>
+            </div>
+          </div>
             <!-- OSC 1 Module -->
             <div class="module">
                 <div class="module-title">OSC 1</div>
@@ -991,38 +1016,37 @@ input[type="range"]::-moz-focus-outer {
 
             <!-- ADSR Module -->
             <div class="module" style="grid-column: span 2;">
-    <div class="module-title">ADSR Envelope</div>
-    
-    <div class="adsr-graph" id="adsr-visualization">
-        <div class="adsr-line"></div>
-    </div>
-
-    <div class="slider-group">
-    <div class="slider-attack">
-        <span id="attack-value">0.1</span>
-        <input type="range" id="attack" min="0" max="5" step="0.01" value="0.1">
-    </div>
-    <div class="slider-decay">
-        <span id="decay-value">0.1</span>
-        <input type="range" id="decay" min="0" max="5" step="0.01" value="0.1">
-    </div>
-    <div class="slider-sustain">
-        <span id="sustain-value">0.7</span>
-        <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
-    </div>
-    <div class="slider-release">
-        <span id="release-value">0.5</span>
-        <input type="range" id="release" min="0" max="5" step="0.01" value="0.5">
-    </div>
-</div>
-<div class="slider-labels">
-    <label>A</label>
-    <label>D</label>
-    <label>S</label>
-    <label>R</label>
-</div>
-</div>
-
+                <div class="module-title">ADSR Envelope</div>
+                
+                <div class="adsr-graph" id="adsr-visualization">
+                    <div class="adsr-line"></div>
+                </div>
+            
+                <div class="slider-group">
+                    <div class="slider-attack">
+                        <span id="attack-value">0.1</span>
+                        <input type="range" id="attack" min="0" max="5" step="0.01" value="0.1">
+                    </div>
+                    <div class="slider-decay">
+                        <span id="decay-value">0.1</span>
+                        <input type="range" id="decay" min="0" max="5" step="0.01" value="0.1">
+                    </div>
+                    <div class="slider-sustain">
+                        <span id="sustain-value">0.7</span>
+                        <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
+                    </div>
+                    <div class="slider-release">
+                        <span id="release-value">0.5</span>
+                        <input type="range" id="release" min="0" max="5" step="0.01" value="0.5">
+                    </div>
+                </div>
+                <div class="slider-labels">
+                    <label>A</label>
+                    <label>D</label>
+                    <label>S</label>
+                    <label>R</label>
+                </div>
+            </div>
             
 
 <div class="module">
@@ -1084,11 +1108,35 @@ input[type="range"]::-moz-focus-outer {
         masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
         masterGain.connect(audioCtx.destination);
 
-        // Replace the existing keys definition with:
-        const keys = [
-     'Z', 'S', 'X', 'D', 'C', 'V', 'G', 'B', 'H', 'N', 'J', 'M',// First octave (C through B)
-    'Q', '2', 'W', '3', 'E', 'R', '5', 'T', '6', 'Y', '7', 'U', // Second octave (C through B)
+
+// Main keys (first + second octave)
+const keys = [
+  'Z','S','X','D','C','V','G','B','H','N','J','M',  // First octave
+  'Q','2','W','3','E','R','5','T','6','Y','7','U'   // Second octave
 ];
+
+// Extra punctuation → note index mapping (second octave)
+const specialKeyMap = {
+  ',': 12, // C
+  '.': 14, // D
+  '/': 16, // E
+  'L': 13, // C#
+  'l': 13, // Handle lowercase L
+  ';': 15,  // D#
+    // Third octave (C through G):
+    'I': 24, // C
+    "i": 24, // Handle lowercase I
+  '9': 25, // C#
+  'O': 26, // D
+  "o": 26, // Handle lowercase O
+  '0': 27, // D#
+  'P': 28, // E
+  "p": 28, // Handle lowercase P
+  '[': 29, // F
+  '=': 30, // F#
+  ']': 31  // G
+};
+
 // Add this after the masterGain initialization
 let currentVolume = 0.5; // Initial volume
 masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
@@ -1098,6 +1146,9 @@ let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
 let lastPlayedNote = null;
 let sampleSource = null;
 let isPlaying = false;
+let sampleStartPosition = 0; // 0-1 range representing portion of audio file
+let sampleEndPosition = 1;   // 0-1 range (default to full sample)
+let isSampleLoopOn = false;  // Loop state toggle
 // Add at top with other global variables
 sampleGainNode = audioCtx.createGain();
 sampleGainNode.gain.value = 0.5;
@@ -1313,36 +1364,45 @@ const knobInitializations = {
     
     console.log('Sample Pitch:', currentSampleDetune.toFixed(0) + ' cents');
 },
-'sample-position-knob': (value) => {
-    // Store the position value (0-1 range)
-    currentSamplePosition = value;
+
+// Add these new knob initializations in the knobInitializations object
+'sample-start-knob': (value) => {
+    // Ensure start position is always less than end position
+    const maxStart = Math.min(value, sampleEndPosition - 0.01);
+    sampleStartPosition = maxStart;
     
-    // Update all currently playing notes' playback position
+    // Show tooltip
+    const tooltip = createTooltipForKnob('sample-start-knob', value);
+    tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
+    tooltip.style.opacity = '1';
+    
+    // Update any playing samples
     Object.values(activeNotes).forEach(note => {
-        if (note && note.source && note.state === "playing") {
-            // Stop the current source
-            note.source.stop();
-            
-            // Create and configure new source
-            const newSource = audioCtx.createBufferSource();
-            newSource.buffer = audioBuffer;
-            newSource.playbackRate.value = note.source.playbackRate.value;
-            newSource.detune.value = currentSampleDetune;
-            
-            // Calculate position in seconds
-            const position = currentSamplePosition * audioBuffer.duration;
-            
-            // Connect new source through the same gain nodes
-            newSource.connect(note.sampleNode);
-            
-            // Start at new position
-            newSource.start(0, position);
-            
-            // Update note object with new source
-            note.source = newSource;
+        if (note && note.source) {
+            updateSamplePlaybackParameters(note);
         }
     });
-    console.log('Sample Position:', (currentSamplePosition * 100).toFixed(0) + '%');
+    
+    console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%');
+},
+'sample-end-knob': (value) => {
+    // Ensure end position is always greater than start position
+    const minEnd = Math.max(value, sampleStartPosition + 0.01);
+    sampleEndPosition = minEnd;
+    
+    // Show tooltip
+    const tooltip = createTooltipForKnob('sample-end-knob', value);
+    tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
+    tooltip.style.opacity = '1';
+    
+    // Update any playing samples
+    Object.values(activeNotes).forEach(note => {
+        if (note && note.source) {
+            updateSamplePlaybackParameters(note);
+        }
+    });
+    
+    console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
 },
 'glide-time-knob': (value) => {
     const tooltip = createTooltipForKnob('glide-time-knob', value);
@@ -1352,41 +1412,63 @@ const knobInitializations = {
     console.log('Glide Time:', (value * 2000).toFixed(0) + 'ms');
 },
 };
-// Update the createNote function to use proper note IDs
+
+// Update createNote function to include the start/end parameters
 function createNote(noteNumber, buffer, audioCtx, destination) {
-    const noteId = `${noteNumber}_${Date.now()}`;
-    
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = TR2 ** (noteNumber - 12);
-    source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
-    
-    const startPosition = currentSamplePosition * buffer.duration;
-    
-    const gainNode = audioCtx.createGain();
-    const sampleNode = audioCtx.createGain();
-    gainNode.gain.value = 0.5;
-    sampleNode.gain.value = currentSampleGain;
-    
-    source.connect(sampleNode);
-    sampleNode.connect(gainNode);
-    gainNode.connect(destination);
-    
-    const note = {
-        id: noteId,
-        noteNumber: noteNumber,
-        source: source,
-        gainNode: gainNode,
-        sampleNode: sampleNode,
-        startTime: audioCtx.currentTime,
-        state: "starting",
-        releaseTimer: null,
-        scheduledEvents: []
-    };
-    
-    source.start(0, startPosition);
-    activeNotes[noteId] = note;
-    return note;
+  const noteId = `${noteNumber}_${Date.now()}`;
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = TR2 ** (noteNumber - 12);
+  source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
+
+  // Calculate start/end trim
+  const totalDuration = buffer.duration;
+  const startTimeInBuffer = sampleStartPosition * totalDuration;
+  const endTimeInBuffer = sampleEndPosition * totalDuration;
+  const effectiveDuration = endTimeInBuffer - startTimeInBuffer;
+
+  // Looping
+  if (isSampleLoopOn) {
+    source.loop = true;
+    source.loopStart = startTimeInBuffer;
+    source.loopEnd = endTimeInBuffer;
+  }
+
+  const gainNode = audioCtx.createGain();
+  const sampleNode = audioCtx.createGain();
+  gainNode.gain.value = 0.5;
+  sampleNode.gain.value = currentSampleGain;
+
+  source.connect(sampleNode);
+  sampleNode.connect(gainNode);
+  gainNode.connect(destination);
+
+  const note = {
+    id: noteId,
+    noteNumber,
+    source,
+    gainNode,
+    sampleNode,
+    startTime: audioCtx.currentTime,
+    state: "starting",
+    releaseTimer: null,
+    scheduledEvents: [],
+    sampleStartPosition: startTimeInBuffer,
+    sampleEndPosition: endTimeInBuffer,
+    looping: isSampleLoopOn
+  };
+
+  // Start the source at the trimmed start point
+  source.start(0, startTimeInBuffer);
+
+  // If loop is off, schedule stop at endTimeInBuffer
+  if (!isSampleLoopOn && effectiveDuration > 0) {
+    source.stop(audioCtx.currentTime + effectiveDuration);
+  }
+
+  activeNotes[noteId] = note;
+  return note;
 }
 
 
@@ -1567,6 +1649,65 @@ blackKeys.forEach((position) => {
         }
     });
 })};
+function updateSamplePlaybackParameters(note) {
+  if (!note || !note.source || !audioBuffer) return;
+  
+  // Capture old source
+  const currentSource = note.source;
+  const currentTime = audioCtx.currentTime;
+  const sourceStartTime = note.startTime || 0;
+  const playbackTime = currentTime - sourceStartTime;
+  
+  // Calculate trim positions
+  const totalDuration = audioBuffer.duration;
+  const startTimeInBuffer = sampleStartPosition * totalDuration;
+  const endTimeInBuffer = sampleEndPosition * totalDuration;
+  const effectiveDuration = endTimeInBuffer - startTimeInBuffer;
+  
+  // Create new source
+  const newSource = audioCtx.createBufferSource();
+  newSource.buffer = audioBuffer;
+  newSource.playbackRate.value = currentSource.playbackRate.value;
+  newSource.detune.value = currentSource.detune.value;
+  
+  if (isSampleLoopOn) {
+    newSource.loop = true;
+    newSource.loopStart = startTimeInBuffer;
+    newSource.loopEnd = endTimeInBuffer;
+  } else {
+    newSource.loop = false;
+  }
+  
+  // Connect and compute new start position
+  newSource.connect(note.sampleNode);
+  const currentPositionInTrimmed = playbackTime % effectiveDuration;
+  let newStartPosition = startTimeInBuffer + currentPositionInTrimmed;
+  
+  // Stop old source
+  try {
+    currentSource.stop();
+  } catch (e) {
+    console.log('Error stopping old source:', e);
+  }
+  
+  // Start new source
+  newSource.start(0, newStartPosition);
+  
+  // If looping is off, schedule a stop at the end trim position
+  if (!isSampleLoopOn) {
+    const remaining = endTimeInBuffer - newStartPosition;
+    if (remaining > 0) {
+      newSource.stop(audioCtx.currentTime + remaining);
+    }
+  }
+  
+  // Update note reference
+  note.source = newSource;
+  note.startTime = currentTime - currentPositionInTrimmed;
+  note.sampleStartPosition = startTimeInBuffer;
+  note.sampleEndPosition = endTimeInBuffer;
+  note.looping = isSampleLoopOn;
+}
 // Helper functions to map key positions to note indices
 function getWhiteKeyIndex(position) {
     // Maps white key position to the corresponding index in the keys array
@@ -1947,26 +2088,51 @@ function noteOff(noteNumber) {
     updateKeyboardDisplay();
 }
 
-// Update keyboard event listeners
 document.onkeydown = function(e) {
-    if (e.repeat) return; // Prevent key repeat
-    const key = e.key.toUpperCase();
-    if (keys.includes(key) && !keyStates[key]) {
-        keyStates[key] = true;
-        const noteNumber = keys.indexOf(key);
-        noteOn(noteNumber);
-        updateKeyboardDisplay();
-    }
+  // Stop repeated keydown events
+  if (e.repeat) return;
+
+  const upperKey = e.key.toUpperCase();
+  console.log("Key pressed:", e.key);
+
+  // 1) Check main keys array (letters/digits)
+  if (keys.includes(upperKey) && !keyStates[upperKey]) {
+    console.log("Mapped to note index:", keys.indexOf(upperKey));
+    keyStates[upperKey] = true;
+    noteOn(keys.indexOf(upperKey));
+    updateKeyboardDisplay();
+    return;
+  }
+
+  // 2) Check punctuation map
+  if (Object.prototype.hasOwnProperty.call(specialKeyMap, e.key) && !keyStates[e.key]) {
+    console.log("Special key pressed:", e.key, "=> Note index:", specialKeyMap[e.key]);
+    keyStates[e.key] = true;
+    noteOn(specialKeyMap[e.key]);
+    updateKeyboardDisplay();
+  }
 };
 
 document.onkeyup = function(e) {
-    const key = e.key.toUpperCase();
-    if (keys.includes(key) && keyStates[key]) {
-        keyStates[key] = false;
-        const noteNumber = keys.indexOf(key);
-        noteOff(noteNumber);
-        updateKeyboardDisplay();
-    }
+  const upperKey = e.key.toUpperCase();
+  console.log("Key released:", e.key);
+
+  // 1) Check main keys array (letters/digits)
+  if (keys.includes(upperKey) && keyStates[upperKey]) {
+    console.log("Released from array:", upperKey);
+    keyStates[upperKey] = false;
+    noteOff(keys.indexOf(upperKey));
+    updateKeyboardDisplay();
+    return;
+  }
+
+  // 2) Check punctuation map
+  if (Object.prototype.hasOwnProperty.call(specialKeyMap, e.key) && keyStates[e.key]) {
+    console.log("Released special key:", e.key);
+    keyStates[e.key] = false;
+    noteOff(specialKeyMap[e.key]);
+    updateKeyboardDisplay();
+  }
 };
 
 // Update the keyboard generation to use correct note triggering
@@ -2033,21 +2199,7 @@ function generateKeyboard() {
     }
 }
 
-        document.onkeydown = function (e) {
-            const key = e.key.toUpperCase();
-            if (keys.includes(key) && !keyStates[key]) {
-                keyStates[key] = true;
-                noteOn(keys.indexOf(key));
-            }
-        };
 
-        document.onkeyup = function (e) {
-            const key = e.key.toUpperCase();
-            if (keys.includes(key) && keyStates[key]) {
-                keyStates[key] = false;
-                noteOff(keys.indexOf(key));
-            }
-        };
         function handleFileSelect(event) {
     const file = event.target.files[0];
     if (file) {
@@ -2067,8 +2219,16 @@ function generateKeyboard() {
                 sampleSource.connect(sampleGainNode);
                 sampleSource.start();
                 
-                D('file-status').textContent = `Loaded: ${file.name}`;
-                D('file-status').style.color = 'rgb(63, 33, 1)';
+                // Update the label text to show the file name
+                const fileLabel = document.querySelector('label[for="audio-file"]');
+                if (fileLabel) {
+                    // Truncate filename if too long
+                    const maxLength = 12;
+                    const displayName = file.name.length > maxLength ? 
+                        file.name.substring(0, maxLength-3) + '...' : 
+                        file.name;
+                    fileLabel.textContent = displayName;
+                }
             });
         };
         reader.readAsArrayBuffer(file);
@@ -2384,7 +2544,33 @@ function initializeSwitches() {
         onText: 'PORTA ON',
         offText: 'PORTA OFF'
     });
-    
+    const switches = {
+        'voice-mode-switch': {
+            // ... existing code ...
+        },
+        'trigger-mode-switch': {
+            // ... existing code ...
+        },
+        'portamento-switch': {
+            // ... existing code ...
+        },
+        'sample-loop-switch': {
+            onText: 'LOOP ON',
+            offText: 'LOOP OFF',
+            onChange: (active) => {
+                isSampleLoopOn = active;
+                
+                // Update any playing samples
+                Object.values(activeNotes).forEach(note => {
+                    if (note && note.source) {
+                        updateSamplePlaybackParameters(note);
+                    }
+                });
+                
+                console.log('Sample Loop:', active ? 'ON' : 'OFF');
+            }
+        }
+    };
     // Rest of the initialization code remains the same...
 }
 
@@ -2578,7 +2764,25 @@ function handleMonoNoteOff(noteNumber) {
 document.addEventListener('DOMContentLoaded', () => {
     initializeSwitches();
 });
+function initializeSampleLoopSwitch() {
+  const loopSwitch = document.getElementById('sample-loop-switch');
+  if (!loopSwitch) return;
 
+  // Toggle “active” class on click
+  loopSwitch.addEventListener('click', () => {
+    loopSwitch.classList.toggle('active');
+    isSampleLoopOn = loopSwitch.classList.contains('active');
+    // Update any playing samples
+    Object.values(activeNotes).forEach(note => {
+      if (note.source) updateSamplePlaybackParameters(note);
+    });
+    console.log('Sample Loop:', isSampleLoopOn ? 'ON' : 'OFF');
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  // Call this after other setup
+  initializeSampleLoopSwitch();
+});
 // Add this function for switch tooltips
 function createTooltipForSwitch(switchId, options = { onText: 'ON', offText: 'OFF' }) {
     const tooltip = document.getElementById(`${switchId}-tooltip`) || (() => {
