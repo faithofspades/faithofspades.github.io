@@ -949,10 +949,8 @@ input[type="range"]::-moz-focus-outer {
             <div class="knob" id="sample-end-knob"></div>
             <label for="sample-end-knob" style="text-align: center;">End</label>
             <!-- Loop switch -->
-            <div class="switch-container">
-                <label class="switch-label">LOOP</label>
-                <div class="vertical-switch" id="sample-loop-switch"></div>
-            </div>
+            <div class="knob" id="sample-crossfade-knob"></div>
+            <label for="sample-crossfade-knob" style="text-align: center;">Crossfade</label>
           </div>
             <!-- OSC 1 Module -->
             <div class="module">
@@ -1148,7 +1146,9 @@ let sampleSource = null;
 let isPlaying = false;
 let sampleStartPosition = 0; // 0-1 range representing portion of audio file
 let sampleEndPosition = 1;   // 0-1 range (default to full sample)
-let isSampleLoopOn = false;  // Loop state toggle
+let sampleCrossfadeAmount = 0; // 0-1 range for crossfade percentage
+let isSampleLoopOn = false; // Will now be controlled by crossfade knob
+
 // Add at top with other global variables
 sampleGainNode = audioCtx.createGain();
 sampleGainNode.gain.value = 0.5;
@@ -1404,6 +1404,25 @@ const knobInitializations = {
     
     console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
 },
+'sample-crossfade-knob': (value) => {
+  // Show tooltip with percentage
+  const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
+  tooltip.textContent = `Crossfade: ${(value * 100).toFixed(0)}%`;
+  tooltip.style.opacity = '1';
+  
+  // Update crossfade amount and loop state
+  sampleCrossfadeAmount = value;
+  isSampleLoopOn = value > 0.01; // Enable loop when crossfade is above ~1%
+  
+  console.log(`Crossfade: ${(value * 100).toFixed(0)}%, Loop: ${isSampleLoopOn ? 'ON' : 'OFF'}`);
+  
+  // Update all playing samples with new crossfade/loop settings
+  Object.values(activeNotes).forEach(note => {
+    if (note && note.source) {
+      updateSamplePlaybackParameters(note);
+    }
+  });
+},
 'glide-time-knob': (value) => {
     const tooltip = createTooltipForKnob('glide-time-knob', value);
     tooltip.textContent = `${(value * 2000).toFixed(0)}ms`;
@@ -1416,7 +1435,6 @@ const knobInitializations = {
 // Update createNote function to include the start/end parameters
 function createNote(noteNumber, buffer, audioCtx, destination) {
   const noteId = `${noteNumber}_${Date.now()}`;
-
   const source = audioCtx.createBufferSource();
   source.buffer = buffer;
   source.playbackRate.value = TR2 ** (noteNumber - 12);
@@ -1462,9 +1480,20 @@ function createNote(noteNumber, buffer, audioCtx, destination) {
   // Start the source at the trimmed start point
   source.start(0, startTimeInBuffer);
 
-  // If loop is off, schedule stop at endTimeInBuffer
+  // Optional fade-in if start knob is above 0%
+  if (startTimeInBuffer > 0) {
+    const fadeIn = 0.015; // 15 ms fade
+    sampleNode.gain.setValueAtTime(0, audioCtx.currentTime);
+    sampleNode.gain.linearRampToValueAtTime(currentSampleGain, audioCtx.currentTime + fadeIn);
+  }
+
+  // If loop is off, schedule a fade-out and stop at endTimeInBuffer
   if (!isSampleLoopOn && effectiveDuration > 0) {
-    source.stop(audioCtx.currentTime + effectiveDuration);
+    const fadeOut = 0.015; // 15 ms fade
+    const stopTime = audioCtx.currentTime + effectiveDuration;
+    sampleNode.gain.setValueAtTime(sampleNode.gain.value, stopTime - fadeOut);
+    sampleNode.gain.linearRampToValueAtTime(0, stopTime);
+    source.stop(stopTime);
   }
 
   activeNotes[noteId] = note;
@@ -1649,64 +1678,115 @@ blackKeys.forEach((position) => {
         }
     });
 })};
+// Helper function for updating sample playback parameters with crossfade implementation
 function updateSamplePlaybackParameters(note) {
   if (!note || !note.source || !audioBuffer) return;
   
-  // Capture old source
-  const currentSource = note.source;
-  const currentTime = audioCtx.currentTime;
-  const sourceStartTime = note.startTime || 0;
-  const playbackTime = currentTime - sourceStartTime;
-  
-  // Calculate trim positions
   const totalDuration = audioBuffer.duration;
   const startTimeInBuffer = sampleStartPosition * totalDuration;
   const endTimeInBuffer = sampleEndPosition * totalDuration;
   const effectiveDuration = endTimeInBuffer - startTimeInBuffer;
+  const now = audioCtx.currentTime;
+  
+  // Calculate crossfade time (0-200ms range)
+  const crossfadeTime = sampleCrossfadeAmount * 0.2;
+  
+  // Calculate current playback position
+  const elapsedTime = now - note.startTime;
+  let newStartPosition;
+  
+  if (isSampleLoopOn) {
+    // For looping, calculate position within the loop range
+    const timeInLoop = elapsedTime % effectiveDuration;
+    newStartPosition = startTimeInBuffer + timeInLoop;
+  } else {
+    // For non-looping, cap at the end position
+    newStartPosition = Math.min(startTimeInBuffer + elapsedTime, endTimeInBuffer);
+  }
   
   // Create new source
   const newSource = audioCtx.createBufferSource();
   newSource.buffer = audioBuffer;
-  newSource.playbackRate.value = currentSource.playbackRate.value;
-  newSource.detune.value = currentSource.detune.value;
+  newSource.playbackRate.value = note.source.playbackRate.value;
+  newSource.detune.value = note.source.detune.value;
   
+  // Connect through audio chain
+  newSource.connect(note.sampleNode);
+  
+  // Start the new source
+  newSource.start(0, newStartPosition);
+  
+  // Fade in the new source
+  const fadeInTime = Math.min(0.015, crossfadeTime/2);
+  note.sampleNode.gain.setValueAtTime(0, now);
+  note.sampleNode.gain.linearRampToValueAtTime(currentSampleGain, now + fadeInTime);
+  
+  // Stop old source after fade
+  try {
+    const oldSource = note.source;
+    setTimeout(() => {
+      try { oldSource.stop(); } catch(e) {}
+    }, fadeInTime * 1000 + 50);
+  } catch(e) {}
+  
+  // Handle looping
   if (isSampleLoopOn) {
     newSource.loop = true;
     newSource.loopStart = startTimeInBuffer;
     newSource.loopEnd = endTimeInBuffer;
+    
+    // Set up crossfade for loop points if crossfade is enabled
+    if (crossfadeTime > 0) {
+      // Schedule the gain node to handle crossfades at loop boundaries
+      // We need to schedule for each upcoming loop iteration
+      const loopDuration = effectiveDuration;
+      
+      // Calculate when the next loop point will occur
+      const timeToNextLoop = loopDuration - (newStartPosition - startTimeInBuffer) % loopDuration;
+      const nextLoopTime = now + timeToNextLoop;
+      
+      // Create loop-specific automation for the next few iterations
+      for (let i = 0; i < 3; i++) {
+        const loopStartTime = nextLoopTime + (i * loopDuration);
+        const fadeOutStart = loopStartTime - crossfadeTime;
+        
+        // Skip if we've already passed this point
+        if (fadeOutStart <= now) continue;
+        
+        // Schedule a fade out slightly before the loop end
+        note.sampleNode.gain.setValueAtTime(currentSampleGain, fadeOutStart);
+        note.sampleNode.gain.linearRampToValueAtTime(0, loopStartTime);
+        
+        // Schedule a fade in at the loop point
+        note.sampleNode.gain.setValueAtTime(0, loopStartTime - crossfadeTime);
+        note.sampleNode.gain.linearRampToValueAtTime(currentSampleGain, loopStartTime);
+      }
+    }
   } else {
-    newSource.loop = false;
-  }
-  
-  // Connect and compute new start position
-  newSource.connect(note.sampleNode);
-  const currentPositionInTrimmed = playbackTime % effectiveDuration;
-  let newStartPosition = startTimeInBuffer + currentPositionInTrimmed;
-  
-  // Stop old source
-  try {
-    currentSource.stop();
-  } catch (e) {
-    console.log('Error stopping old source:', e);
-  }
-  
-  // Start new source
-  newSource.start(0, newStartPosition);
-  
-  // If looping is off, schedule a stop at the end trim position
-  if (!isSampleLoopOn) {
-    const remaining = endTimeInBuffer - newStartPosition;
-    if (remaining > 0) {
-      newSource.stop(audioCtx.currentTime + remaining);
+    // For non-looping mode, schedule the stop
+    const remainingTime = endTimeInBuffer - newStartPosition;
+    if (remainingTime > 0) {
+      const stopTime = now + remainingTime;
+      const fadeOutTime = Math.min(0.015, remainingTime * 0.5);
+      
+      note.sampleNode.gain.setValueAtTime(currentSampleGain, stopTime - fadeOutTime);
+      note.sampleNode.gain.linearRampToValueAtTime(0, stopTime);
+      newSource.stop(stopTime + 0.05);
     }
   }
   
-  // Update note reference
+  // Update note properties
   note.source = newSource;
-  note.startTime = currentTime - currentPositionInTrimmed;
-  note.sampleStartPosition = startTimeInBuffer;
-  note.sampleEndPosition = endTimeInBuffer;
+  note.startTime = now - (newStartPosition - startTimeInBuffer);
   note.looping = isSampleLoopOn;
+  
+  // Clean up previously scheduled events
+  note.scheduledEvents.forEach(event => {
+    if (event.type === "timeout") {
+      clearTimeout(event.id);
+    }
+  });
+  note.scheduledEvents = [];
 }
 // Helper functions to map key positions to note indices
 function getWhiteKeyIndex(position) {
