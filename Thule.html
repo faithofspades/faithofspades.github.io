@@ -1452,6 +1452,7 @@ const knobDefaults = {
   // All other knobs default to 0.5
 };
 // Replace all knob-related code with this single implementation
+// Add touch support for knobs and keyboard
 function initializeKnob(knob, onChange) {
   // Remove any existing event listeners first
   const newKnob = knob.cloneNode(true);
@@ -1478,21 +1479,18 @@ function initializeKnob(knob, onChange) {
     }
   }
 
-  function handleMouseMove(e) {
-    if (!isDragging) return;
-    
-    const sensitivity = e.shiftKey ? 0.25 : 1.0;
-    const deltaY = (lastY - e.clientY) * sensitivity;
+  function handleMove(y) {
+    const sensitivity = 1.0;
+    const deltaY = (lastY - y) * sensitivity;
     
     if (initialMovement) {
       // On first movement, just record the position but don't apply the delta
-      // This prevents the "bounce" effect
       initialMovement = false;
-      lastY = e.clientY;
+      lastY = y;
       return;
     }
 
-    lastY = e.clientY;
+    lastY = y;
     
     const newRotation = Math.min(150, Math.max(-150, rotation + deltaY));
     
@@ -1505,17 +1503,31 @@ function initializeKnob(knob, onChange) {
         onChange(normalizedValue);
       }
     }
-    
+  }
+
+  function handleMouseMove(e) {
+    if (!isDragging) return;
+    handleMove(e.clientY);
     e.preventDefault();
     e.stopPropagation();
   }
 
-  function handleMouseUp() {
+  function handleTouchMove(e) {
+    if (!isDragging || !e.touches[0]) return;
+    handleMove(e.touches[0].clientY);
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function handleEnd() {
     isDragging = false;
     initialMovement = true; // Reset for next drag
     knob.style.cursor = 'grab';
     document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
+    document.removeEventListener('mouseup', handleEnd);
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleEnd);
+    document.removeEventListener('touchcancel', handleEnd);
   }
 
   knob.addEventListener('click', (e) => {
@@ -1535,10 +1547,23 @@ function initializeKnob(knob, onChange) {
       lastY = e.clientY;
       knob.style.cursor = 'grabbing';
       document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('mouseup', handleEnd);
     }
     e.preventDefault();
   });
+
+  // Add touch support
+  knob.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      isDragging = true;
+      initialMovement = true;
+      lastY = e.touches[0].clientY;
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleEnd);
+      document.addEventListener('touchcancel', handleEnd);
+    }
+    e.preventDefault();
+  }, { passive: false });
 
   // Also update the parameters directly when the default is applied
   if (knob.id === 'sample-start-knob') {
@@ -1568,69 +1593,92 @@ function initializeKnob(knob, onChange) {
 }
 
 
-
 // Place this code right after the initializeKnob function and before any initialization calls
 
+// Fix notched knobs for touch support
 function initializeNotchedKnob(knob, onChange) {
-    let rotation = 0;
-    let isDragging = false;
-    let lastY;
-    const degreesPerStep = 60; // 240 degrees total / 4 steps
-    const steps = [-2, -1, 0, 1, 2]; // Octave values
+  let rotation = 0;
+  let isDragging = false;
+  let lastY;
+  const degreesPerStep = 60;
 
-    function snapToNotch(rotation) {
-        const step = Math.round(rotation / degreesPerStep);
-        const limitedStep = Math.max(-2, Math.min(2, step));
-        return limitedStep * degreesPerStep;
+  function snapToNotch(rotation) {
+    const steps = Math.round(rotation / degreesPerStep);
+    const limitedSteps = Math.max(-2, Math.min(2, steps));
+    return limitedSteps * degreesPerStep;
+  }
+
+  function handleMove(y) {
+    const sensitivity = 1.5; 
+    const deltaY = (lastY - y) * sensitivity;
+    lastY = y;
+    
+    let newRotation = rotation + deltaY;
+    newRotation = snapToNotch(newRotation);
+    
+    if (newRotation !== rotation) {
+      rotation = newRotation;
+      knob.style.transform = `rotate(${rotation}deg)`;
+      
+      if (onChange) {
+        const octaveValue = Math.round(-rotation / degreesPerStep);
+        onChange(octaveValue);
+      }
     }
+  }
 
-    function handleMouseMove(e) {
-        if (!isDragging) return;
-        
-        const sensitivity = 1.5;
-        const deltaY = (lastY - e.clientY) * sensitivity;
-        lastY = e.clientY;
-        
-        let newRotation = rotation + deltaY;
-        let snappedRotation = snapToNotch(newRotation);
-        
-        if (snappedRotation !== rotation) {
-            rotation = snappedRotation;
-            knob.style.transform = `rotate(${rotation}deg)`;
-            
-            if (onChange) {
-                const octaveValue = -Math.round(rotation / degreesPerStep);
-                onChange(octaveValue);
-            }
-        }
-        
-        e.preventDefault();
-        e.stopPropagation();
+  function handleMouseMove(e) {
+    if (!isDragging) return;
+    handleMove(e.clientY);
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  
+  function handleTouchMove(e) {
+    if (!isDragging || !e.touches[0]) return;
+    handleMove(e.touches[0].clientY);
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function handleEnd() {
+    isDragging = false;
+    knob.style.cursor = 'grab';
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleEnd);
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleEnd);
+    document.removeEventListener('touchcancel', handleEnd);
+  }
+
+  knob.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastY = e.clientY;
+    knob.style.cursor = 'grabbing';
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleEnd);
+    e.preventDefault();
+  });
+
+  // Add touch support
+  knob.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      isDragging = true;
+      lastY = e.touches[0].clientY;
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleEnd);
+      document.addEventListener('touchcancel', handleEnd);
     }
+    e.preventDefault();
+  }, { passive: false });
 
-    function handleMouseUp() {
-        isDragging = false;
-        knob.style.cursor = 'grab';
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+  return {
+    getValue: () => -Math.round(rotation / degreesPerStep),
+    setValue: (octave) => {
+      rotation = -octave * degreesPerStep;
+      knob.style.transform = `rotate(${rotation}deg)`;
     }
-
-    knob.addEventListener('mousedown', (e) => {
-        isDragging = true;
-        lastY = e.clientY;
-        knob.style.cursor = 'grabbing';
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-        e.preventDefault();
-    });
-
-    return {
-        getValue: () => -Math.round(rotation / degreesPerStep),
-        setValue: (octave) => {
-            rotation = -octave * degreesPerStep;
-            knob.style.transform = `rotate(${rotation}deg)`;
-        }
-    };
+  };
 }
 // Function to process the buffer with fade in/out before crossfades
 // Function to process the buffer with fade in/out after applying start/end points
@@ -3333,67 +3381,106 @@ document.onkeyup = function(e) {
 };
 
 // Update the keyboard generation to use correct note triggering
+// Update generateKeyboard to add touch support
 function generateKeyboard() {
-    const keyboard = D('keyboard');
-    keyboard.innerHTML = '';
+  const keyboard = D('keyboard');
+  keyboard.innerHTML = '';
 
-    // Create white keys first
-    const whiteKeys = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 
-                      'C', 'D', 'E', 'F', 'G', 'A', 'B']; // Two octaves
+  // Create white keys first
+  const whiteKeys = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 
+                    'C', 'D', 'E', 'F', 'G', 'A', 'B']; // Two octaves
+  
+  for (let i = 0; i < whiteKeys.length; i++) {
+      const key = document.createElement('div');
+      key.className = 'key';
+      // Map to the correct index in the keys array
+      const keyIndex = getWhiteKeyIndex(i);
+      key.dataset.noteIndex = keyIndex;
+      keyboard.appendChild(key);
+      
+      // Add mouse events
+      key.addEventListener('mousedown', () => {
+          noteOn(parseInt(key.dataset.noteIndex));
+          key.classList.add('pressed');
+      });
+      
+      key.addEventListener('mouseup', () => {
+          noteOff(parseInt(key.dataset.noteIndex));
+          key.classList.remove('pressed');
+      });
+      
+      key.addEventListener('mouseleave', () => {
+          if (key.classList.contains('pressed')) {
+              noteOff(parseInt(key.dataset.noteIndex));
+              key.classList.remove('pressed');
+          }
+      });
+      
+      // Add touch events
+      key.addEventListener('touchstart', (e) => {
+          noteOn(parseInt(key.dataset.noteIndex));
+          key.classList.add('pressed');
+          e.preventDefault(); // Prevent double-triggering
+      }, { passive: false });
+      
+      key.addEventListener('touchend', (e) => {
+          noteOff(parseInt(key.dataset.noteIndex));
+          key.classList.remove('pressed');
+          e.preventDefault();
+      }, { passive: false });
+      
+      key.addEventListener('touchcancel', (e) => {
+          noteOff(parseInt(key.dataset.noteIndex));
+          key.classList.remove('pressed');
+          e.preventDefault();
+      }, { passive: false });
+  }
+
+  // Create black keys
+  for (let i = 0; i < 10; i++) { // 5 black keys per octave, 2 octaves
+    const key = document.createElement('div');
+    key.className = 'key black';
+    const keyIndex = getBlackKeyIndex(i);
+    key.dataset.noteIndex = keyIndex;
     
-    for (let i = 0; i < whiteKeys.length; i++) {
-        const key = document.createElement('div');
-        key.className = 'key';
-        // Map to the correct index in the keys array
-        const keyIndex = getWhiteKeyIndex(i);
-        key.dataset.noteIndex = keyIndex;
-        keyboard.appendChild(key);
-        
-        // Add mouse events
-        key.addEventListener('mousedown', () => {
-            noteOn(parseInt(key.dataset.noteIndex));
-            key.classList.add('pressed');
-        });
-        
-        key.addEventListener('mouseup', () => {
+    key.addEventListener('mousedown', () => {
+        noteOn(parseInt(key.dataset.noteIndex));
+        key.classList.add('pressed');
+    });
+    
+    key.addEventListener('mouseup', () => {
+        noteOff(parseInt(key.dataset.noteIndex));
+        key.classList.remove('pressed');
+    });
+    
+    key.addEventListener('mouseleave', () => {
+        if (key.classList.contains('pressed')) {
             noteOff(parseInt(key.dataset.noteIndex));
             key.classList.remove('pressed');
-        });
-        
-        key.addEventListener('mouseleave', () => {
-            if (key.classList.contains('pressed')) {
-                noteOff(parseInt(key.dataset.noteIndex));
-                key.classList.remove('pressed');
-            }
-        });
-    }
-
-      // Create black keys
-      for (let i = 0; i < 10; i++) { // 5 black keys per octave, 2 octaves
-        const key = document.createElement('div');
-        key.className = 'key black';
-        const keyIndex = getBlackKeyIndex(i);
-        key.dataset.noteIndex = keyIndex;
-        
-        key.addEventListener('mousedown', () => {
-            noteOn(parseInt(key.dataset.noteIndex));
-            key.classList.add('pressed');
-        });
-        
-        key.addEventListener('mouseup', () => {
-            noteOff(parseInt(key.dataset.noteIndex));
-            key.classList.remove('pressed');
-        });
-        
-        key.addEventListener('mouseleave', () => {
-            if (key.classList.contains('pressed')) {
-                noteOff(parseInt(key.dataset.noteIndex));
-                key.classList.remove('pressed');
-            }
-        });
-        
-        keyboard.appendChild(key);
-    }
+        }
+    });
+    
+    // Add touch events
+    key.addEventListener('touchstart', (e) => {
+        noteOn(parseInt(key.dataset.noteIndex));
+        key.classList.add('pressed');
+        e.preventDefault(); // Prevent double-triggering
+    }, { passive: false });
+    
+    key.addEventListener('touchend', (e) => {
+        noteOff(parseInt(key.dataset.noteIndex));
+        key.classList.remove('pressed');
+        e.preventDefault();
+    }, { passive: false });
+    
+    key.addEventListener('touchcancel', (e) => {
+        noteOff(parseInt(key.dataset.noteIndex));
+        key.classList.remove('pressed');
+        e.preventDefault();
+    }, { passive: false });
+    
+    keyboard.appendChild(key);
+  }
 }
 
 
