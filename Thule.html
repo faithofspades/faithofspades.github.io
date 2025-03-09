@@ -1461,8 +1461,8 @@ function createiOSStartupOverlay() {
   overlay.style.left = '0';
   overlay.style.width = '100%';
   overlay.style.height = '100%';
-  overlay.style.backgroundColor = 'rgba(245, 245, 220, 0.95)'; // Match your theme
-  overlay.style.zIndex = '9999'; // Ensure it's on top
+  overlay.style.backgroundColor = 'rgba(245, 245, 220, 0.95)';
+  overlay.style.zIndex = '9999';
   overlay.style.display = 'flex';
   overlay.style.flexDirection = 'column';
   overlay.style.justifyContent = 'center';
@@ -1475,7 +1475,7 @@ function createiOSStartupOverlay() {
   heading.style.marginBottom = '20px';
   
   const message = document.createElement('p');
-  message.textContent = 'Touch anywhere to enable audio';
+  message.textContent = 'Tap anywhere to enable audio';
   message.style.marginBottom = '30px';
   message.style.color = '#3f2101';
   
@@ -1493,40 +1493,87 @@ function createiOSStartupOverlay() {
   overlay.appendChild(message);
   overlay.appendChild(button);
   
+  // Make sure overlay is in the DOM before adding audio context
   document.body.appendChild(overlay);
   
-  // Function to unlock audio context
-  function unlockAudio() {
-    // Create and play a silent audio buffer
-    const silentBuffer = audioCtx.createBuffer(1, 1, 22050);
-    const source = audioCtx.createBufferSource();
-    source.buffer = silentBuffer;
-    source.connect(audioCtx.destination);
+  // Prepare the audio context but don't resume yet
+  if (window.AudioContext || window.webkitAudioContext) {
+    // Create our special iOS silent audio element
+    const silentAudio = document.createElement('audio');
+    silentAudio.setAttribute('src', 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIgD///////////////////////////////////////////8AAAA8TEFNRTMuMTAwAQAAAAAAAAAAABUgJAMGQQABmgAAIicg4EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=');
+    silentAudio.setAttribute('type', 'audio/mp3');
+    silentAudio.setAttribute('loop', 'loop');
+    silentAudio.style.display = 'none';
+    document.body.appendChild(silentAudio);
     
-    // Play the silent sound
-    if (source.start) {
-      source.start(0);
-    } else {
-      source.noteOn(0);
+    function unlockAudio(event) {
+      // This is the key change: multiple unlock methods in a synchronous user event handler
+      
+      // 1. Play the silent audio element first (this works for iOS Chrome)
+      const playPromise = silentAudio.play();
+      
+      // 2. Resume the AudioContext
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      
+      // 3. Create and play an immediate oscillator (works in Safari)
+      try {
+        const oscillator = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        gain.gain.value = 0.001; // Nearly silent
+        oscillator.connect(gain);
+        gain.connect(audioCtx.destination);
+        oscillator.start(0);
+        oscillator.stop(0.5);
+      } catch(e) {
+        console.log("Error creating oscillator:", e);
+      }
+      
+      // 4. Create and play a buffer source (alternative method)
+      try {
+        const buffer = audioCtx.createBuffer(1, 1, 22050);
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.start(0);
+      } catch(e) {
+        console.log("Error playing buffer:", e);
+      }
+      
+      console.log("Audio unlock attempts complete, removing overlay");
+      
+      // Remove the overlay with slight delay
+      setTimeout(() => {
+        document.body.removeChild(overlay);
+        // Keep the silent audio element playing in the background
+      }, 50);
+      
+      // Clean up event listeners
+      overlay.removeEventListener('touchstart', unlockAudio);
+      button.removeEventListener('touchstart', unlockAudio);
+      overlay.removeEventListener('click', unlockAudio);
+      
+      // Prevent default
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
     }
     
-    // Resume audio context (needed for newer browsers)
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
-    
-    // Remove the overlay
-    document.body.removeChild(overlay);
-    
-    console.log("Audio unlocked for iOS");
+    // Add event listeners for both touch and click
+    overlay.addEventListener('touchstart', unlockAudio, { passive: false });
+    button.addEventListener('touchstart', unlockAudio, { passive: false });
+    overlay.addEventListener('click', unlockAudio);
   }
-  
-  // Add event listeners to unlock audio
-  overlay.addEventListener('touchstart', unlockAudio, { once: true });
-  button.addEventListener('touchstart', unlockAudio, { once: true });
-  overlay.addEventListener('click', unlockAudio, { once: true });
-  
-  console.log("iOS audio unlock overlay created");
+}
+
+// Initialize for all mobile devices to be safe
+if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+  // Use DOMContentLoaded for more reliable initialization
+  document.addEventListener('DOMContentLoaded', () => {
+    createiOSStartupOverlay();
+  });
 }
 // Detect if the device is a touch device
 function isTouchDevice() {
@@ -5009,6 +5056,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupAutoHideTooltips();
   }
 });
+
     </script>
 </body>
 </html>
