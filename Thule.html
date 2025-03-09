@@ -6,6 +6,7 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>ARDIST - Thule</title>
     <style>
+        
         body {
             font-family: 'Courier New', Courier, monospace;
             background-color: #f5f5dc;
@@ -71,7 +72,242 @@
     width: 100%;
     margin: 10px 0;
 }
+/* Styling for the sampler module with two columns */
+.sampler-module {
+  width: 160px; /* Double the width of regular modules */
+  min-width: 160px; /* Keep the minimum width consistent */
+  max-width: 160px; /* Maximum width */
+}
 
+.sampler-columns {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.sampler-column {
+  width: 48%; /* Slightly less than 50% to allow for spacing */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Make the file section take full width of its column */
+.sampler-column .file-section {
+  width: 100%;
+}
+
+/* Adjust knobs to fit within narrower columns */
+.sampler-column .knob {
+  margin: 8px auto; /* Slightly reduced margin */
+}
+
+/* Update sampler column labels to match other modules */
+.sampler-column label {
+  font-size: 16px; /* Changed from 11px to match oscillator modules */
+  margin-bottom: 5px;
+  font-family: 'Courier New', Courier, monospace; /* Explicitly set font family */
+  color: #3f2101; /* Match text color */
+  text-align: center; /* Ensure consistent alignment */
+}
+/* Updated sample selector styling to match rest of the interface */
+.sample-selector-container {
+  width: 100%;
+  position: relative;
+  margin: 5px 0 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Match button styling perfectly to Load Sample button */
+#sample-selector-btn {
+  width: 80%;
+  height: 32px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e6e6e6;
+  color: #3f2101;
+  border: 1px solid #3f2101;
+  border-radius: 3px;
+  padding: 8px;
+  font-family: 'Courier New', Courier, monospace; /* Match font family */
+  font-size: 12px; /* Match font size */
+  text-align: center;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+#sample-selector-btn:hover {
+  background: #d4c6a8;
+}
+
+/* Update dropdown menu styling to match theme */
+.sample-dropdown {
+  display: none;
+  position: absolute;
+  top: 40px; /* Position below button */
+  background-color: #e6e6e6; /* Match button background */
+  width: 80%; /* Match button width */
+  box-shadow: 0px 8px 16px 0px rgba(63, 33, 1, 0.2);
+  z-index: 100;
+  border-radius: 3px;
+  border: 1px solid #3f2101;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.sample-dropdown.show {
+  display: block;
+}
+
+.dropdown-item {
+  padding: 6px 8px;
+  text-decoration: none;
+  display: block;
+  color: #3f2101;
+  font-family: 'Courier New', Courier, monospace; /* Match font family */
+  font-size: 12px; /* Match font size */
+  cursor: pointer;
+}
+
+.dropdown-item:hover {
+  background-color: #d4c6a8;
+}
+/* Fix alignment of right column knobs */
+#sample-start-knob {
+  margin-top: 11px !important; /* Push down the first knob in right column */
+}
+
+/* Make space for dropdown to prevent elements pushing down */
+.sample-selector-container {
+  margin-bottom: 5px;
+  height: 42px; /* Fixed height to match file input area */
+}
+/* Add to your style section */
+.lofi-button-container {
+  margin: 10px 0 10px 0; /* Adjusted from 10px 0 */
+  display: flex;
+  justify-content: center;
+  align-items: center; /* Added to help with vertical alignment */
+}
+
+.lofi-button {
+  position: relative;
+  width: 45px;     /* Changed from 60px to make square */
+  height: 45px;    /* Changed from 30px to match width */
+  background-color: #e6e6e6;
+  border: 1px solid #3f2101;
+  border-radius: 8px;  /* Slightly increased for better appearance */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #3f2101;
+  transition: background-color 0.2s;
+}
+
+
+
+.lofi-button:hover {
+  background-color: #d4c6a8;
+}
+
+.lofi-button.active {
+  background-color: #c0b090;
+}
+
+/* Update LED position for the square button */
+.lofi-button .led-indicator {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.lofi-button .led-indicator.on {
+  background-color: #ff5500;
+  box-shadow: 0 0 3px #ff5500;
+}
+.rec-button-container {
+  margin: 10px 0 10px 0; /* Make sure both containers use identical margins */
+  display: flex;
+  justify-content: center;
+  align-items: center; /* Added to help with vertical alignment */
+}
+
+.rec-button {
+  position: relative;
+  width: 45px;
+  height: 45px;
+  background-color: #e6e6e6;
+  border: 1px solid #3f2101;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #3f2101;
+  transition: background-color 0.2s;
+}
+
+.rec-button:hover {
+  background-color: #d4c6a8;
+}
+
+.rec-button.recording {
+  background-color: #ff5500;
+  color: #fff;
+}
+
+.rec-button .led-indicator {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.rec-button .led-indicator.on {
+  background-color: #ff0000;
+  box-shadow: 0 0 5px #ff0000;
+  animation: pulsate 1s infinite;
+}
+
+@keyframes pulsate {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+.sampler-column .lofi-button-container {
+  margin-top: 15px; /* Increase top margin slightly */
+  margin-bottom: 10px;
+  height: 47px; /* Set explicit height */
+  position: relative;
+  top: -3px; /* Small upward adjustment */
+}
+
+.sampler-column .rec-button-container {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  height: 47px; /* Set explicit height */
+}
+/* Position the switch container */
+.sampler-column .switch-container {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+}
 .wave-select {
     width: 100%;
     padding: 8px;
@@ -921,6 +1157,7 @@ input[type="range"]::-moz-focus-outer {
     width: 100%;
     transition: opacity 0.3s;
 }
+
     </style>
 </head>
 <body>
@@ -931,27 +1168,62 @@ input[type="range"]::-moz-focus-outer {
         
         <div class="synth-panel">
             
-          <!-- SAMPLER Module -->
-          <div class="module">
-            <div class="module-title">SAMPLER</div>
-            <div class="file-section">
-                <div class="custom-file-input">
-                    <input type="file" id="audio-file" accept="audio/*">
-                    <label for="audio-file">Load Sample</label>
-                </div>
-            </div>
-            <div class="knob" id="sample-volume-knob"></div>
-            <label for="sample-volume-knob" style="text-align: center;">Volume</label>
-            <div class="knob" id="sample-pitch-knob"></div>
-            <label for="sample-pitch-knob" style="text-align: center;">Pitch</label>
-            <div class="knob" id="sample-start-knob"></div>
-            <label for="sample-start-knob" style="text-align: center;">Start</label>
-            <div class="knob" id="sample-end-knob"></div>
-            <label for="sample-end-knob" style="text-align: center;">End</label>
-            <!-- Loop switch -->
-            <div class="knob" id="sample-crossfade-knob"></div>
-            <label for="sample-crossfade-knob" style="text-align: center;">Crossfade</label>
+        <!-- Modified SAMPLER Module with Two Columns and Sample Selector -->
+<div class="module sampler-module">
+    <div class="module-title">SAMPLER</div>
+    
+    <!-- Two-column layout container -->
+    <div class="sampler-columns">
+      <!-- Left Column -->
+      <div class="sampler-column">
+        <div class="file-section">
+          <div class="custom-file-input">
+            <input type="file" id="audio-file" accept="audio/*">
+            <label for="audio-file">Load Sample</label>
           </div>
+        </div>
+        <div class="switch-container lofi-button-container">
+            <div class="lofi-button" id="emu-mode-switch">
+              <span>Lo-Fi</span>
+              <div class="led-indicator" id="emu-led"></div>
+            </div>
+          </div>
+        <div class="knob" id="sample-volume-knob"></div>
+        <label for="sample-volume-knob" style="text-align: center;">Volume</label>
+        <div class="knob" id="sample-pitch-knob"></div>
+        <label for="sample-pitch-knob" style="text-align: center;">Pitch</label>
+      <!-- Add this knob to the right column of your sampler module -->
+<div class="knob" id="sample-fade-knob"></div>
+<label for="sample-fade-knob" style="text-align: center;">Fade</label>
+    </div>
+      
+      <!-- Right Column -->
+      <div class="sampler-column">
+        <!-- Sample selector dropdown -->
+        <div class="sample-selector-container">
+          <button id="sample-selector-btn">Presets ▼</button>
+          <div id="sample-dropdown" class="sample-dropdown">
+            <div class="dropdown-item" data-sample="Dirty Bass.wav">Dirty Bass</div>
+            <div class="dropdown-item" data-sample="Keys - Piano.wav">Piano</div>
+            <div class="dropdown-item" data-sample="Noise.wav">Noise</div>
+            <div class="dropdown-item" data-sample="Saw.wav">Saw</div>
+          </div>
+        </div>
+        <div class="switch-container rec-button-container">
+            <div class="rec-button" id="mic-record-button">
+              <span>Rec</span>
+              <div class="led-indicator" id="rec-led"></div>
+            </div>
+          </div>
+        <div class="knob" id="sample-start-knob"></div>
+        <label for="sample-start-knob" style="text-align: center;">Start</label>
+        <div class="knob" id="sample-end-knob"></div>
+        <label for="sample-end-knob" style="text-align: center;">End</label>
+        <div class="knob" id="sample-crossfade-knob"></div>
+        <label for="sample-crossfade-knob" style="text-align: center;">Crossfade</label>
+      </div>
+    </div>
+  </div>
             <!-- OSC 1 Module -->
             <div class="module">
                 <div class="module-title">OSC 1</div>
@@ -1022,8 +1294,8 @@ input[type="range"]::-moz-focus-outer {
             
                 <div class="slider-group">
                     <div class="slider-attack">
-                        <span id="attack-value">0.1</span>
-                        <input type="range" id="attack" min="0" max="5" step="0.01" value="0.1">
+                        <span id="attack-value">0</span>
+                        <input type="range" id="attack" min="0" max="5" step="0.001" value="0">
                     </div>
                     <div class="slider-decay">
                         <span id="decay-value">0.1</span>
@@ -1034,8 +1306,8 @@ input[type="range"]::-moz-focus-outer {
                         <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
                     </div>
                     <div class="slider-release">
-                        <span id="release-value">0.5</span>
-                        <input type="range" id="release" min="0" max="5" step="0.01" value="0.5">
+                        <span id="release-value">0.01</span>
+                        <input type="range" id="release" min="0" max="5" step="0.001" value="0.001">
                     </div>
                 </div>
                 <div class="slider-labels">
@@ -1140,22 +1412,32 @@ let currentVolume = 0.5; // Initial volume
 masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
 // Add these global variables at the top with other audio-related variables
 // Add to your global variables
-let cachedCrossfadedBuffer = null;
-let lastCachedStartPos = -1;
-let lastCachedEndPos = -1;
-let lastCachedCrossfade = -1;
 let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
+let isEmuModeOn = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let recordingStartTime = null;
+let fadedBufferOriginalDuration = null;
+let emuFilterNode = null;
 let lastPlayedNote = null;
 let sampleSource = null;
 let isPlaying = false;
-// STEP 1: Define core sample looping variables
-let lastCrossfadeValue = 0;
-let sampleStartPosition = 0;       // Start position (0-1 range)
-let sampleEndPosition = 1;         // End position (0-1 range)
-let sampleCrossfadeAmount = 0;     // Crossfade percentage (0-1 range)
-let isSampleLoopOn = false;        // Loop state - will be enabled when crossfade > 0
-
-
+let sampleStartPosition = 0; // 0-1 range representing portion of audio file
+let sampleEndPosition = 1;   // 0-1 range (default to full sample)
+let sampleCrossfadeAmount = 0; // 0-1 range for crossfade percentage
+let isSampleLoopOn = false; // Will now be controlled by crossfade knob
+let cachedCrossfadedBuffer = null;
+let crossfadeUpdateTimer = null;
+let sampleFadeInAmount = 0;
+let sampleFadeOutAmount = 0;
+let fadeProcessTimer = null;
+let fadedBuffer = null;
+let startUpdateTimer = null;
+let endUpdateTimer = null;
+let lastCachedStartPos = null;
+let lastCachedEndPos = null;
+let lastCachedCrossfade = null;
 // Add at top with other global variables
 sampleGainNode = audioCtx.createGain();
 sampleGainNode.gain.value = 0.5;
@@ -1306,8 +1588,595 @@ function initializeNotchedKnob(knob, onChange) {
         }
     };
 }
+// Function to process the buffer with fade in/out before crossfades
+// Function to process the buffer with fade in/out after applying start/end points
+// Clean up the processing order and fade handling functions
+function setupMicRecording() {
+  const recordButton = document.getElementById('mic-record-button');
+  const recLed = document.getElementById('rec-led');
+  
+  if (!recordButton) return;
+  
+  recordButton.addEventListener('click', async () => {
+    // If already recording, stop the recording
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+    
+    try {
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Update UI to show recording state
+      recordButton.classList.add('recording');
+      recLed.classList.add('on');
+      isRecording = true;
+      recordingStartTime = Date.now();
+      
+      // Set up the MediaRecorder with audio settings
+      mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm',
+        audioBitsPerSecond: 128000
+      });
+      
+      // Clear any previously recorded chunks
+      recordedChunks = [];
+      
+      // Handle data as it becomes available
+      mediaRecorder.addEventListener('dataavailable', event => {
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      });
+      
+      // Handle recording completion
+      mediaRecorder.addEventListener('stop', () => {
+        // Process the recording
+        processRecording();
+        
+        // Stop all tracks in the media stream to release the microphone
+        stream.getTracks().forEach(track => track.stop());
+      });
+      
+      // Start recording
+      mediaRecorder.start(100); // Collect data in 100ms chunks
+      
+      console.log('Recording started...');
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      alert('Could not access the microphone. Please check your permissions.');
+    }
+  });
+  
+  function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+    
+    // Update UI
+    recordButton.classList.remove('recording');
+    recLed.classList.remove('on');
+    isRecording = false;
+    
+    // Stop the recorder
+    mediaRecorder.stop();
+    console.log('Recording stopped after', ((Date.now() - recordingStartTime) / 1000).toFixed(1), 'seconds');
+  }
+  
+  function processRecording() {
+    if (recordedChunks.length === 0) {
+      console.log('No audio data recorded');
+      return;
+    }
+    
+    // Create a blob from all the chunks
+    const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+    
+    // Convert the blob to an ArrayBuffer
+    const reader = new FileReader();
+    reader.readAsArrayBuffer(audioBlob);
+    
+    reader.onloadend = () => {
+      // Decode the audio data
+      audioCtx.decodeAudioData(reader.result)
+        .then(buffer => {
+          // Use the buffer as the new sample
+          audioBuffer = buffer;
+          
+          // Process fades and crossfades
+          updateSampleProcessing();
+          
+          // Reset cached crossfade buffer
+          cachedCrossfadedBuffer = null;
+          lastCachedStartPos = null;
+          lastCachedEndPos = null;
+          lastCachedCrossfade = null;
+          
+          // Create new source node
+          if (sampleSource) {
+            try {
+              sampleSource.stop();
+            } catch (e) {}
+          }
+          sampleSource = audioCtx.createBufferSource();
+          sampleSource.buffer = buffer;
+          
+          // Connect the audio chain
+          sampleSource.connect(sampleGainNode);
+          sampleSource.start();
+          
+          // Update the label text to show recording is loaded
+          const fileLabel = document.querySelector('label[for="audio-file"]');
+          if (fileLabel) {
+            fileLabel.textContent = 'Mic Recording';
+          }
+          
+          console.log('Recording loaded:', buffer.duration.toFixed(2), 'seconds');
+          
+          // Create crossfaded buffer if needed
+          if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+            console.log("Creating crossfaded buffer for mic recording");
+            const result = createCrossfadedBuffer(
+              buffer, 
+              sampleStartPosition, 
+              sampleEndPosition, 
+              sampleCrossfadeAmount
+            );
+            
+            if (result && result.buffer) {
+              console.log("Successfully created crossfaded buffer");
+              cachedCrossfadedBuffer = result.buffer;
+              lastCachedStartPos = sampleStartPosition;
+              lastCachedEndPos = sampleEndPosition;
+              lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+          }
+          
+          // Update any active notes
+          Object.values(activeNotes).forEach(note => {
+            if (note && note.source) {
+              // Skip held notes
+              if (heldNotes.includes(note.noteNumber)) {
+                console.log(`Note ${note.id} is held; will update on release.`);
+                return;
+              }
+              
+              note.usesProcessedBuffer = false;
+              note.crossfadeActive = false;
+              
+              if (isSampleLoopOn) {
+                note.looping = true; 
+                setupLoopCrossfade(note);
+              }
+              updateSamplePlaybackParameters(note);
+            }
+          });
+        })
+        .catch(err => {
+          console.error('Error decoding audio data:', err);
+          alert('Could not process the recording. Please try again.');
+        });
+    };
+  }
+}
+/**
+ * Creates a properly loopable buffer with crossfades baked in.
+ */
 
+ function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, crossfadeAmount) {
+  try {
+    // Basic parameter checks
+    if (!originalBuffer || originalBuffer.length === 0) {
+      console.log("No buffer provided or empty buffer");
+      return null;
+    }
+    
+    if (crossfadeAmount <= 0.00001) {
+      console.log("Crossfade amount too small");
+      return null;
+    }
+    
+    // IMPORTANT: Use the original buffer for consistency 
+    // This ensures the lead-in audio matches the main loop content
+    const sourceBuffer = originalBuffer; 
+    const sampleRate = sourceBuffer.sampleRate;
+    const channels = sourceBuffer.numberOfChannels;
+    const totalSamples = sourceBuffer.length;
+    const channel0Data = sourceBuffer.getChannelData(0);
+    
+    // Calculate sample indices and loop length
+    let startSamplePos = Math.floor(startFraction * totalSamples);
+    const endSamplePos = Math.floor(endFraction * totalSamples);
+    let loopLength = endSamplePos - startSamplePos;
+    
+    // Check for minimum viable loop length
+    const minimumSamples = Math.max(100, Math.floor(totalSamples * 0.001));
+    if (loopLength < minimumSamples) {
+      console.log(`Loop length (${loopLength} samples) is too short for crossfading. Minimum: ${minimumSamples}`);
+      return { buffer: fadedBuffer || originalBuffer, adjustedStartFraction: startFraction };
+    }
+    
+    // For very small crossfades (<20%), we just use zero-crossing alignment without crossfade
+    if (crossfadeAmount < 0.20) {
+      console.log("Using pure zero-crossing alignment for small crossfade");
+      
+      // Zero crossing detection code (unchanged)
+      const searchWindowSamples = Math.ceil(sampleRate * 0.01);
+      const startCrossings = [];
+      const startMin = Math.max(0, startSamplePos - searchWindowSamples);
+      const startMax = Math.min(totalSamples - 2, startSamplePos + searchWindowSamples);
+      
+      for (let i = startMin; i < startMax; i++) {
+        if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
+          startCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'rising'
+          });
+        }
+        else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
+          startCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'falling'
+          });
+        }
+      }
+      
+      const endCrossings = [];
+      const endMin = Math.max(0, endSamplePos - searchWindowSamples);
+      const endMax = Math.min(totalSamples - 2, endSamplePos + searchWindowSamples);
+      
+      for (let i = endMin; i < endMax; i++) {
+        if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
+          endCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'rising'
+          });
+        }
+        else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
+          endCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'falling'
+          });
+        }
+      }
+      
+      console.log(`Found ${startCrossings.length} start and ${endCrossings.length} end zero crossings`);
+      
+      if (startCrossings.length > 0 && endCrossings.length > 0) {
+        let bestMatch = { score: -Infinity, start: startSamplePos, end: endSamplePos };
+        
+        for (const start of startCrossings) {
+          for (const end of endCrossings) {
+            const typeScore = (start.type === end.type) ? 5 : -2;
+            const slopeScore = 5 - Math.min(5, Math.abs(start.slope - end.slope) * 20);
+            const distanceScore = 3 - Math.min(3, 
+              (Math.abs(start.index - startSamplePos) + 
+               Math.abs(end.index - endSamplePos)) / (searchWindowSamples * 2) * 3);
+            
+            const score = typeScore + slopeScore + distanceScore;
+            
+            if (score > bestMatch.score) {
+              bestMatch = {
+                score,
+                start: start.index,
+                end: end.index
+              };
+            }
+          }
+        }
+        
+        if (bestMatch.score > 0) {
+          console.log(`Using zero crossings: start=${bestMatch.start}, end=${bestMatch.end}, score=${bestMatch.score.toFixed(2)}`);
+          startSamplePos = bestMatch.start;
+          endSamplePos = bestMatch.end;
+          loopLength = endSamplePos - startSamplePos;
+        }
+      }
+      
+      const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
+      
+      for (let channel = 0; channel < channels; channel++) {
+        const origData = sourceBuffer.getChannelData(channel);
+        const newData = newBuffer.getChannelData(channel);
+        
+        for (let i = 0; i < loopLength; i++) {
+          newData[i] = origData[startSamplePos + i];
+        }
+      }
+      
+      return { buffer: newBuffer, adjustedStartFraction: startSamplePos / totalSamples };
+    }
+    
+    // For larger crossfades (≥20%), implement a robust crossfade with phase alignment
+    console.log("Using enhanced phase-aligned crossfade for larger fade amount");
+
+    // IMPROVED CROSSFADE LENGTH CALCULATION
+    // This is a critical part for consistent results
+    const minFadeSamples = Math.max(Math.round(sampleRate * 0.015), 100); // minimum 15ms fade
+    const maxFadeSamples = Math.floor(loopLength * 0.4); // maximum 40% of loop length
+
+    // Calculate fade length based on crossfade amount with better scaling
+    let fadeLengthSamples;
+    if (crossfadeAmount >= 0.95) {
+      // Near 100% - use most of the available loop length
+      fadeLengthSamples = maxFadeSamples;
+    } else if (crossfadeAmount < 0.3) {
+      // Small crossfades (20-30%) - use fixed duration
+      fadeLengthSamples = Math.max(minFadeSamples, Math.round(sampleRate * 0.035)); // 35ms minimum
+    } else {
+      // Mid-range crossfades - use balanced approach with cubic easing
+      // This easing function provides smoother scaling across percentage ranges
+      const t = crossfadeAmount;
+      const easedT = t * t * (3 - 2 * t); // Smooth step function
+      fadeLengthSamples = Math.floor(minFadeSamples + (maxFadeSamples - minFadeSamples) * easedT);
+    }
+
+    console.log(`Fade length: ${fadeLengthSamples} samples (${fadeLengthSamples/sampleRate}s), ${(fadeLengthSamples/loopLength*100).toFixed(1)}% of loop`);
+    
+    // Ensure we have enough samples before start for lead-in
+    if (startSamplePos < fadeLengthSamples) {
+      startSamplePos = fadeLengthSamples;
+      loopLength = endSamplePos - startSamplePos;
+    }
+    
+    // ENHANCED CROSSFADE REGION ANALYSIS
+    // Find the best matching lead-in segment with multiple criteria
+    
+    // First analyze the crossfade region characteristics
+    const crossfadeStartPos = endSamplePos - fadeLengthSamples;
+    
+    // Multiple analysis points for better matching - analyze the ENTIRE crossfade region
+    const analysisPoints = 5; // Sample 5 points across the crossfade region
+    const crossfadeCharacteristics = [];
+    
+    for (let i = 0; i < analysisPoints; i++) {
+      const position = crossfadeStartPos + Math.floor(i * fadeLengthSamples / (analysisPoints - 1));
+      
+      // Detect zero-crossing near this position
+      let crossType = null;
+      let isRising = false;
+      
+      // Check 3 samples before and after
+      for (let j = -3; j <= 2; j++) {
+        const idx = Math.max(0, Math.min(position + j, totalSamples - 2));
+        if (channel0Data[idx] <= 0 && channel0Data[idx + 1] > 0) {
+          crossType = 'rising';
+          isRising = true;
+          break;
+        } else if (channel0Data[idx] >= 0 && channel0Data[idx + 1] < 0) {
+          crossType = 'falling';
+          isRising = false;
+          break;
+        }
+      }
+      
+      // If no zero crossing, analyze slope and polarity
+      if (!crossType) {
+        const p0 = channel0Data[Math.max(0, position - 3)];
+        const p1 = channel0Data[position];
+        const p2 = channel0Data[Math.min(totalSamples - 1, position + 3)];
+        
+        isRising = (p2 > p0);
+        crossType = p1 >= 0 ? 'positive' : 'negative';
+      }
+      
+      // Calculate local amplitude
+      const amplitude = Math.abs(channel0Data[position]);
+      
+      // Calculate local frequency using zero-crossing rate
+      let localFreq = 0;
+      const freqWindow = 20;
+      let crossings = 0;
+      
+      for (let j = Math.max(0, position - freqWindow); j < Math.min(totalSamples - 1, position + freqWindow); j++) {
+        if ((channel0Data[j] <= 0 && channel0Data[j + 1] > 0) || 
+            (channel0Data[j] >= 0 && channel0Data[j + 1] < 0)) {
+          crossings++;
+        }
+      }
+      
+      localFreq = crossings / (freqWindow * 2);
+      
+      // Store the characteristics at this point
+      crossfadeCharacteristics.push({
+        position,
+        crossType,
+        isRising,
+        amplitude,
+        localFreq
+      });
+    }
+    
+    // Now find the best matching lead-in section
+    const searchWindow = Math.min(Math.floor(sampleRate * 0.1), Math.floor(loopLength * 0.3)); // 100ms or 30% of loop
+    const searchStartPoint = startSamplePos - fadeLengthSamples;
+    let bestLeadInPos = searchStartPoint;
+    let bestScore = -1000;
+    
+    // Try different potential lead-in positions and score them
+    for (let offset = -searchWindow; offset <= searchWindow; offset += 5) { // Step by 5 samples for efficiency
+      const testPos = searchStartPoint + offset;
+      if (testPos < 0 || testPos + fadeLengthSamples >= crossfadeStartPos) {
+        continue;
+      }
+      
+      let totalScore = 0;
+      
+      // Score based on matching the characteristics at each analysis point
+      for (let i = 0; i < analysisPoints; i++) {
+        const targetChar = crossfadeCharacteristics[i];
+        const relativePos = Math.floor(i * fadeLengthSamples / (analysisPoints - 1));
+        const testSamplePos = testPos + relativePos;
+        
+        let pointScore = 0;
+        
+        // Check for matching zero crossing type
+        let testCrossType = null;
+        let testIsRising = false;
+        
+        // Look for zero crossing near this test position
+        for (let j = -3; j <= 2; j++) {
+          const idx = Math.max(0, Math.min(testSamplePos + j, totalSamples - 2));
+          if (channel0Data[idx] <= 0 && channel0Data[idx + 1] > 0) {
+            testCrossType = 'rising';
+            testIsRising = true;
+            break;
+          } else if (channel0Data[idx] >= 0 && channel0Data[idx + 1] < 0) {
+            testCrossType = 'falling';
+            testIsRising = false;
+            break;
+          }
+        }
+        
+        if (!testCrossType) {
+          const p0 = channel0Data[Math.max(0, testSamplePos - 3)];
+          const p1 = channel0Data[testSamplePos];
+          const p2 = channel0Data[Math.min(totalSamples - 1, testSamplePos + 3)];
+          
+          testIsRising = (p2 > p0);
+          testCrossType = p1 >= 0 ? 'positive' : 'negative';
+        }
+        
+        // Score matching characteristics
+        if (testCrossType === targetChar.crossType) {
+          pointScore += 30;
+        }
+        
+        if (testIsRising === targetChar.isRising) {
+          pointScore += 20;
+        }
+        
+        // Calculate amplitude similarity
+        const testAmplitude = Math.abs(channel0Data[testSamplePos]);
+        const ampDiff = Math.abs(targetChar.amplitude - testAmplitude);
+        pointScore += 20 - Math.min(20, ampDiff * 40);
+        
+        // Calculate local frequency
+        let testCrossings = 0;
+        const freqWindow = 20;
+        
+        for (let j = Math.max(0, testSamplePos - freqWindow); j < Math.min(totalSamples - 1, testSamplePos + freqWindow); j++) {
+          if ((channel0Data[j] <= 0 && channel0Data[j + 1] > 0) || 
+              (channel0Data[j] >= 0 && channel0Data[j + 1] < 0)) {
+            testCrossings++;
+          }
+        }
+        
+        const testLocalFreq = testCrossings / (freqWindow * 2);
+        const freqDiff = Math.abs(targetChar.localFreq - testLocalFreq);
+        pointScore += 20 - Math.min(20, freqDiff * 100);
+        
+        // Add to total score (weight later points slightly more)
+        totalScore += pointScore * (0.8 + 0.2 * i / analysisPoints);
+      }
+      
+      // Additional score for proximity to original position
+      totalScore += 50 - Math.min(50, Math.abs(offset) / searchWindow * 50);
+      
+      // Check for best score
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
+        bestLeadInPos = testPos;
+      }
+    }
+    
+    console.log(`Selected lead-in position: ${bestLeadInPos}, score: ${bestScore.toFixed(1)}`);
+    
+    // FINE-TUNE THE LEAD-IN POSITION FOR PRECISE PHASE ALIGNMENT
+    // Once we have the approximate best position, do a fine-grained search for perfect phase alignment
+    let fineTunedLeadIn = bestLeadInPos;
+    let fineTuneScore = -1000;
+    
+    for (let fineOffset = -10; fineOffset <= 10; fineOffset++) {
+      const testPos = bestLeadInPos + fineOffset;
+      if (testPos < 0) continue;
+      
+      // Focus on precise alignment at the start of crossfade region
+      const endPhase = channel0Data[crossfadeStartPos];
+      const endSlope = channel0Data[crossfadeStartPos + 1] - channel0Data[crossfadeStartPos];
+      
+      const testPhase = channel0Data[testPos];
+      const testSlope = channel0Data[testPos + 1] - channel0Data[testPos];
+      
+      // Score based on phase alignment and slope matching
+      const phaseScore = 50 - Math.min(50, Math.abs(endPhase - testPhase) * 100);
+      const slopeScore = 50 - Math.min(50, Math.abs(endSlope - testSlope) * 200);
+      
+      const score = phaseScore + slopeScore;
+      
+      if (score > fineTuneScore) {
+        fineTuneScore = score;
+        fineTunedLeadIn = testPos;
+      }
+    }
+    
+    console.log(`Fine-tuned lead-in position: ${fineTunedLeadIn}, improvement: ${(fineTuneScore/100).toFixed(1)}`);
+    
+    // Create the final buffer with the best phase alignment
+    const adjustedStart = startSamplePos;
+    const fadeInStart = fineTunedLeadIn;
+    
+    const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
+    
+    // Apply improved crossfade technique
+    for (let channel = 0; channel < channels; channel++) {
+      const origData = sourceBuffer.getChannelData(channel);
+      const newData = newBuffer.getChannelData(channel);
+      
+      // First copy the main loop content
+      for (let i = 0; i < loopLength; i++) {
+        newData[i] = origData[adjustedStart + i];
+      }
+      
+      // APPLY ENHANCED EQUAL-POWER CROSSFADE CURVE
+      // This is critical for eliminating clicks and glitches
+      for (let i = 0; i < fadeLengthSamples; i++) {
+        const idx = loopLength - fadeLengthSamples + i;
+        if (idx >= 0) {
+          // Use optimized crossfade ratio with slight modification to ensure 
+          // the fade out goes completely to zero at the midpoint
+          const ratio = i / fadeLengthSamples;
+          
+          // Equal power crossfade curve (quarter-circle) provides the smoothest transition
+          // Apply a very slight bias (0.02) to ensure the fadeOut curve reaches complete zero
+          const fadeOutFactor = Math.cos(ratio * Math.PI/2) - Math.max(0, 0.02 - ratio * 0.04);
+          const fadeInFactor = Math.sin(ratio * Math.PI/2);
+          
+          const loopEndSample = newData[idx];
+          const leadInSample = origData[fadeInStart + i];
+          
+          // Apply the crossfade with perfect phase alignment
+          newData[idx] = (loopEndSample * fadeOutFactor) + (leadInSample * fadeInFactor);
+        }
+      }
+      
+      // Apply a tiny smoothing at the loop transition point to eliminate any remaining discontinuities
+      const smoothSamples = Math.min(24, Math.ceil(sampleRate * 0.0005)); // 0.5ms or 24 samples, whichever is smaller
+      
+      // Smooth the transition at the very end of the buffer (loop point)
+      for (let i = 1; i <= smoothSamples; i++) {
+        const idx = loopLength - i;
+        if (idx >= 0 && idx < loopLength - 1) {
+          const weight = i / smoothSamples;
+          newData[idx] = newData[idx] * (1 - weight * 0.1) + newData[idx + 1] * (weight * 0.1);
+        }
+      }
+    }
+    
+    console.log(`Created enhanced crossfaded buffer: ${(loopLength / sampleRate).toFixed(3)}s loop`);
+    return { buffer: newBuffer, adjustedStartFraction: adjustedStart / totalSamples };
+    
+  } catch (e) {
+    console.error("Error creating crossfaded buffer:", e);
+    return { buffer: fadedBuffer || originalBuffer, adjustedStartFraction: startFraction };
+  }
+}
+// Knob initializations (only one set)
 const knobInitializations = {
+      
     'osc1-pwm-knob': (value) => {
         const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
         tooltip.textContent = `PWM: ${(value * 100).toFixed(0)}%`;
@@ -1352,39 +2221,24 @@ const knobInitializations = {
         });
         console.log('Sample Gain:', value.toFixed(2));
     },
-'sample-pitch-knob': (value) => {
-  // Convert 0-1 range to -1200 to +1200 cents
-  const newDetune = (value * 2400) - 1200;
-  
-  if (Math.abs(newDetune - currentSampleDetune) > 1) {
-    currentSampleDetune = newDetune;
+    // ... existing knobs ...
+    'sample-pitch-knob': (value) => {
+        // Convert 0-1 range to -1200 to +1200 cents
+        currentSampleDetune = (value * 2400) - 1200;
     
-    // Show tooltip
-    const tooltip = createTooltipForKnob('sample-pitch-knob', value);
+    // Show and update tooltip
+    const tooltip = document.getElementById('pitch-tooltip') || createTooltip();
     tooltip.textContent = `${currentSampleDetune.toFixed(0)} cents`;
     tooltip.style.opacity = '1';
     
-    // Update all playing notes with the new detune value
-    const now = audioCtx.currentTime;
-    
+    // Update all active notes' sample pitch
     Object.values(activeNotes).forEach(note => {
-      // Apply to original source
-      if (note.source && note.source.detune) {
-        note.source.detune.setValueAtTime(currentSampleDetune, now);
-      }
-      
-      // Apply to both sources in dual-buffer approach
-      if (note.sourceA && note.sourceA.detune) {
-        note.sourceA.detune.setValueAtTime(currentSampleDetune, now);
-      }
-      
-      if (note.sourceB && note.sourceB.detune) {
-        note.sourceB.detune.setValueAtTime(currentSampleDetune, now);
-      }
+        if (note && note.source) {
+            note.source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
+        }
     });
     
     console.log('Sample Pitch:', currentSampleDetune.toFixed(0) + ' cents');
-  }
 },
 
 // Add these new knob initializations in the knobInitializations object
@@ -1393,41 +2247,258 @@ const knobInitializations = {
     const maxStart = Math.min(value, sampleEndPosition - 0.01);
     sampleStartPosition = maxStart;
     
-    // Show tooltip
+    // Update processing with new start position
+    updateSampleProcessing();
+    
     const tooltip = createTooltipForKnob('sample-start-knob', value);
     tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
     tooltip.style.opacity = '1';
     
-    // Update any playing samples
-    Object.values(activeNotes).forEach(note => {
-        if (note && note.source) {
-            updateSamplePlaybackParameters(note);
-        }
-    });
-    
     console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%');
+    
+    // Instead of direct creation, ensure we wait for updateSampleProcessing to finish
+    if (startUpdateTimer) { clearTimeout(startUpdateTimer); }
+    startUpdateTimer = setTimeout(() => {
+        if (audioBuffer && sampleCrossfadeAmount > 0.01 && isSampleLoopOn) {
+            console.log("Creating new crossfaded buffer after start position settled");
+            // Use the processed buffer that includes fades
+            const result = createCrossfadedBuffer(
+                fadedBuffer || audioBuffer, 
+                0,   // Use entire processed buffer 
+                1,   // Use entire processed buffer
+                sampleCrossfadeAmount
+            );
+            
+            if (result && result.buffer) {
+                cachedCrossfadedBuffer = result.buffer;
+                lastCachedStartPos = sampleStartPosition;
+                lastCachedEndPos = sampleEndPosition;
+                lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+        }
+        
+        // Update any active notes
+        Object.values(activeNotes).forEach(note => {
+            if (note && note.source) {
+                // Skip update if note is held
+                if (heldNotes.includes(note.noteNumber)) {
+                    console.log(`Note ${note.id} is held; skipping start update.`);
+                    return;
+                }
+                
+                // Force re-processing
+                note.usesProcessedBuffer = false;
+                note.crossfadeActive = false;
+                
+                if (isSampleLoopOn) {
+                    note.looping = true;
+                    setupLoopCrossfade(note);
+                }
+                updateSamplePlaybackParameters(note);
+            }
+        });
+        startUpdateTimer = null;
+    }, 150);  // Longer delay to ensure processing completes
 },
+
 'sample-end-knob': (value) => {
     // Ensure end position is always greater than start position
     const minEnd = Math.max(value, sampleStartPosition + 0.01);
     sampleEndPosition = minEnd;
     
-    // Show tooltip
+    // Add this line to process fades when end position changes
+    updateSampleProcessing();
+    
     const tooltip = createTooltipForKnob('sample-end-knob', value);
     tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
     tooltip.style.opacity = '1';
     
-    // Update any playing samples
-    Object.values(activeNotes).forEach(note => {
-        if (note && note.source) {
-            updateSamplePlaybackParameters(note);
-        }
-    });
-    
     console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
+    
+    // Instead of direct creation, ensure we wait for updateSampleProcessing to finish
+    if (endUpdateTimer) { clearTimeout(endUpdateTimer); }
+    endUpdateTimer = setTimeout(() => {
+        if (audioBuffer && sampleCrossfadeAmount > 0.01 && isSampleLoopOn) {
+            console.log("Creating new crossfaded buffer after end position settled");
+            // Use the processed buffer that includes fades
+            const result = createCrossfadedBuffer(
+                fadedBuffer || audioBuffer, 
+                0,   // Use entire processed buffer 
+                1,   // Use entire processed buffer
+                sampleCrossfadeAmount
+            );
+            
+            if (result && result.buffer) {
+                cachedCrossfadedBuffer = result.buffer;
+                lastCachedStartPos = sampleStartPosition;
+                lastCachedEndPos = sampleEndPosition;
+                lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+        }
+        
+        // Update any active notes
+        Object.values(activeNotes).forEach(note => {
+            if (note && note.source) {
+                // Skip update if note is held
+                if (heldNotes.includes(note.noteNumber)) {
+                    console.log(`Note ${note.id} is held; skipping end update.`);
+                    return;
+                }
+                
+                // Force re-processing
+                note.usesProcessedBuffer = false;
+                note.crossfadeActive = false;
+                
+                if (isSampleLoopOn) {
+                    note.looping = true;
+                    setupLoopCrossfade(note);
+                }
+                updateSamplePlaybackParameters(note);
+            }
+        });
+        endUpdateTimer = null;
+    }, 150);  // Longer delay to ensure processing completes
 },
-'sample-crossfade-knob': handleCrossfadeKnobChange,
+'sample-crossfade-knob': (value) => {
+    const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
+    tooltip.textContent = `Crossfade: ${(value * 100).toFixed(0)}%`;
+    tooltip.style.opacity = '1';
+    
+    // Store previous values
+    const prevCrossfade = sampleCrossfadeAmount;
+    const prevLoopState = isSampleLoopOn;
+    
+    // Update values
+    sampleCrossfadeAmount = value;
+    isSampleLoopOn = value > 0.01;
+    
+    // If enabling crossfade, clear any existing fades
+    if (value > 0.01) {
+        // Reset fade values when enabling crossfade
+        sampleFadeInAmount = 0;
+        sampleFadeOutAmount = 0;
+        
+        // Update the fade knob position to center (no fade)
+        const fadeKnob = D('sample-fade-knob');
+        if (fadeKnob) {
+            const control = initializeKnob(fadeKnob, knobInitializations['sample-fade-knob']);
+            control.setValue(0.5);
+        }
+    }
+    
+    // CRITICAL FIX: When crossfade amount changes significantly, recalculate zero-crossing alignment
+    if (Math.abs(prevCrossfade - value) > 0.02 || prevLoopState !== isSampleLoopOn) {
+        console.log("Crossfade changed significantly - recalculating zero crossings");
+        
+        if (audioBuffer) {
+            // Similar to what happens in updateSampleProcessing but just for zero crossing
+            const totalSamples = audioBuffer.length;
+            const rawStartSample = Math.floor(sampleStartPosition * totalSamples);
+            const rawEndSample = Math.floor(sampleEndPosition * totalSamples);
+            
+            // Find zero-crossings near the start and end points
+            const alignedPoints = findBestZeroCrossings(
+                audioBuffer, 
+                rawStartSample, 
+                rawEndSample
+            );
+            
+            // Update the start and end positions with aligned zero crossings
+            sampleStartPosition = alignedPoints.start / totalSamples;
+            sampleEndPosition = alignedPoints.end / totalSamples;
+            
+            console.log(`Zero-crossings recalculated: start=${sampleStartPosition.toFixed(4)}, end=${sampleEndPosition.toFixed(4)}`);
+            
+            // Update knob positions to reflect new values
+            const startKnob = D('sample-start-knob');
+            const endKnob = D('sample-end-knob');
+            
+            if (startKnob) {
+                const control = initializeKnob(startKnob, knobInitializations['sample-start-knob']);
+                control.setValue(sampleStartPosition);
+            }
+            
+            if (endKnob) {
+                const control = initializeKnob(endKnob, knobInitializations['sample-end-knob']);
+                control.setValue(sampleEndPosition);
+            }
+        }
+    }
+    
+    // Process with any updated settings
+    updateSampleProcessing();
 
+    // Regular debounced update
+    if (crossfadeUpdateTimer) { clearTimeout(crossfadeUpdateTimer); }
+    crossfadeUpdateTimer = setTimeout(() => {
+        console.log("CROSSFADE UPDATE TIMER FIRED with", Object.keys(activeNotes).length, "active notes");
+        Object.values(activeNotes).forEach(note => {
+            if (note && note.source) {
+                console.log(`Processing note ${note.id}, held: ${heldNotes.includes(note.noteNumber)}`);
+                // Skip held notes
+                if (heldNotes.includes(note.noteNumber)) {
+                    console.log(`Note ${note.id} is held; skipping crossfade update.`);
+                    return;
+                }
+                
+                console.log(`Forcing re-processing for note ${note.id}`);
+                // Force re-processing - important!
+                note.usesProcessedBuffer = false;
+                note.crossfadeActive = false;
+                
+                // This is crucial: first create the crossfaded buffer, then update the note
+                if (isSampleLoopOn) {
+                    note.looping = true; // Force looping flag to true!
+                    setupLoopCrossfade(note);
+                }
+                updateSamplePlaybackParameters(note);
+            }
+        });
+        crossfadeUpdateTimer = null;
+    }, 100);
+},
+'sample-fade-knob': (value) => {
+    // Convert 0-1 range to -0.5 to 0.5 range
+    const fadeValue = value * 2 - 1;
+    
+    // Create tooltip
+    const tooltip = createTooltipForKnob('sample-fade-knob', value);
+    
+    // If crossfade/loop is on, disable fade functionality completely
+    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+        tooltip.textContent = `Fade (disabled)`;
+        tooltip.style.opacity = '1';
+        console.log("Fade knob ignored - crossfade is active");
+        return; // Exit early - don't process fades when crossfade is active
+    }
+    
+    // Different text based on direction
+    if (fadeValue < 0) {
+        // Fade out (left side)
+        const fadeOutPercent = Math.abs(fadeValue * 100).toFixed(0);
+        tooltip.textContent = `Fade Out: ${fadeOutPercent}%`;
+        console.log(`Setting fade OUT to ${fadeOutPercent}%`);
+    } else if (fadeValue > 0) {
+        // Fade in (right side)
+        const fadeInPercent = (fadeValue * 100).toFixed(0);
+        tooltip.textContent = `Fade In: ${fadeInPercent}%`;
+        console.log(`Setting fade IN to ${fadeInPercent}%`);
+    } else {
+        // Center position
+        tooltip.textContent = `No Fade`;
+        console.log("Resetting fades to 0");
+    }
+    tooltip.style.opacity = '1';
+    
+    // Store values for processing
+    sampleFadeInAmount = Math.max(0, fadeValue);
+    sampleFadeOutAmount = Math.abs(Math.min(0, fadeValue));
+    
+    console.log(`Fade control values: fadeIn=${sampleFadeInAmount.toFixed(2)}, fadeOut=${sampleFadeOutAmount.toFixed(2)}`);
+    
+    // Process the fade changes
+    updateSampleProcessing();
+},
 'glide-time-knob': (value) => {
     const tooltip = createTooltipForKnob('glide-time-knob', value);
     tooltip.textContent = `${(value * 2000).toFixed(0)}ms`;
@@ -1437,233 +2508,191 @@ const knobInitializations = {
 },
 };
 /**
- * Sets up loop crossfade without causing recursion
+ * Updates existing note playback parameters.
+ * For crossfaded loops, if not already using the processed buffer,
+ * this will create a new note and fade out the old one.
  */
- function setupLoopCrossfade(note) {
-  // If the note already has crossfades set up, nothing to do
-  if (note.usesProcessedBuffer || note.crossfadeActive) {
+ function updateSamplePlaybackParameters(note) {
+  if (!note || !audioBuffer) return note;
+  if (note.isBeingUpdated) return note;
+  if (note.state === "releasing") {
+    console.log("updateSamplePlaybackParameters: Note", note.id, "is releasing; skipping update.");
     return note;
   }
+  note.isBeingUpdated = true;
   
-  // Check if crossfades are needed
-  if (!note.looping || sampleCrossfadeAmount <= 0.01 || !audioBuffer) {
-    return note;
-  }
+  // Reset flags to force new settings to take hold
+  note.crossfadeActive = false;
+  note.usesProcessedBuffer = false;
   
-  // Add a flag to prevent recursion
-  note.crossfadeActive = true;
-  
-  // IMPORTANT: Do NOT call updateSamplePlaybackParameters or createNote here
-  // This was causing the infinite recursion
-  
-  // Instead, directly modify the existing note with crossfade settings
   try {
-    // Get the actual buffer to use
-    if (!cachedCrossfadedBuffer || 
-        lastCachedStartPos !== sampleStartPosition || 
-        lastCachedEndPos !== sampleEndPosition || 
-        lastCachedCrossfade !== sampleCrossfadeAmount) {
-      
-      // Create a new crossfaded buffer
-      cachedCrossfadedBuffer = createCrossfadedBuffer(
-        audioBuffer, 
-        sampleStartPosition, 
-        sampleEndPosition, 
-        sampleCrossfadeAmount
+    if (sampleCrossfadeAmount > 0.01) {
+      console.log("updateSamplePlaybackParameters: Creating replacement note with crossfade for note", note.id);
+      const replacementNote = createNote(
+        note.noteNumber,
+        audioBuffer,
+        audioCtx,
+        masterGain
       );
-      
-      // Update cache tracking variables
-      if (cachedCrossfadedBuffer) {
-        lastCachedStartPos = sampleStartPosition;
-        lastCachedEndPos = sampleEndPosition;
-        lastCachedCrossfade = sampleCrossfadeAmount;
+      if (replacementNote) {
+        replacementNote.gainNode.gain.value = note.gainNode.gain.value;
+        quickFadeOut(note, 0.03);
+        note = replacementNote;
+        console.log("updateSamplePlaybackParameters: Replaced note", note.id, "with crossfaded version");
+      }
+    } else {
+      if (note.source && note.looping) {
+        note.source.loop = isSampleLoopOn;
+        note.source.loopStart = sampleStartPosition * audioBuffer.duration;
+        note.source.loopEnd = sampleEndPosition * audioBuffer.duration;
+        console.log("updateSamplePlaybackParameters: Updated loop points for note", note.id);
+      }
+      if (
+        !note.looping ||
+        Math.abs(note.sampleStartPosition - sampleStartPosition * audioBuffer.duration) > 0.01
+      ) {
+        console.log("updateSamplePlaybackParameters: Creating new source for note", note.id);
+        const newSource = audioCtx.createBufferSource();
+        newSource.buffer = audioBuffer;
+        newSource.loop = isSampleLoopOn;
+        newSource.playbackRate.value = note.source.playbackRate.value;
+        newSource.detune.value = currentSampleDetune;
+        if (isSampleLoopOn) {
+          newSource.loopStart = sampleStartPosition * audioBuffer.duration;
+          newSource.loopEnd = sampleEndPosition * audioBuffer.duration;
+        }
+        note.source.disconnect();
+        newSource.connect(note.sampleNode);
+        newSource.start(0, sampleStartPosition * audioBuffer.duration);
+        setTimeout(() => { 
+          try { note.source.stop(); } catch (e) {} 
+        }, 30);
+        note.source = newSource;
+        note.sampleStartPosition = sampleStartPosition * audioBuffer.duration;
+        note.sampleEndPosition = sampleEndPosition * audioBuffer.duration;
+        console.log("updateSamplePlaybackParameters: New source set for note", note.id);
       }
     }
-    
-    // Only proceed if we have a valid buffer
-    if (cachedCrossfadedBuffer) {
-      // Create a replacement source with the new buffer
-      const newSource = audioCtx.createBufferSource();
-      newSource.buffer = cachedCrossfadedBuffer;
-      newSource.loop = true;
-      
-      // Copy the playback rate from original source
-      newSource.playbackRate.value = note.source.playbackRate.value;
-      newSource.detune.value = currentSampleDetune;
-      
-      // Stop the old source after a short crossfade
-      const now = audioCtx.currentTime;
-      const fadeTime = 0.02;
-      
-      // Connect the new source
-      note.source.disconnect();
-      newSource.connect(note.sampleNode);
-      
-      // Start the new source
-      newSource.start(0);
-      
-      // Schedule stopping the old source
-      setTimeout(() => {
-        try { note.source.stop(); } catch(e) {}
-      }, fadeTime * 1000);
-      
-      // Replace the source in the note
-      note.source = newSource;
-      note.usesProcessedBuffer = true;
-    }
-  } catch (e) {
-    console.error("Error setting up crossfade:", e);
+  } finally {
+    note.isBeingUpdated = false;
   }
-  
   return note;
 }
-/**
- * Creates a new note with proper looping behavior
- */
- function createNote(noteNumber, buffer, audioCtx, destination) {
-  try {
-    if (!buffer) {
-      console.error("No buffer provided for createNote");
-      return null;
-    }
-    
-    // Generate unique ID
+// Replace the entire createNote function with this fixed version
+function createNote(noteNumber, buffer, audioCtx, destination) {
     const noteId = `${noteNumber}_${Date.now()}`;
-    
-    // Default to original buffer
-    let playbackBuffer = buffer;
-    let isLooping = false;
-    let usingProcessedBuffer = false;
-    
-    // Process buffer for looping if needed
-    if (sampleCrossfadeAmount > 0.01) {
-      isLooping = true;
-      
-      // Check if we need to create a new crossfaded buffer
-      if (!cachedCrossfadedBuffer || 
-          lastCachedStartPos !== sampleStartPosition || 
-          lastCachedEndPos !== sampleEndPosition || 
-          lastCachedCrossfade !== sampleCrossfadeAmount) {
-        
-        // Create new buffer with crossfades baked in
-        cachedCrossfadedBuffer = createCrossfadedBuffer(
-          buffer, 
-          sampleStartPosition, 
-          sampleEndPosition, 
-          sampleCrossfadeAmount
-        );
-        
-        // Update cache variables if successful
-        if (cachedCrossfadedBuffer) {
-          lastCachedStartPos = sampleStartPosition;
-          lastCachedEndPos = sampleEndPosition;
-          lastCachedCrossfade = sampleCrossfadeAmount;
-        }
-      }
-      
-      // Use the crossfaded buffer if available
-      if (cachedCrossfadedBuffer) {
-        playbackBuffer = cachedCrossfadedBuffer;
-        usingProcessedBuffer = true;
-      } else {
-        // Fallback to standard looping if crossfade buffer creation failed
-        isLooping = true;
-        usingProcessedBuffer = false;
-      }
-    }
-    
-    // Create the audio source
-    const source = audioCtx.createBufferSource();
-    source.buffer = playbackBuffer;
-    
-    // Set playback rate based on note number
-    source.playbackRate.value = TR2 ** (noteNumber - 12);
-    source.detune.value = currentSampleDetune;
     
     // Create gain nodes
     const gainNode = audioCtx.createGain();
     const sampleNode = audioCtx.createGain();
-    
-    // Set initial gains
     gainNode.gain.value = 0.5;
     sampleNode.gain.value = currentSampleGain;
     
-    // Connect audio path
+    const source = audioCtx.createBufferSource();
+    
+    // IMPORTANT: Select the correct buffer to use
+    let useOriginalBuffer = true;
+    let sourceBuffer = buffer; // Default to original buffer
+    
+    // If we have a crossfaded buffer and looping is on, use that
+    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
+        sourceBuffer = cachedCrossfadedBuffer;
+        useOriginalBuffer = false;
+        console.log("Creating note using crossfaded buffer");
+    } 
+    // If we have a faded buffer and crossfade is not active, use the faded buffer
+    else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
+        sourceBuffer = fadedBuffer;
+        useOriginalBuffer = false;
+        console.log("Creating note using faded buffer");
+    }
+    
+    // Set the buffer
+    source.buffer = sourceBuffer;
+    
+    // Set playback speed for note pitch
+    source.playbackRate.value = TR2 ** (noteNumber - 12);
+    source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
+    
+    // Connect nodes
     source.connect(sampleNode);
     sampleNode.connect(gainNode);
     gainNode.connect(destination);
     
-    // Set up the note object
-    const note = {
-      id: noteId,
-      noteNumber,
-      source,
-      gainNode,
-      sampleNode,
-      startTime: audioCtx.currentTime,
-      state: "starting",
-      releaseTimer: null,
-      scheduledEvents: [],
-      looping: isLooping,
-      usesProcessedBuffer: usingProcessedBuffer,
-      // Store loop parameters for rate calculations
-      baseLoopLength: usingProcessedBuffer ? 
-        playbackBuffer.duration : 
-        (sampleEndPosition - sampleStartPosition) * buffer.duration
-    };
-    
-    // Handle looping setup
-    if (isLooping) {
-      source.loop = true;
-      
-      // If using original buffer, set loop points
-      if (!usingProcessedBuffer) {
-        source.loopStart = sampleStartPosition * buffer.duration;
-        source.loopEnd = sampleEndPosition * buffer.duration;
-        
-        // Start playback at loop start point
-        source.start(0, source.loopStart);
-      } else {
-        // For processed buffer, no loop points needed as it's the exact loop section
-        source.start(0);
-      }
-      
-      // Apply short fade-in
-      sampleNode.gain.setValueAtTime(0, audioCtx.currentTime);
-      sampleNode.gain.linearRampToValueAtTime(currentSampleGain, audioCtx.currentTime + 0.01);
-    } 
-    // For non-looping mode
-    else {
-      const startTimeInSeconds = sampleStartPosition * buffer.duration;
-      const endTimeInSeconds = sampleEndPosition * buffer.duration;
-      
-      // Calculate play duration
-      const playDuration = endTimeInSeconds - startTimeInSeconds;
-      
-      // Add fade out at end
-      const fadeOut = 0.015;
-      const stopTime = audioCtx.currentTime + playDuration;
-      
-      sampleNode.gain.setValueAtTime(currentSampleGain, stopTime - fadeOut);
-      sampleNode.gain.linearRampToValueAtTime(0, stopTime);
-      
-      // Start and schedule stop
-      source.start(0, startTimeInSeconds);
-      source.stop(stopTime + 0.01);
-      
-      // Apply short fade-in
-      sampleNode.gain.setValueAtTime(0, audioCtx.currentTime);
-      sampleNode.gain.linearRampToValueAtTime(currentSampleGain, audioCtx.currentTime + 0.01);
+    // Set exact loop points if using original buffer
+    if (useOriginalBuffer) {
+        if (isSampleLoopOn) {
+            source.loop = true;
+            source.loopStart = sampleStartPosition * buffer.duration;
+            source.loopEnd = sampleEndPosition * buffer.duration;
+            console.log(`Setting loop points: ${source.loopStart.toFixed(3)}s to ${source.loopEnd.toFixed(3)}s`);
+        }
+    } else {
+        // For processed buffer, loop the entire thing if looping is on
+        source.loop = isSampleLoopOn;
     }
     
-    // Store in active notes collection
+    // Create note object
+    const note = {
+        id: noteId,
+        noteNumber,
+        source,
+        gainNode,
+        sampleNode,
+        startTime: audioCtx.currentTime,
+        state: "starting",
+        scheduledEvents: [],
+        sampleStartPosition: useOriginalBuffer ? sampleStartPosition * buffer.duration : 0,
+        sampleEndPosition: useOriginalBuffer ? sampleEndPosition * buffer.duration : sourceBuffer.duration,
+        looping: isSampleLoopOn,
+        usesProcessedBuffer: !useOriginalBuffer,
+        crossfadeActive: !useOriginalBuffer && isSampleLoopOn && sampleCrossfadeAmount > 0.01
+    };
+    
+    // Start playback
+    source.start(0);
+    
+    if (!isSampleLoopOn) {
+        let originalDuration;
+        
+        // The key fix: When using a processed buffer (faded), we need to use
+        // the original duration calculation (from start/end positions on the original buffer),
+        // not the already trimmed buffer duration
+        if (fadedBuffer && sourceBuffer === fadedBuffer && fadedBufferOriginalDuration) {
+            // Use the stored original duration value for faded buffers
+            originalDuration = fadedBufferOriginalDuration;
+            console.log(`Using stored fadedBufferOriginalDuration: ${originalDuration.toFixed(3)}s`);
+        }
+        else if (!useOriginalBuffer && sourceBuffer === cachedCrossfadedBuffer) {
+            // For crossfaded buffers, use their full duration
+            originalDuration = sourceBuffer.duration;
+            console.log(`Using crossfaded buffer duration: ${originalDuration.toFixed(3)}s`);
+        }
+        else {
+            // Default calculation based on start/end positions
+            originalDuration = (sampleEndPosition - sampleStartPosition) * buffer.duration;
+            console.log(`Calculating original duration: ${originalDuration.toFixed(3)}s`);
+        }
+        
+        const now = audioCtx.currentTime;
+        sampleNode.gain.setValueAtTime(currentSampleGain, now);
+        
+        // Apply safety margin
+        const safetyMargin = 0.05;
+        source.stop(now + originalDuration + safetyMargin);
+        
+        console.log(`Note scheduled to play for duration: ${originalDuration.toFixed(3)}s + ${safetyMargin}s margin`);
+    }
+    
+    // Store the note
     activeNotes[noteId] = note;
+    
     return note;
-  } catch (e) {
-    console.error("Error in createNote:", e);
-    return null;
-  }
 }
+/**
+ * Sets up loop crossfade without recursion.
+ * (Do not call updateSamplePlaybackParameters or createNote here.)
+ */
 
 
 // Update the DOMContentLoaded event listener
@@ -1843,89 +2872,7 @@ blackKeys.forEach((position) => {
         }
     });
 })};
-/**
- * Updates existing notes when sample playback parameters change
- */
- function updateSamplePlaybackParameters(note) {
-  if (!note || !audioBuffer) return null;
-  
-  // Skip if this note is currently being processed to avoid recursion
-  if (note.isBeingUpdated) return note;
-  
-  // Mark this note as being updated
-  note.isBeingUpdated = true;
-  
-  try {
-    // Approach 1: For crossfaded loops, create a new note and fade out the old one
-    if (sampleCrossfadeAmount > 0.01 && !note.usesProcessedBuffer) {
-      // Create a new note with crossfades
-      const replacementNote = createNote(
-        note.noteNumber,
-        audioBuffer,
-        audioCtx,
-        masterGain
-      );
-      
-      if (replacementNote) {
-        // Copy the current gain
-        replacementNote.gainNode.gain.value = note.gainNode.gain.value;
-        
-        // Fade out old note
-        quickFadeOut(note, 0.03);
-        
-        // Return the new note
-        return replacementNote;
-      }
-    }
-    // Approach 2: For simple parameter updates, modify the existing note
-    else {
-      // Update loop settings
-      if (note.source && note.looping) {
-        note.source.loop = isSampleLoopOn;
-        note.source.loopStart = sampleStartPosition * audioBuffer.duration;
-        note.source.loopEnd = sampleEndPosition * audioBuffer.duration;
-      }
-      
-      // For non-looped notes or significant position changes, restart the source
-      if (!note.looping || Math.abs(note.sampleStartPosition - sampleStartPosition * audioBuffer.duration) > 0.01) {
-        // Create a new source with the current parameters
-        const newSource = audioCtx.createBufferSource();
-        newSource.buffer = audioBuffer;
-        newSource.loop = isSampleLoopOn;
-        newSource.playbackRate.value = note.source.playbackRate.value;
-        newSource.detune.value = currentSampleDetune;
-        
-        // Set loop points
-        if (isSampleLoopOn) {
-          newSource.loopStart = sampleStartPosition * audioBuffer.duration;
-          newSource.loopEnd = sampleEndPosition * audioBuffer.duration;
-        }
-        
-        // Disconnect old source and connect new one
-        note.source.disconnect();
-        newSource.connect(note.sampleNode);
-        
-        // Start new source from the right position
-        newSource.start(0, sampleStartPosition * audioBuffer.duration);
-        
-        // Stop old source after a short fade
-        setTimeout(() => {
-          try { note.source.stop(); } catch(e) {}
-        }, 30);
-        
-        // Update source reference
-        note.source = newSource;
-        note.sampleStartPosition = sampleStartPosition * audioBuffer.duration;
-        note.sampleEndPosition = sampleEndPosition * audioBuffer.duration;
-      }
-    }
-  } finally {
-    // Clear the update flag
-    note.isBeingUpdated = false;
-  }
-  
-  return note;
-}
+
 // Helper functions to map key positions to note indices
 function getWhiteKeyIndex(position) {
     // Maps white key position to the corresponding index in the keys array
@@ -2009,46 +2956,41 @@ function getBlackKeyIndex(position) {
         // Update the voice display function to handle releasing state
 // Update the updateVoiceDisplay function
 // Update the updateVoiceDisplay function to also update keyboard
-// Update the updateVoiceDisplay function to properly handle releasing state
 function updateVoiceDisplay() {
-  const displayEl = D('voice-display');
-  displayEl.innerHTML = '';
-  
-  // Count notes that are in "playing" OR "releasing" state for the voice count
-  const activeNotesForCount = Object.values(activeNotes).filter(
-      note => note && (note.state === "playing" || note.state === "releasing")
-  );
-  
-  // Only display notes that are in "playing" state for the visualization
-  const playingNotes = Object.values(activeNotes).filter(
-      note => note && note.state === "playing"
-  );
-  
-  // Update count first - this now correctly accounts for releasing notes
-  const activeNoteCount = Math.min(activeNotesForCount.length, MAX_POLYPHONY);
-  D('voice-count').textContent = activeNoteCount;
-  
-  // Create display items for keyboard keys
-  keys.forEach((key, index) => {
-      const voiceItem = document.createElement('div');
-      voiceItem.className = 'voice-item';
-      voiceItem.textContent = key;
-      
-      // Only show as active if the note is actually playing
-      const isPlaying = playingNotes.some(
-          note => note.noteNumber === index
-      );
-      
-      if (isPlaying) {
-          voiceItem.classList.add('active-voice');
-      }
-      
-      displayEl.appendChild(voiceItem);
-  });
+    const displayEl = D('voice-display');
+    displayEl.innerHTML = '';
+    
+    // Only count and display notes that are in "playing" state
+    const playingNotes = Object.values(activeNotes).filter(
+        note => note && note.state === "playing"
+    );
+    
+    // Update count first
+    const activeNoteCount = Math.min(playingNotes.length, MAX_POLYPHONY);
+    D('voice-count').textContent = activeNoteCount;
+    
+    // Create display items for keyboard keys
+    keys.forEach((key, index) => {
+        const voiceItem = document.createElement('div');
+        voiceItem.className = 'voice-item';
+        voiceItem.textContent = key;
+        
+        // Only show as active if the note is actually playing
+        const isPlaying = playingNotes.some(
+            note => note.noteNumber === index
+        );
+        
+        if (isPlaying) {
+            voiceItem.classList.add('active-voice');
+        }
+        
+        displayEl.appendChild(voiceItem);
+    });
 
-  // Update keyboard visual state
-  updateKeyboardDisplay();
+    // Update keyboard visual state
+    updateKeyboardDisplay();
 }
+
 // you're the best <3 and you should put french fries in my car so that my car smells like fries forever :) - from Asher to Faith
         // Add event listeners for sliders
         D('attack').addEventListener('input', updateSliderValues);
@@ -2061,66 +3003,63 @@ function updateVoiceDisplay() {
 
        // Update releaseNote to properly handle keyboard display
 
-   /**
- * Helper to start a new note with all necessary envelope settings
- */
-function startNote(noteNumber, audioCtx, destination, buffer) {
-  // Create new note
-  const note = createNote(noteNumber, buffer, audioCtx, destination);
-  if (!note) return null;
-  
-  // Apply ADSR envelope
-  const attack = parseFloat(D('attack').value);
-  const decay = parseFloat(D('decay').value);
-  const sustain = parseFloat(D('sustain').value);
-  const now = audioCtx.currentTime;
-  
-  note.gainNode.gain.cancelScheduledValues(now);
-  note.gainNode.gain.setValueAtTime(0, now);
-  note.gainNode.gain.linearRampToValueAtTime(1, now + attack);
-  note.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-  
-  note.state = "playing";
-  updateVoiceDisplay();
-  return note;
+    function startNote(noteNumber, audioCtx, destination, buffer) {
+    // Create new note
+    const note = createNote(noteNumber, buffer, audioCtx, destination);
+    
+    // Apply ADSR envelope
+    const attack = parseFloat(D('attack').value);
+    const decay = parseFloat(D('decay').value);
+    const sustain = parseFloat(D('sustain').value);
+    const now = audioCtx.currentTime;
+    
+    note.gainNode.gain.setValueAtTime(0, now);
+    note.gainNode.gain.linearRampToValueAtTime(1, now + attack);
+    note.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    
+    note.state = "playing";
+    updateVoiceDisplay();
+    return note;
 }
-// Fix the releaseNote function to properly handle state
+// Update releaseNote function to use noteId instead of noteNumber
 function releaseNote(noteId, audioCtx) {
   const note = activeNotes[noteId];
-  if (!note) return;
+  if (!note || note.state !== "playing") {
+    console.log("releaseNote: Note", noteId, "is not playing. Skipping release.");
+    return;
+  }
   
-  // Stop crossfade scheduling first
-  note.crossfadeActive = false;
+  // If the note is using the processed (crossfaded) buffer, disable looping
+  if (note.usesProcessedBuffer) {
+    note.looping = false;
+    console.log("releaseNote: Disabling looping for processed note", noteId);
+  }
   
-  // Set state to "releasing" - this will now be counted in voice limit
   note.state = "releasing";
-  
   const release = parseFloat(D('release').value);
   const now = audioCtx.currentTime;
   
-  // Apply release envelope
   note.gainNode.gain.cancelScheduledValues(now);
   const currentGain = note.gainNode.gain.value;
   note.gainNode.gain.setValueAtTime(currentGain, now);
   note.gainNode.gain.linearRampToValueAtTime(0, now + release);
   
-  // Stop source after release completes
   try {
     note.source.stop(now + release + 0.05);
+    console.log("releaseNote: Scheduling stop for note", noteId, "at", now + release + 0.05);
   } catch (e) {
-    console.log("Error stopping source:", e);
+    console.log("releaseNote: Error stopping source for note", noteId, e);
   }
   
-  // Schedule cleanup after release
   const releaseTimer = setTimeout(() => {
-    if (note.id in activeNotes && note.state === "releasing") {
+    if (note.state === "releasing") {
       killNote(note.id);
       updateVoiceDisplay();
+      console.log("releaseNote: Note", noteId, "has been cleaned up.");
     }
   }, (release * 1000) + 100);
   
   note.releaseTimer = releaseTimer;
-  if (!note.scheduledEvents) note.scheduledEvents = [];
   note.scheduledEvents.push({ type: "timeout", id: releaseTimer });
   
   updateVoiceDisplay();
@@ -2129,38 +3068,35 @@ function releaseNote(noteId, audioCtx) {
 // Update handlePolyNoteOn function
 // Update handlePolyNoteOn function
 function handlePolyNoteOn(noteNumber) {
-  if (!checkAudioAvailable()) return;
-  
-  // Add to held notes if not already there
-  if (!heldNotes.includes(noteNumber)) {
+    if (!heldNotes.includes(noteNumber)) {
     heldNotes.push(noteNumber);
-  }
+}
 
-  // Gather all notes that are still alive (playing or releasing)
-  let active = Object.values(activeNotes).filter(
-    n => n && (n.state === "playing" || n.state === "releasing")
-  );
-  
-  // While we are at or above the poly limit,
-  // kill the oldest note to free a slot
-  while (active.length >= MAX_POLYPHONY) {
+// Gather all notes that are still alive (playing or releasing)
+let active = Object.values(activeNotes).filter(
+    n => n.state === "playing" || n.state === "releasing"
+);
+
+// While we are at or above the poly limit,
+// kill the oldest note to free a slot
+while (active.length >= MAX_POLYPHONY) {
     // Sort oldest first
     active.sort((a, b) => a.startTime - b.startTime);
     const oldest = active[0];
-    
+
     // Mark it as "fadingOut" so it won't be counted in active[] next loop
     oldest.state = "fadingOut";
     quickFadeOut(oldest, 0.15); // short forced fade
-    
+
     // Re-check the active list
     active = Object.values(activeNotes).filter(
-      n => n && (n.state === "playing" || n.state === "releasing")
+        n => n.state === "playing" || n.state === "releasing"
     );
-  }
-  
-  // Now that we freed up a slot, start the new note
-  startNewPolyNote(noteNumber);
-  updateVoiceDisplay();
+}
+
+// Now that we freed up a slot, start the new note
+startNewPolyNote(noteNumber);
+updateVoiceDisplay();
 }
 // Helper to start a note with portamento if needed
 function startNewPolyNote(noteNumber) {
@@ -2192,278 +3128,77 @@ function handlePolyNoteOff(noteNumber) {
     });
     updateVoiceDisplay();
 }updateVoiceDisplay();
-/**
- * Creates a new note with proper looping behavior with crossfades
- */
- function createNote(noteNumber, buffer, audioCtx, destination) {
-  try {
-    if (!buffer) {
-      console.error("No buffer provided for createNote");
-      return null;
-    }
-    
-    // Generate unique ID
-    const noteId = `${noteNumber}_${Date.now()}`;
-    
-    // Default to original buffer
-    let playbackBuffer = buffer;
-    let isLooping = false;
-    let usingProcessedBuffer = false;
-    
-    // Create the audio source first - we'll set its buffer later
-    const source = audioCtx.createBufferSource();
-    
-    // Create gain nodes
-    const gainNode = audioCtx.createGain();
-    const sampleNode = audioCtx.createGain();
-    
-    // Set initial gains
-    gainNode.gain.value = 0.5;
-    sampleNode.gain.value = currentSampleGain;
-    
-    // Connect the audio chain
-    source.connect(sampleNode);
-    sampleNode.connect(gainNode);
-    gainNode.connect(destination);
-    
-    // Set up the note object
-    const note = {
-      id: noteId,
-      noteNumber,
-      source,
-      gainNode,
-      sampleNode,
-      startTime: audioCtx.currentTime,
-      state: "starting",
-      releaseTimer: null,
-      scheduledEvents: []
-    };
-    
-    // Process buffer for looping if needed
-    if (sampleCrossfadeAmount > 0.01) {
-      isLooping = true;
-      
-      // Check if we need to create or use cached crossfaded buffer
-      if (!cachedCrossfadedBuffer || 
-          lastCachedStartPos !== sampleStartPosition || 
-          lastCachedEndPos !== sampleEndPosition || 
-          lastCachedCrossfade !== sampleCrossfadeAmount) {
-        
-        // Create new buffer with crossfades baked in
-        cachedCrossfadedBuffer = createCrossfadedBuffer(
-          buffer, 
-          sampleStartPosition, 
-          sampleEndPosition, 
-          sampleCrossfadeAmount
-        );
-        
-        // Update cache variables if successful
-        if (cachedCrossfadedBuffer) {
-          lastCachedStartPos = sampleStartPosition;
-          lastCachedEndPos = sampleEndPosition;
-          lastCachedCrossfade = sampleCrossfadeAmount;
-        }
-      }
-      
-      // Use the crossfaded buffer if available, otherwise fall back to normal looping
-      if (cachedCrossfadedBuffer) {
-        playbackBuffer = cachedCrossfadedBuffer;
-        usingProcessedBuffer = true;
-        
-        // For crossfaded buffer, we'll loop the entire buffer
-        source.buffer = playbackBuffer;
-        source.loop = true;
-        
-        // Start from the beginning of the processed buffer
-        source.start(0);
-        
-        // Store loop parameters for calculations
-        note.looping = true;
-        note.usesProcessedBuffer = true;
-        note.baseLoopLength = playbackBuffer.duration;
-      } else {
-        // Fallback to standard looping with the original buffer
-        source.buffer = buffer;
-        source.loop = true;
-        source.loopStart = sampleStartPosition * buffer.duration;
-        source.loopEnd = sampleEndPosition * buffer.duration;
-        
-        // Start from the loop start point
-        source.start(0, source.loopStart);
-        
-        note.looping = true;
-        note.usesProcessedBuffer = false;
-        note.baseLoopLength = (sampleEndPosition - sampleStartPosition) * buffer.duration;
-      }
-    } else {
-      // No looping or crossfade needed
-      source.buffer = buffer;
-      
-      // For non-looping, play from start to end points
-      const startTimeInSeconds = sampleStartPosition * buffer.duration;
-      const endTimeInSeconds = sampleEndPosition * buffer.duration;
-      const playDuration = endTimeInSeconds - startTimeInSeconds;
-      
-      // Add fade out at end
-      const fadeOut = 0.015;
-      const stopTime = audioCtx.currentTime + playDuration;
-      
-      // Schedule playback
-      source.start(0, startTimeInSeconds);
-      source.stop(stopTime + 0.01);
-      
-      // Apply fade out
-      sampleNode.gain.setValueAtTime(currentSampleGain, stopTime - fadeOut);
-      sampleNode.gain.linearRampToValueAtTime(0, stopTime);
-      
-      note.looping = false;
-      note.usesProcessedBuffer = false;
-    }
-    
-    // Set playback rate based on note number
-    source.playbackRate.value = TR2 ** (noteNumber - 12);
-    source.detune.value = currentSampleDetune;
-    
-    // Apply short fade-in to prevent clicks
-    sampleNode.gain.setValueAtTime(0, audioCtx.currentTime);
-    sampleNode.gain.linearRampToValueAtTime(currentSampleGain, audioCtx.currentTime + 0.01);
-    
-    // Store in active notes collection
-    activeNotes[noteId] = note;
-    console.log(`Created note ${noteId}, looping: ${note.looping}, processed: ${note.usesProcessedBuffer}`);
-    return note;
-  } catch (e) {
-    console.error("Error in createNote:", e);
-    return null;
-  }
-}
-/**
- * Creates a properly loopable buffer with crossfades baked in
- */
- function createCrossfadedBuffer(originalBuffer, startPosition, endPosition, crossfadeAmount) {
-  try {
-    // Safety checks 
-    if (!originalBuffer || originalBuffer.length === 0 || 
-        crossfadeAmount <= 0.01 || 
-        startPosition >= endPosition) {
-      console.log("Invalid parameters for crossfade - returning null");
-      return null;
-    }
-    
-    const sampleRate = originalBuffer.sampleRate;
-    const channels = originalBuffer.numberOfChannels;
-    const totalSamples = originalBuffer.length;
-    
-    // Convert 0-1 positions to actual sample positions
-    const startSample = Math.floor(startPosition * totalSamples);
-    const endSample = Math.floor(endPosition * totalSamples);
-    const loopLength = endSample - startSample;
-    
-    if (loopLength < 100) {
-      console.log("Loop too short for crossfade");
-      return null;
-    }
-    
-    // Calculate the fade length based on crossfade amount and loop size
-    const loopDurationSecs = loopLength / sampleRate;
-    let fadePortion;
-    
-    if (loopDurationSecs < 0.1) {
-      fadePortion = 0.1; // 10% for very short loops
-    } else if (loopDurationSecs < 0.3) {
-      fadePortion = 0.15; // 15% for short loops
-    } else {
-      fadePortion = Math.min(0.25, crossfadeAmount); // Cap at 25%
-    }
-    
-    // Make sure fade isn't too long for the loop
-    const fadeLength = Math.min(Math.floor(loopLength * fadePortion), Math.floor(loopLength * 0.25));
-    
-    // Create the new buffer with just the loop section
-    const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
-    
-    // Process each channel
-    for (let channel = 0; channel < channels; channel++) {
-      const origData = originalBuffer.getChannelData(channel);
-      const newData = newBuffer.getChannelData(channel);
-      
-      // First, copy the entire loop section
-      for (let i = 0; i < loopLength; i++) {
-        newData[i] = origData[startSample + i];
-      }
-      
-      // Then apply crossfade between end and beginning
-      for (let i = 0; i < fadeLength; i++) {
-        // Calculate crossfade factors (linear fade)
-        const fadeOutFactor = (fadeLength - i) / fadeLength; // 1 -> 0
-        const fadeInFactor = i / fadeLength;                 // 0 -> 1
-        
-        // Position at end of buffer that will be mixed
-        const endPos = loopLength - fadeLength + i;
-        
-        // Mix the end with the beginning
-        newData[endPos] = (newData[endPos] * fadeOutFactor) + (newData[i] * fadeInFactor);
-      }
-    }
-    
-    console.log(`Created crossfaded buffer: ${loopDurationSecs.toFixed(3)}s loop, fade: ${(fadeLength/sampleRate).toFixed(3)}s`);
-    return newBuffer;
-  } catch (e) {
-    console.error("Error creating crossfaded buffer:", e);
-    return null;
-  }
-}
 
-// Fix the killNote function
-function killNote(noteId) {
-  const note = activeNotes[noteId];
-  if (!note) return false;
+
+// Initialize switches on DOM load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeSwitches();
+});
+/**
+ * Quickly fades out a note and cleans it up.
+ * @param {Object} note - The note object to fade out
+ * @param {number} fadeTime - Fade time in seconds (default: 0.05)
+ * @returns {Object} - The same note for chaining
+ */
+ function quickFadeOut(note, fadeTime = 0.05) {
+  if (!note || !note.gainNode) return note;
   
-  // Immediately stop crossfade scheduling
-  note.crossfadeActive = false;
-  
-  // Clean up all scheduled timeouts
-  if (note.scheduledEvents) {
-    note.scheduledEvents.forEach(event => {
-      if (event.type === "timeout") {
-        clearTimeout(event.id);
-      }
-    });
-    note.scheduledEvents = [];
-  }
-  
-  // Stop and disconnect all audio nodes with short fade
-  const now = audioCtx.currentTime;
-  const fadeOut = 0.01;
+  // Update state
+  note.state = "fadingOut";
   
   try {
-    // Handle main gain node
-    if (note.gainNode) {
-      note.gainNode.gain.cancelScheduledValues(now);
-      note.gainNode.gain.setValueAtTime(note.gainNode.gain.value || 0.5, now);
-      note.gainNode.gain.linearRampToValueAtTime(0, now + fadeOut);
-    }
+    // Get current time and gain value
+    const now = audioCtx.currentTime;
+    const currentGain = note.gainNode.gain.value;
     
-    // Handle original source if it exists
-    if (note.source) {
-      try { note.source.stop(now + fadeOut + 0.01); } catch(e) {}
-    }
+    // Cancel any scheduled values and set current value
+    note.gainNode.gain.cancelScheduledValues(now);
+    note.gainNode.gain.setValueAtTime(currentGain, now);
     
-    // Handle source A and B from the dual buffer approach
-    if (note.sourceA) {
-      try { note.sourceA.stop(now + fadeOut + 0.01); } catch(e) {}
-    }
+    // Ramp down to zero
+    note.gainNode.gain.linearRampToValueAtTime(0, now + fadeTime);
     
-    if (note.sourceB) {
-      try { note.sourceB.stop(now + fadeOut + 0.01); } catch(e) {}
-    }
-  } catch (e) {
-    console.log("Error during cleanup:", e);
+    // Schedule the note to be killed after the fade
+    const killTimer = setTimeout(() => {
+      killNote(note.id);
+    }, fadeTime * 1000 + 10); // Add 10ms buffer
+    
+    // Register this timeout in the note's scheduled events
+    note.scheduledEvents.push({ type: 'timeout', id: killTimer });
+  } 
+  catch (e) {
+    console.error("Error in quickFadeOut:", e);
+    killNote(note.id); // Clean up immediately on error
   }
   
-  // Remove from active notes
-  delete activeNotes[noteId];
-  return true;
+  return note;
+}
+        // Fix the killNote function
+        function killNote(noteId) {
+    const note = activeNotes[noteId];
+    if (!note) return false;
+
+    // Clean up scheduled events
+    note.scheduledEvents.forEach(event => {
+        if (event.type === "timeout") {
+            clearTimeout(event.id);
+        }
+    });
+
+    // Stop the source and disconnect nodes
+    try {
+        note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+        note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+        if (note.source) {
+            note.source.stop(audioCtx.currentTime);
+        }
+    } catch (e) {
+        console.log("Error during cleanup:", e);
+    }
+
+    // Remove note from active notes
+    delete activeNotes[noteId];
+    return true;
 }
 
 function updateKeyboardDisplay() {
@@ -2476,46 +3211,6 @@ function updateKeyboardDisplay() {
         
         keyElement.classList.toggle('pressed', isNotePlaying);
     });
-}
-// Fix the quickFadeOut function to ensure proper cleanup
-function quickFadeOut(note, duration = 0.015) {
-  if (!note) return;
-  
-  const now = audioCtx.currentTime;
-  const currentGain = note.gainNode.gain.value || 0.001;
-
-  // Note: Keep the state as set by the caller (usually "fadingOut")
-  
-  // Cancel any previous scheduled events
-  note.gainNode.gain.cancelScheduledValues(now);
-  if (note.source && note.source.playbackRate) {
-    note.source.playbackRate.cancelScheduledValues(now);
-  }
-
-  const safeGain = Math.max(0.001, currentGain);
-  note.gainNode.gain.setValueAtTime(safeGain, now);
-  note.gainNode.gain.linearRampToValueAtTime(0, now + duration);
-
-  // Clear existing timers
-  if (note.scheduledEvents) {
-    note.scheduledEvents.forEach(event => {
-      if (event.type === "timeout") {
-        clearTimeout(event.id);
-      }
-    });
-    note.scheduledEvents = [];
-  }
-
-  // Schedule cleanup after fade
-  const cleanupTimer = setTimeout(() => {
-    if (note.id in activeNotes) {
-      killNote(note.id);
-      updateVoiceDisplay();
-    }
-  }, duration * 1000 + 20);
-
-  if (!note.scheduledEvents) note.scheduledEvents = [];
-  note.scheduledEvents.push({ type: "timeout", id: cleanupTimer });
 }
 
 // Update noteOn to handle polyphony with unique note instances
@@ -2567,55 +3262,7 @@ document.onkeydown = function(e) {
     updateKeyboardDisplay();
   }
 };
-/**
- * Handle changes to the crossfade knob
- */
- function handleCrossfadeKnobChange(value) {
-  // Show tooltip
-  const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
-  tooltip.textContent = `Crossfade: ${(value * 100).toFixed(0)}%`;
-  tooltip.style.opacity = '1';
-  
-  // Store previous values
-  const previousCrossfade = sampleCrossfadeAmount;
-  const wasLoopOn = isSampleLoopOn;
-  
-  // Update current values
-  sampleCrossfadeAmount = value;
-  isSampleLoopOn = value > 0.01;
-  
-  console.log(`Crossfade: ${(value * 100).toFixed(0)}%, Loop: ${isSampleLoopOn ? 'ON' : 'OFF'}`);
-  
-  // Only update playing notes if loop state changed or crossfade amount changed significantly
-  if (wasLoopOn !== isSampleLoopOn || Math.abs(value - previousCrossfade) > 0.02) {
-    // Invalidate cache to force recreation
-    cachedCrossfadedBuffer = null;
-    
-    // Get playing notes that need updating
-    const playingNotes = Object.values(activeNotes).filter(note => 
-      note && (note.state === "playing" || note.state === "starting")
-    );
-    
-    // Update each note with new settings
-    playingNotes.forEach(note => {
-      if (note && audioBuffer) {
-        const noteNumber = note.noteNumber;
-        const currentGain = note.gainNode.gain.value;
-        
-        // Fade out the old note
-        quickFadeOut(note, 0.03);
-        
-        // Create a new note with updated settings after a short delay
-        setTimeout(() => {
-          const newNote = createNote(noteNumber, audioBuffer, audioCtx, masterGain);
-          if (newNote) {
-            newNote.gainNode.gain.value = currentGain;
-          }
-        }, 10);
-      }
-    });
-  }
-}
+
 document.onkeyup = function(e) {
   const upperKey = e.key.toUpperCase();
   console.log("Key released:", e.key);
@@ -2703,13 +3350,22 @@ function generateKeyboard() {
 }
 
 
-        function handleFileSelect(event) {
+function handleFileSelect(event) {
     const file = event.target.files[0];
     if (file) {
         const reader = new FileReader();
         reader.onload = function(e) {
             audioCtx.decodeAudioData(e.target.result, function(buffer) {
                 audioBuffer = buffer;
+                
+                // Process fades and crossfades whenever a new sample is loaded
+                updateSampleProcessing();
+                
+                // Reset cached crossfade buffer when loading a new sample
+                cachedCrossfadedBuffer = null;
+                lastCachedStartPos = null;
+                lastCachedEndPos = null;
+                lastCachedCrossfade = null;
                 
                 // Create new source node
                 if (sampleSource) {
@@ -2732,6 +3388,46 @@ function generateKeyboard() {
                         file.name;
                     fileLabel.textContent = displayName;
                 }
+                
+                // Create crossfaded buffer if needed
+                if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+                    console.log("Creating crossfaded buffer for newly loaded sample");
+                    const result = createCrossfadedBuffer(
+                        buffer, 
+                        sampleStartPosition, 
+                        sampleEndPosition, 
+                        sampleCrossfadeAmount
+                    );
+                    
+                    if (result && result.buffer) {
+                        console.log("Successfully created crossfaded buffer for new sample");
+                        cachedCrossfadedBuffer = result.buffer;
+                        lastCachedStartPos = sampleStartPosition;
+                        lastCachedEndPos = sampleEndPosition;
+                        lastCachedCrossfade = sampleCrossfadeAmount;
+                    }
+                }
+                
+                // Update any active notes to use the new buffer
+                Object.values(activeNotes).forEach(note => {
+                    if (note && note.source) {
+                        // Skip held notes to avoid interruption
+                        if (heldNotes.includes(note.noteNumber)) {
+                            console.log(`Note ${note.id} is held; will update on release.`);
+                            return;
+                        }
+                        
+                        console.log(`Updating note ${note.id} to use new sample`);
+                        note.usesProcessedBuffer = false;
+                        note.crossfadeActive = false;
+                        
+                        if (isSampleLoopOn) {
+                            note.looping = true; 
+                            setupLoopCrossfade(note);
+                        }
+                        updateSamplePlaybackParameters(note);
+                    }
+                });
             });
         };
         reader.readAsArrayBuffer(file);
@@ -3141,77 +3837,127 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
         // Update noteOn function to handle mono mode
-function handleMonoNoteOn(noteNumber) {
-  if (!checkAudioAvailable()) return;
-  
-  // Add to held notes if not already there
-  if (!heldNotes.includes(noteNumber)) {
-    heldNotes.push(noteNumber);
-  }
-
-  // Gather all notes that are still alive (playing or releasing)
-  let active = Object.values(activeNotes).filter(
-    n => n && (n.state === "playing" || n.state === "releasing")
-  );
-  
-  // While we are at or above the poly limit, kill the oldest note to free a slot.
-  // (For mono mode, MAX_POLYPHONY should be 1.)
-  while (active.length >= MAX_MONO) {
-    // Sort oldest first
-    active.sort((a, b) => a.startTime - b.startTime);
-    const oldest = active[0];
-    
-    // Mark it as "fadingOut" so it won't be counted in active[] next loop
-    oldest.state = "fadingOut";
-    quickFadeOut(oldest, 0.15); // short forced fade (150ms fade)
-    
-    // Re-check the active list
-    active = Object.values(activeNotes).filter(
-      n => n && (n.state === "playing" || n.state === "releasing")
-    );
-  }
-  
-  // Now that we freed up a slot, start the new note
-  startNewMonoNote(noteNumber);
-  updateVoiceDisplay();
-}
-/**
- * Revised mono mode note-on handler using poly‐style fade handling.
- * If a current note exists, it is marked as "fadingOut" and quickly faded out
- * over 150 ms (using quickFadeOut) before the new note is created.
- */
- function startNewMonoNote(noteNumber) {
-  if (isPortamentoOn && lastPlayedNote !== null) {
-    const note = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
-    const startRate = TR2 ** (lastPlayedNote - 12);
-    const targetRate = TR2 ** (noteNumber - 12);
-    note.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
-    note.source.playbackRate.linearRampToValueAtTime(
-      targetRate,
-      audioCtx.currentTime + glideTime
-    );
-  } else {
-    startNote(noteNumber, audioCtx, masterGain, audioBuffer);
-  }
-  lastPlayedNote = noteNumber;
-}
-
-/**
- * Revised mono note-off handler using similar timing.
- * If held notes remain and we’re not in legato mode,
- * the current note is replaced after a 15ms rapid fade.
- */
- function handleMonoNoteOff(noteNumber) {
-  // Remove from held notes
-  heldNotes = heldNotes.filter(n => n !== noteNumber);
-  
-  // Release all instances of this note
-  Object.values(activeNotes).forEach(note => {
-    if (note.noteNumber === noteNumber && note.state === "playing") {
-      releaseNote(note.id, audioCtx);
+function noteOn(noteNumber) {
+    if (isMonoMode) {
+        handleMonoNoteOn(noteNumber);
+    } else {
+        handlePolyNoteOn(noteNumber);
     }
-  });
-  updateVoiceDisplay();
+}
+// Fix for voice limiting in mono mode
+function handleMonoNoteOn(noteNumber) {
+    if (!checkAudioAvailable()) return;
+    
+    // Add note to held notes
+    if (!heldNotes.includes(noteNumber)) {
+        heldNotes.push(noteNumber);
+    }
+    
+    // Clean up any stale notes that aren't the current note
+    Object.values(activeNotes).forEach(note => {
+        if (note !== currentNote && note.state === "releasing") {
+            quickFadeOut(note, 0.015);
+        }
+    });
+
+    const shouldTrigger = !isLegatoMode || !currentNote;
+    const shouldGlide = isPortamentoOn && lastPlayedNote !== null;
+
+    if (shouldTrigger) {
+        if (currentNote) {
+            const prevNote = currentNote;
+            quickFadeOut(prevNote, 0.015);
+            setTimeout(() => {
+                // Make sure we're really in mono mode - kill any remaining notes
+                Object.values(activeNotes).forEach(note => {
+                    if (note !== prevNote) {
+                        killNote(note.id);
+                    }
+                });
+                
+                currentNote = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
+                
+                if (shouldGlide) {
+                    const startRate = TR2 ** (lastPlayedNote - 12);
+                    const targetRate = TR2 ** (noteNumber - 12);
+                    currentNote.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
+                    currentNote.source.playbackRate.linearRampToValueAtTime(
+                        targetRate,
+                        audioCtx.currentTime + glideTime
+                    );
+                }
+                updateVoiceDisplay();
+            }, 20);
+            return;
+        }
+        
+        currentNote = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
+        if (shouldGlide) {
+            const startRate = TR2 ** (lastPlayedNote - 12);
+            const targetRate = TR2 ** (noteNumber - 12);
+            currentNote.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
+            currentNote.source.playbackRate.linearRampToValueAtTime(
+                targetRate,
+                audioCtx.currentTime + glideTime
+            );
+        }
+    } else if (currentNote) {
+        // Handle pitch changes in legato mode
+        currentNote.source.playbackRate.cancelScheduledValues(audioCtx.currentTime);
+        const currentRate = currentNote.source.playbackRate.value;
+        const targetRate = TR2 ** (noteNumber - 12);
+        
+        currentNote.source.playbackRate.setValueAtTime(currentRate, audioCtx.currentTime);
+        currentNote.source.playbackRate.linearRampToValueAtTime(
+            targetRate,
+            audioCtx.currentTime + glideTime
+        );
+    }
+
+    lastPlayedNote = noteNumber;
+    updateVoiceDisplay();
+}
+
+// Update handleMonoNoteOff function
+function handleMonoNoteOff(noteNumber) {
+    // Remove note from held notes array
+    heldNotes = heldNotes.filter(n => n !== noteNumber);
+
+    if (heldNotes.length > 0) {
+        // If there are still held notes, move to the last pressed note
+        const lastNote = heldNotes[heldNotes.length - 1];
+
+        if (!isLegatoMode) {
+            // In multi-trigger mode, only retrigger if we're releasing the currently playing note
+            if (currentNote && currentNote.noteNumber === noteNumber) {
+                quickFadeOut(currentNote);
+                setTimeout(() => {
+                    currentNote = startNote(lastNote, audioCtx, masterGain, audioBuffer);
+                    updateVoiceDisplay();
+                }, 20);
+            }
+        } else {
+            // In legato mode, glide if needed
+            if (currentNote) {
+                currentNote.source.playbackRate.cancelScheduledValues(audioCtx.currentTime);
+                const currentRate = currentNote.source.playbackRate.value;
+                const targetRate = TR2 ** (lastNote - 12);
+                
+                currentNote.source.playbackRate.setValueAtTime(currentRate, audioCtx.currentTime);
+                currentNote.source.playbackRate.linearRampToValueAtTime(
+                    targetRate,
+                    audioCtx.currentTime + glideTime
+                );
+            }
+        }
+    } else {
+        if (currentNote) {
+            releaseNote(currentNote.id, audioCtx);
+            currentNote = null;
+        }
+    }
+
+    updateVoiceDisplay();
 }
 // Initialize switches on DOM load
 document.addEventListener('DOMContentLoaded', () => {
@@ -3317,7 +4063,17 @@ function initializeSwitches() {
         offText: 'PORTA OFF'
     });
 }
-
+document.addEventListener('DOMContentLoaded', function() {
+  setupMicRecording();
+  
+  // Add safety measure to stop recording if page is closed or refreshed
+  window.addEventListener('beforeunload', () => {
+    if (isRecording && mediaRecorder) {
+      mediaRecorder.stop();
+      isRecording = false;
+    }
+  });
+});
 // Update document mouseup to hide all tooltips
 document.addEventListener('mouseup', () => {
     document.querySelectorAll('.tooltip').forEach(tooltip => {
@@ -3337,8 +4093,8 @@ function initializeSwitches() {
             }
         },
         'trigger-mode-switch': {
-            onText: 'LEGATO',
             offText: 'MULTI',
+            onText: 'LEGATO',
             onChange: (active) => {
                 isLegatoMode = active;
                 console.log('Trigger Mode:', active ? 'LEGATO' : 'MULTI');
@@ -3362,9 +4118,14 @@ function initializeSwitches() {
         
         function updateSwitch() {
             switchEl.classList.toggle('active', isActive);
-            const tooltip = createTooltipForSwitch(id);
-            tooltip.textContent = isActive ? config.onText : config.offText;
-            tooltip.style.opacity = '1';
+            
+            // Skip tooltip creation completely for emu-mode-switch
+            if (id !== 'emu-mode-switch') {
+                const tooltip = createTooltipForSwitch(id);
+                tooltip.textContent = isActive ? config.onText : config.offText;
+                tooltip.style.opacity = '1';
+            }
+            
             config.onChange(isActive);
         }
 
@@ -3373,14 +4134,555 @@ function initializeSwitches() {
             updateSwitch();
         });
 
-        switchEl.addEventListener('mousedown', (e) => {
-            const tooltip = createTooltipForSwitch(id);
-            tooltip.textContent = isActive ? config.onText : config.offText;
-            tooltip.style.opacity = '1';
-            e.preventDefault();
+        // Don't add tooltip events to emu-mode-switch
+        if (id !== 'emu-mode-switch') {
+            switchEl.addEventListener('mousedown', (e) => {
+                const tooltip = createTooltipForSwitch(id);
+                tooltip.textContent = isActive ? config.onText : config.offText;
+                tooltip.style.opacity = '1';
+                e.preventDefault();
+            });
+        }
+    });
+    
+    // Add special handling for emu-mode-switch
+    const emuModeSwitch = D('emu-mode-switch');
+    if (emuModeSwitch) {
+        emuModeSwitch.addEventListener('click', () => {
+            const isActive = emuModeSwitch.classList.contains('active');
+            isEmuModeOn = !isActive; // Toggle the state
+            
+            // Update LED indicator
+            const led = document.getElementById('emu-led');
+            if (led) {
+                led.classList.toggle('on', !isActive);
+            }
+            
+            // Toggle active class
+            emuModeSwitch.classList.toggle('active', !isActive);
+            
+            // Process with E-mu mode
+            updateSampleProcessing();
+            
+            // Update any playing notes
+            Object.values(activeNotes).forEach(note => {
+                if (note && note.source && !heldNotes.includes(note.noteNumber)) {
+                    updateSamplePlaybackParameters(note);
+                }
+            });
+            
+            console.log('Lo-Fi Mode:', !isActive ? 'ON' : 'OFF');
         });
+    }
+}
+// JavaScript for sample selector dropdown
+document.addEventListener('DOMContentLoaded', function() {
+  const selectorBtn = document.getElementById('sample-selector-btn');
+  const dropdown = document.getElementById('sample-dropdown');
+  const dropdownItems = document.querySelectorAll('.dropdown-item');
+  
+  // Toggle dropdown when clicking the button
+  selectorBtn.addEventListener('click', function() {
+    dropdown.classList.toggle('show');
+    event.stopPropagation();
+  });
+  
+  // Close dropdown when clicking outside
+  window.addEventListener('click', function() {
+    if (dropdown.classList.contains('show')) {
+      dropdown.classList.remove('show');
+    }
+  });
+  
+  // Handle preset sample selection
+  dropdownItems.forEach(item => {
+    item.addEventListener('click', function() {
+      const sampleName = this.getAttribute('data-sample');
+      loadPresetSample(sampleName);
+      dropdown.classList.remove('show');
+    });
+  });
+});
+
+// Function to load preset samples
+function loadPresetSample(filename) {
+  console.log(`Loading preset sample: ${filename}`);
+  
+  // Build the URL to the sample file
+  const sampleUrl = `samples/${filename}`;
+  
+  // Fetch the sample file
+  fetch(sampleUrl)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
+      }
+      return response.arrayBuffer();
+    })
+    .then(arrayBuffer => {
+      // Decode the audio data
+      return audioCtx.decodeAudioData(arrayBuffer);
+    })
+    .then(buffer => {
+    // Use the buffer as the sample
+    audioBuffer = buffer;
+    
+    // Process fades and crossfades whenever a new preset is loaded
+    updateSampleProcessing();
+    
+    // Rest of the function...
+      
+      // Reset cached crossfade buffer when loading a new sample
+      cachedCrossfadedBuffer = null;
+      lastCachedStartPos = null;
+      lastCachedEndPos = null;
+      lastCachedCrossfade = null;
+      
+      // Create new source node
+      if (sampleSource) {
+        sampleSource.stop();
+      }
+      sampleSource = audioCtx.createBufferSource();
+      sampleSource.buffer = buffer;
+      
+      // Connect the audio chain
+      sampleSource.connect(sampleGainNode);
+      sampleSource.start();
+      
+      // Update the label to show the loaded sample name
+      const fileLabel = document.querySelector('label[for="audio-file"]');
+      if (fileLabel) {
+        fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
+      }
+      
+      // Create crossfaded buffer if needed
+      if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+        console.log("Creating crossfaded buffer for preset sample");
+        const result = createCrossfadedBuffer(
+          buffer, 
+          sampleStartPosition, 
+          sampleEndPosition, 
+          sampleCrossfadeAmount
+        );
+        
+        if (result && result.buffer) {
+          console.log("Successfully created crossfaded buffer for preset sample");
+          cachedCrossfadedBuffer = result.buffer;
+          lastCachedStartPos = sampleStartPosition;
+          lastCachedEndPos = sampleEndPosition;
+          lastCachedCrossfade = sampleCrossfadeAmount;
+        }
+      }
+      
+      // Update any active notes to use the new buffer
+      Object.values(activeNotes).forEach(note => {
+        if (note && note.source) {
+          // Skip held notes to avoid interruption
+          if (heldNotes.includes(note.noteNumber)) {
+            console.log(`Note ${note.id} is held; will update on release.`);
+            return;
+          }
+          
+          console.log(`Updating note ${note.id} to use new preset sample`);
+          note.usesProcessedBuffer = false;
+          note.crossfadeActive = false;
+          
+          if (isSampleLoopOn) {
+            note.looping = true; 
+            setupLoopCrossfade(note);
+          }
+          updateSamplePlaybackParameters(note);
+        }
+      });
+    })
+    .catch(error => {
+      console.error('Error loading preset sample:', error);
+      alert(`Failed to load sample: ${filename}`);
     });
 }
+// In your processBufferWithFades function:
+function processBufferWithFades(buffer) {
+    if (!buffer) return null;
+
+    // Skip processing if no fades needed
+    if (sampleFadeInAmount < 0.01 && sampleFadeOutAmount < 0.01) {
+        console.log("No fades to apply, returning original buffer");
+        return buffer;
+    }
+
+    console.log("Applying fade to trimmed buffer...");
+    const length = buffer.length;
+    if (length < 2) return buffer;
+
+    // Create the faded buffer
+    const newFadedBuffer = audioCtx.createBuffer(
+        buffer.numberOfChannels, 
+        length, 
+        buffer.sampleRate
+    );
+    
+    // Calculate fade samples OUTSIDE the channel loop
+    const fadeInSamples = Math.floor(length * sampleFadeInAmount);
+    const fadeOutSamples = Math.floor(length * sampleFadeOutAmount);
+    
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+        const inputData = buffer.getChannelData(c);
+        const outputData = newFadedBuffer.getChannelData(c);
+        
+        // First copy all samples
+        for (let i = 0; i < length; i++) {
+            outputData[i] = inputData[i];
+        }
+        
+        // Apply fade in (first part of buffer)
+        for (let i = 0; i < fadeInSamples; i++) {
+            outputData[i] *= i / fadeInSamples;
+        }
+        
+        // Apply fade out (last part of buffer)
+        for (let i = 0; i < fadeOutSamples; i++) {
+            const idx = length - 1 - i;
+            outputData[idx] *= i / fadeOutSamples;
+        }
+    }
+    
+    // CRITICAL FIX: Store the processed buffer in the global fadedBuffer variable
+    fadedBuffer = newFadedBuffer;
+    
+    // Store the original duration for correct playback
+    fadedBufferOriginalDuration = (sampleEndPosition - sampleStartPosition) * audioBuffer.duration;
+    console.log(`Created faded buffer with ${fadeInSamples} fade in samples and ${fadeOutSamples} fade out samples`);
+    console.log(`Original duration: ${fadedBufferOriginalDuration}s`);
+    
+    return newFadedBuffer;
+}
+function applyEmuProcessing(buffer) {
+  if (!buffer) return null;
+  
+  const ctx = audioCtx;
+  const sampleRate = buffer.sampleRate;
+  const channels = buffer.numberOfChannels;
+  const length = buffer.length;
+  
+  // Create a new buffer for the processed audio
+  const processedBuffer = ctx.createBuffer(channels, length, sampleRate);
+  
+  // Process each channel
+  for (let channel = 0; channel < channels; channel++) {
+    const inputData = buffer.getChannelData(channel);
+    const outputData = processedBuffer.getChannelData(channel);
+    
+    // First simply copy all data
+    for (let i = 0; i < length; i++) {
+      outputData[i] = inputData[i];
+    }
+    
+    // Apply 8-bit mu-law companding simulation 
+    for (let i = 0; i < length; i++) {
+      // 1. Compress (simulate mu-law encoding)
+      const compressed = Math.sign(outputData[i]) * 
+                      Math.log(1 + 255 * Math.abs(outputData[i])) / Math.log(256);
+      
+      // 2. Simulate quantization (8-bit)
+      const quantized = Math.round(compressed * 255) / 255;
+      
+      // 3. Decompress (simulate mu-law decoding)
+      outputData[i] = Math.sign(quantized) * 
+                   (Math.pow(256, Math.abs(quantized)) - 1) / 255;
+    }
+    
+    // Apply extremely subtle noise (0.05% amplitude)
+    for (let i = 0; i < length; i++) {
+      outputData[i] += (Math.random() * 2 - 1) * 0.0005;
+    }
+    
+    // Apply gentle low-pass filter
+    let prevSample = outputData[0];
+    const alpha = 0.15; // Filter strength
+    
+    for (let i = 0; i < length; i++) {
+      prevSample = outputData[i] = prevSample + alpha * (outputData[i] - prevSample);
+    }
+  }
+  
+  return processedBuffer;
+}
+// Add this helper function to find zero crossings
+function findBestZeroCrossings(buffer, rawStartSample, rawEndSample) {
+    const searchWindowSamples = Math.ceil(buffer.sampleRate * 0.01); // 10ms search window
+    let startSample = rawStartSample;
+    let endSample = rawEndSample;
+    
+    try {
+        // Get first channel data for analysis
+        const data = buffer.getChannelData(0);
+        const totalSamples = buffer.length;
+        
+        // Find zero crossings near start position
+        const startCrossings = [];
+        const startMin = Math.max(0, rawStartSample - searchWindowSamples);
+        const startMax = Math.min(totalSamples - 2, rawStartSample + searchWindowSamples);
+        
+        for (let i = startMin; i < startMax; i++) {
+            // Detect rising zero crossing (negative to positive)
+            if (data[i] <= 0 && data[i + 1] > 0) {
+                startCrossings.push({
+                    index: i,
+                    slope: data[i + 1] - data[i],
+                    type: 'rising'
+                });
+            }
+            // Detect falling zero crossing (positive to negative)
+            else if (data[i] >= 0 && data[i + 1] < 0) {
+                startCrossings.push({
+                    index: i,
+                    slope: data[i + 1] - data[i],
+                    type: 'falling'
+                });
+            }
+        }
+        
+        // Find zero crossings near end position
+        const endCrossings = [];
+        const endMin = Math.max(0, rawEndSample - searchWindowSamples);
+        const endMax = Math.min(totalSamples - 2, rawEndSample + searchWindowSamples);
+        
+        for (let i = endMin; i < endMax; i++) {
+            if (data[i] <= 0 && data[i + 1] > 0) {
+                endCrossings.push({
+                    index: i,
+                    slope: data[i + 1] - data[i],
+                    type: 'rising'
+                });
+            }
+            else if (data[i] >= 0 && data[i + 1] < 0) {
+                endCrossings.push({
+                    index: i,
+                    slope: data[i + 1] - data[i],
+                    type: 'falling'
+                });
+            }
+        }
+        
+        console.log(`Found ${startCrossings.length} start and ${endCrossings.length} end zero crossings`);
+        
+        // If we found zero crossings, match them by type and slope
+        if (startCrossings.length > 0 && endCrossings.length > 0) {
+            let bestMatch = { score: -Infinity, start: rawStartSample, end: rawEndSample };
+            
+            for (const start of startCrossings) {
+                for (const end of endCrossings) {
+                    // Score based on matching type and similar slope
+                    const typeScore = (start.type === end.type) ? 5 : -2;
+                    const slopeScore = 5 - Math.min(5, Math.abs(start.slope - end.slope) * 20);
+                    const distanceScore = 3 - Math.min(3, 
+                        (Math.abs(start.index - rawStartSample) + 
+                         Math.abs(end.index - rawEndSample)) / (searchWindowSamples * 2) * 3);
+                    
+                    const score = typeScore + slopeScore + distanceScore;
+                    
+                    if (score > bestMatch.score) {
+                        bestMatch = {
+                            score,
+                            start: start.index,
+                            end: end.index
+                        };
+                    }
+                }
+            }
+            
+            if (bestMatch.score > 0) {
+                console.log(`Using zero crossings: start=${bestMatch.start}, end=${bestMatch.end}, score=${bestMatch.score.toFixed(2)}`);
+                startSample = bestMatch.start;
+                endSample = bestMatch.end;
+            }
+        }
+    } catch (e) {
+        console.error("Error finding zero crossings:", e);
+    }
+    
+    return { start: startSample, end: endSample };
+}
+function updateSampleProcessing() {
+    console.log("Updating sample processing...");
+    
+    // Reset cached buffers
+    fadedBuffer = null;
+    cachedCrossfadedBuffer = null;
+    lastCachedStartPos = null;
+    lastCachedEndPos = null;
+    lastCachedCrossfade = null;
+    
+    setTimeout(() => {
+        if (audioBuffer) {
+            // STEP 1: First trim to the desired region WITH ZERO-CROSSING ALIGNMENT
+            const totalSamples = audioBuffer.length;
+            const rawStartSample = Math.floor(sampleStartPosition * totalSamples);
+            const rawEndSample = Math.floor(sampleEndPosition * totalSamples);
+            
+            // Find zero-crossings near the start and end points
+            const alignedPoints = findBestZeroCrossings(
+                audioBuffer, 
+                rawStartSample, 
+                rawEndSample
+            );
+            
+            const startSample = alignedPoints.start;
+            const endSample = alignedPoints.end;
+            const trimmedLength = Math.max(2, endSample - startSample);
+            
+            // Store original duration for accurate playback timing
+            fadedBufferOriginalDuration = (endSample - startSample) / audioBuffer.sampleRate;
+            
+            const trimmedBuffer = audioCtx.createBuffer(
+                audioBuffer.numberOfChannels,
+                trimmedLength,
+                audioBuffer.sampleRate
+            );
+            
+            // Copy the trimmed section
+            for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                const origData = audioBuffer.getChannelData(channel);
+                const newData = trimmedBuffer.getChannelData(channel);
+                for (let i = 0; i < trimmedLength; i++) {
+                    newData[i] = origData[startSample + i];
+                }
+            }
+            
+            // STEP 2: Apply fades to the trimmed buffer
+            let processedBuffer = trimmedBuffer;
+            
+            // Only apply fades if needed 
+            if (sampleFadeInAmount > 0.01 || sampleFadeOutAmount > 0.01) {
+                processedBuffer = audioCtx.createBuffer(
+                    trimmedBuffer.numberOfChannels,
+                    trimmedBuffer.length,
+                    trimmedBuffer.sampleRate
+                );
+                
+                // Calculate fade lengths once
+                const fadeInSamples = Math.floor(trimmedLength * sampleFadeInAmount);
+                const fadeOutSamples = Math.floor(trimmedLength * sampleFadeOutAmount);
+                
+                for (let c = 0; c < trimmedBuffer.numberOfChannels; c++) {
+                    const inputData = trimmedBuffer.getChannelData(c);
+                    const outputData = processedBuffer.getChannelData(c);
+                    
+                    // Copy all samples first
+                    for (let i = 0; i < trimmedLength; i++) {
+                        outputData[i] = inputData[i];
+                    }
+                    
+                    // Apply fade in
+                    for (let i = 0; i < fadeInSamples; i++) {
+                        outputData[i] *= i / fadeInSamples;
+                    }
+                    
+                    // Apply fade out
+                    for (let i = 0; i < fadeOutSamples; i++) {
+                        const idx = trimmedLength - 1 - i;
+                        outputData[idx] *= i / fadeOutSamples;
+                    }
+                }
+            }
+            
+            // Store the processed buffer (pre-lofi)
+            let finalBuffer = processedBuffer;
+            
+            // STEP 3: Handle crossfade for looping (before applying Lo-Fi)
+            if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+                setTimeout(() => {
+                    const result = createCrossfadedBuffer(
+                        processedBuffer,
+                        0,  // Start from beginning of the processed buffer
+                        1,  // Use entire processed buffer
+                        sampleCrossfadeAmount
+                    );
+                    
+                    if (result && result.buffer) {
+                        let crossfadedBuffer = result.buffer;
+                        
+                        // STEP 4: Apply E-mu processing AFTER crossfade if enabled
+                        if (isEmuModeOn) {
+                            crossfadedBuffer = applyEmuProcessing(crossfadedBuffer);
+                        }
+                        
+                        cachedCrossfadedBuffer = crossfadedBuffer;
+                        lastCachedStartPos = sampleStartPosition;
+                        lastCachedEndPos = sampleEndPosition;
+                        lastCachedCrossfade = sampleCrossfadeAmount;
+                    }
+                }, 10);
+            }
+            
+            // STEP 4: Apply E-mu processing at the very end for non-crossfaded cases
+            if (isEmuModeOn) {
+                finalBuffer = applyEmuProcessing(processedBuffer);
+            }
+            
+            // Store the final processed buffer
+            fadedBuffer = finalBuffer;
+        }
+    }, 10);
+}
+// Add MIDI controller support to overcome keyboard limitations
+function setupMIDIAccess() {
+  if (!navigator.requestMIDIAccess) {
+    console.log("WebMIDI not supported in this browser");
+    return;
+  }
+
+  navigator.requestMIDIAccess()
+    .then(onMIDISuccess, onMIDIFailure);
+
+  function onMIDISuccess(midiAccess) {
+    console.log("MIDI access obtained");
+    
+    // Get lists of available MIDI controllers
+    const inputs = midiAccess.inputs.values();
+    
+    // Connect to all available inputs
+    for (let input = inputs.next(); input && !input.done; input = inputs.next()) {
+      input.value.onmidimessage = onMIDIMessage;
+      console.log("Connected to MIDI device: " + input.value.name);
+    }
+    
+    // Listen for new devices being connected
+    midiAccess.onstatechange = function(e) {
+      if (e.port.type === "input" && e.port.state === "connected") {
+        e.port.onmidimessage = onMIDIMessage;
+        console.log("Connected to MIDI device: " + e.port.name);
+      }
+    };
+  }
+
+  function onMIDIFailure(msg) {
+    console.error("Failed to get MIDI access - " + msg);
+  }
+
+  function onMIDIMessage(event) {
+    // Extract MIDI data
+    const [command, note, velocity] = event.data;
+    
+    // Note on (144-159) with velocity > 0
+    if ((command >= 144 && command <= 159) && velocity > 0) {
+      // Convert MIDI note numbers (starts at 21 for A0) to our note system (starts at 0)
+      const ourNoteNumber = Math.max(0, note - 36); // Adjust offset as needed
+      noteOn(ourNoteNumber);
+    } 
+    // Note off (128-143) or note on with velocity 0
+    else if ((command >= 128 && command <= 143) || 
+             (command >= 144 && command <= 159 && velocity === 0)) {
+      const ourNoteNumber = Math.max(0, note - 36); // Adjust offset as needed
+      noteOff(ourNoteNumber);
+    }
+  }
+}
+
+// Initialize MIDI when document is ready
+document.addEventListener('DOMContentLoaded', function() {
+  setupMIDIAccess();
+});
     </script>
 </body>
 </html>
