@@ -1496,13 +1496,13 @@ function createiOSStartupOverlay() {
   // Make sure overlay is in the DOM before adding audio context
   document.body.appendChild(overlay);
   
-  // Prepare the audio context but don't resume yet
-  if (window.AudioContext || window.webkitAudioContext) {
-    // Create our special iOS silent audio element
+// Prepare the audio context but don't resume yet
+if (window.AudioContext || window.webkitAudioContext) {
+    // Use your own silent audio file
     const silentAudio = document.createElement('audio');
-    silentAudio.setAttribute('src', 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIgD///////////////////////////////////////////8AAAA8TEFNRTMuMTAwAQAAAAAAAAAAABUgJAMGQQABmgAAIicg4EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=');
-    silentAudio.setAttribute('type', 'audio/mp3');
+    silentAudio.src = 'silence.mp3'; // Path to your silent audio file
     silentAudio.setAttribute('loop', 'loop');
+    silentAudio.setAttribute('preload', 'auto');
     silentAudio.style.display = 'none';
     document.body.appendChild(silentAudio);
     
