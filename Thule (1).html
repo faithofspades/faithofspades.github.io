@@ -1523,7 +1523,6 @@ function initializeNotchedKnob(knob, onChange) {
 
 // Modify the beginning of createCrossfadedBuffer
 function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, crossfadeAmount) {
-  console.log("createCrossfadedBuffer called:", { startFraction, endFraction, crossfadeAmount });
   try {
     // Basic parameter checks
     if (!originalBuffer || originalBuffer.length === 0) {
@@ -1536,273 +1535,274 @@ function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, cros
       return null;
     }
     
-    if (startFraction >= endFraction) {
-      console.log("Invalid start/end positions");
-      return null;
-    }
-    
     // Use faded buffer if available, otherwise use original
     const sourceBuffer = fadedBuffer || originalBuffer;
-    console.log("Using " + (fadedBuffer ? "faded" : "original") + " buffer for crossfading");
-    
     const sampleRate = sourceBuffer.sampleRate;
     const channels = sourceBuffer.numberOfChannels;
     const totalSamples = sourceBuffer.length;
     
     // Calculate sample indices and loop length
-    let originalStartSample = Math.floor(startFraction * totalSamples);
+    let startSamplePos = Math.floor(startFraction * totalSamples);
     const endSamplePos = Math.floor(endFraction * totalSamples);
-    let loopLength = endSamplePos - originalStartSample;
+    let loopLength = endSamplePos - startSamplePos;
     
-    // CRITICAL: Check for minimum viable loop length - at least 0.1% of sample or 100 samples
+    // Check for minimum viable loop length
     const minimumSamples = Math.max(100, Math.floor(totalSamples * 0.001));
     
     if (loopLength < minimumSamples) {
       console.log(`Loop length (${loopLength} samples) is too short for crossfading. Minimum: ${minimumSamples}`);
-      
-      // Return the faded buffer directly without crossfade processing
-      // This allows playback without glitching when the segment is too small
-      console.log("Falling back to basic trimmed buffer without crossfade");
-      return { 
-        buffer: fadedBuffer || sourceBuffer,
-        adjustedStartFraction: startFraction 
-      };
+      return { buffer: sourceBuffer, adjustedStartFraction: startFraction };
     }
-    // IMPORTANT: Define startSamplePos here, before it's used in any branching code
-    let startSamplePos = originalStartSample;
     
+    // Get the first channel data for analysis
+    const channel0Data = sourceBuffer.getChannelData(0);
+    
+    // Select processing mode based on crossfade amount
+    let fadeLengthSamples, adjustedStart, fadeInStart;
+    
+    // For very small crossfades (<3%), we just use zero-crossing alignment
     if (crossfadeAmount < 0.03) {
-      console.log("Using zero-crossing alignment for small crossfade amount");
+      console.log("Using pure zero-crossing alignment for small crossfade");
       
-  // Get the first channel data for analysis
-  const channel0Data = sourceBuffer.getChannelData(0);
-  
-  // Search window in samples (20ms)
-  const searchWindow = Math.ceil(sampleRate * 0.02);
-  
-  // Find zero crossings and their slopes
-  const endCrossings = [];
-  const startCrossings = [];
-  
-  // Look for both positive and negative zero crossings near end
-  for (let i = Math.max(0, endSamplePos - searchWindow); i < Math.min(endSamplePos + searchWindow, totalSamples - 1); i++) {
-    // Positive crossing (negative to positive)
-    if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
-      endCrossings.push({
-        position: i,
-        slope: channel0Data[i + 1] - channel0Data[i],
-        type: 'positive'
-      });
-    }
-    // Negative crossing (positive to negative)
-    else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
-      endCrossings.push({
-        position: i,
-        slope: channel0Data[i + 1] - channel0Data[i],
-        type: 'negative'
-      });
-    }
-  }
-  
-  // Look for both positive and negative zero crossings near start
-  for (let i = Math.max(0, startSamplePos - searchWindow); i < Math.min(startSamplePos + searchWindow, totalSamples - 1); i++) {
-    // Positive crossing (negative to positive)
-    if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
-      startCrossings.push({
-        position: i,
-        slope: channel0Data[i + 1] - channel0Data[i],
-        type: 'positive'
-      });
-    }
-    // Negative crossing (positive to negative)
-    else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
-      startCrossings.push({
-        position: i,
-        slope: channel0Data[i + 1] - channel0Data[i],
-        type: 'negative'
-      });
-    }
-  }
-  
-  console.log(`Found ${endCrossings.length} zero crossings near end and ${startCrossings.length} near start`);
-  
-  // Default to original positions if no crossings found
-  let endZeroCrossing = endSamplePos;
-  let startZeroCrossing = startSamplePos;
-  
-  // Find best matching pair of zero crossings (match type and closest slope)
-  if (endCrossings.length > 0 && startCrossings.length > 0) {
-    let bestMatch = { score: -Infinity, start: null, end: null };
-    
-    // Compare each pair
-    for (const end of endCrossings) {
-      for (const start of startCrossings) {
-        // Perfect score for matching types (both positive or both negative)
-        const typeScore = (end.type === start.type) ? 10 : -5;
-        
-        // Slope similarity score (closer to 0 is better)
-        const slopeScore = 10 - Math.min(10, Math.abs(end.slope - start.slope) * 100);
-        
-        // Combined score
-        const score = typeScore + slopeScore;
-        
-        if (score > bestMatch.score) {
-          bestMatch = { 
-            score, 
-            start: start.position, 
-            end: end.position 
-          };
+      // Find zero crossings
+      const searchWindow = Math.ceil(sampleRate * 0.02);
+      const endCrossings = [];
+      const startCrossings = [];
+      
+      // Find zero crossings near end
+      for (let i = Math.max(0, endSamplePos - searchWindow); i < Math.min(endSamplePos + searchWindow, totalSamples - 1); i++) {
+        if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
+          endCrossings.push({ position: i, type: 'rising', slope: channel0Data[i + 1] - channel0Data[i] });
+        } else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
+          endCrossings.push({ position: i, type: 'falling', slope: channel0Data[i + 1] - channel0Data[i] });
         }
       }
+      
+      // Find zero crossings near start
+      for (let i = Math.max(0, startSamplePos - searchWindow); i < Math.min(startSamplePos + searchWindow, totalSamples - 1); i++) {
+        if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
+          startCrossings.push({ position: i, type: 'rising', slope: channel0Data[i + 1] - channel0Data[i] });
+        } else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
+          startCrossings.push({ position: i, type: 'falling', slope: channel0Data[i + 1] - channel0Data[i] });
+        }
+      }
+      
+      // Find best matching pair
+      let bestMatch = { score: -Infinity, start: startSamplePos, end: endSamplePos };
+      
+      if (startCrossings.length > 0 && endCrossings.length > 0) {
+        for (const start of startCrossings) {
+          for (const end of endCrossings) {
+            // Higher score for matching types and similar slopes
+            const typeScore = (start.type === end.type) ? 10 : -5;
+            const slopeScore = 5 - Math.min(5, Math.abs(start.slope - end.slope) * 100);
+            
+            // Score based on proximity to original points
+            const proximityScore = 5 - Math.min(5, 
+              (Math.abs(start.position - startSamplePos) + Math.abs(end.position - endSamplePos)) 
+              / (searchWindow * 2) * 5);
+            
+            const score = typeScore + slopeScore + proximityScore;
+            
+            if (score > bestMatch.score) {
+              bestMatch = {
+                score,
+                start: start.position,
+                end: end.position
+              };
+            }
+          }
+        }
+      }
+      
+      // Use the matched zero crossings if we found a good match
+      if (bestMatch.score > 0) {
+        startSamplePos = bestMatch.start;
+        loopLength = bestMatch.end - startSamplePos;
+        console.log(`Using zero crossings: start=${startSamplePos}, end=${bestMatch.end}, score=${bestMatch.score.toFixed(2)}`);
+      }
+      
+      // Create output buffer
+      const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
+      
+      // Copy audio data
+      for (let channel = 0; channel < channels; channel++) {
+        const origData = sourceBuffer.getChannelData(channel);
+        const newData = newBuffer.getChannelData(channel);
+        
+        for (let i = 0; i < loopLength; i++) {
+          newData[i] = origData[startSamplePos + i];
+        }
+      }
+      
+      return { buffer: newBuffer, adjustedStartFraction: startSamplePos / totalSamples };
     }
     
-    console.log(`Best zero crossing match score: ${bestMatch.score}`);
+    // For larger crossfades, use a proper crossfade with phase alignment
+    console.log("Using phase-aligned crossfade for larger fade amount");
     
-    // Only use the match if it's reasonably good
-    if (bestMatch.score > 0) {
-      startZeroCrossing = bestMatch.start;
-      endZeroCrossing = bestMatch.end;
-      console.log(`Using matched zero crossings: start=${startZeroCrossing}, end=${endZeroCrossing}`);
-    }
-  }
-  
-  // Use these zero crossings to create a perfectly looped buffer
-  loopLength = endZeroCrossing - startZeroCrossing;
-  if (loopLength <= 0) {
-    console.log("Invalid loop length after zero crossing adjustment - using original positions");
-    startZeroCrossing = startSamplePos;
-    endZeroCrossing = endSamplePos;
-    loopLength = endZeroCrossing - startZeroCrossing;
-  }
-  
-  // Create buffer with aligned zero crossings
-  const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
-  
-  for (let channel = 0; channel < channels; channel++) {
-    const sourceData = sourceBuffer.getChannelData(channel);
-    const newData = newBuffer.getChannelData(channel);
-    
-    for (let i = 0; i < loopLength; i++) {
-      newData[i] = sourceData[startZeroCrossing + i];
-    }
-  }
-  
-  console.log(`Created phase-aligned looped buffer with zero crossings: ${(loopLength / sampleRate).toFixed(3)}s loop`);
-  return { buffer: newBuffer, adjustedStartFraction: startZeroCrossing / totalSamples };
-}
-    
-    // For larger crossfade amounts, use the original correlation-based crossfade logic
-    const minFadeSamples = Math.max(Math.round(sampleRate * 0.02), Math.round(loopLength * 0.02));
-    let fadeLengthSamples;
+    // Calculate crossfade length based on percentage and constraints
+    const minFadeSamples = Math.max(Math.round(sampleRate * 0.01), 100); // minimum 10ms fade
+    const maxFadeSamples = Math.floor(loopLength * 0.4); // maximum 40% of loop length
     
     if (crossfadeAmount < 0.1) {
-      fadeLengthSamples = Math.max(minFadeSamples, Math.round(sampleRate * 0.02));
+      fadeLengthSamples = Math.max(minFadeSamples, Math.round(sampleRate * 0.02)); // 20ms for small fades
     } else {
-      fadeLengthSamples = Math.floor(loopLength * crossfadeAmount * 0.2);
-      fadeLengthSamples = Math.max(fadeLengthSamples, minFadeSamples);
-      fadeLengthSamples = Math.min(fadeLengthSamples, Math.floor(loopLength / 3));
+      fadeLengthSamples = Math.floor(loopLength * crossfadeAmount * 0.25); // Scale by 0.25 for a nice fade
+      fadeLengthSamples = Math.max(minFadeSamples, Math.min(fadeLengthSamples, maxFadeSamples));
     }
     
-    console.log("Fade length (samples):", fadeLengthSamples, "Time:", (fadeLengthSamples/sampleRate).toFixed(4), "sec");
+    console.log(`Fade length: ${fadeLengthSamples} samples (${fadeLengthSamples/sampleRate}s)`);
     
-
+    // Ensure we have enough samples before start for lead-in
     if (startSamplePos < fadeLengthSamples) {
-      console.log(`Not enough lead-in samples; adjusting startSample from ${startSamplePos} to ${fadeLengthSamples}`);
       startSamplePos = fadeLengthSamples;
       loopLength = endSamplePos - startSamplePos;
     }
     
-    // Find optimal crossfade points using waveform similarity
-    const searchWindowMs = 20; 
-    const searchWindow = Math.ceil(sampleRate * searchWindowMs / 1000);
+    // -------- PHASE ALIGNMENT FOR CROSSFADE ----------
     
-    let bestMatchOffset = 0;
-    let bestCorrelation = -1;
+    // First find the characteristics of the END section where crossfade starts
+    const crossfadeStartPos = endSamplePos - fadeLengthSamples; // Where the crossfade region begins
     
-    // Only analyze first channel for finding the best match point
-    const channel0Data = sourceBuffer.getChannelData(0);
+    // 1. Find the closest zero crossing and direction at the crossfade start
+    let endCrossType = null;
+    let endCrossPos = crossfadeStartPos;
+    let endIsRising = false;
     
+    // Look within a small window for a zero crossing at the start of crossfade
+    for (let i = Math.max(0, crossfadeStartPos - 5); i < Math.min(crossfadeStartPos + 5, totalSamples - 1); i++) {
+      if (channel0Data[i] <= 0 && channel0Data[i+1] > 0) {
+        endCrossType = 'rising';
+        endCrossPos = i;
+        endIsRising = true;
+        break;
+      } else if (channel0Data[i] >= 0 && channel0Data[i+1] < 0) {
+        endCrossType = 'falling';
+        endCrossPos = i;
+        endIsRising = false;
+        break;
+      }
+    }
+    
+    // 2. If no zero crossing at exact position, determine if we're in a rising or falling region
+    if (!endCrossType) {
+      // Sample a few points to determine direction
+      const p0 = channel0Data[Math.max(0, crossfadeStartPos - 3)];
+      const p1 = channel0Data[crossfadeStartPos];
+      const p2 = channel0Data[Math.min(totalSamples - 1, crossfadeStartPos + 3)];
+      
+      endIsRising = (p2 > p0); // Simple direction check
+      endCrossType = channel0Data[crossfadeStartPos] >= 0 ? 'positive' : 'negative'; // Current polarity
+    }
+    
+    // 3. Now search for a matching lead-in section that will align properly
+    // Start searching from a reasonable position (usually start - fadeLengthSamples)
+    const searchWindow = Math.min(Math.floor(sampleRate * 0.05), Math.floor(loopLength * 0.2)); // 50ms or 20% of loop
+    const searchStartPoint = startSamplePos - fadeLengthSamples;
+    let bestLeadInPos = searchStartPoint;
+    let bestScore = -100;
+    
+    // Search for best matching lead-in spot
     for (let offset = -searchWindow; offset <= searchWindow; offset++) {
-      if (startSamplePos + offset < fadeLengthSamples || endSamplePos + offset >= totalSamples) {
-        continue;
+      const testPos = searchStartPoint + offset;
+      if (testPos < 0 || testPos + fadeLengthSamples >= crossfadeStartPos) {
+        continue; // Skip invalid positions
       }
       
-      let correlation = 0;
-      let endRegionEnergy = 0;
-      let startRegionEnergy = 0;
+      // Score this potential lead-in position based on:
+      // 1. Zero crossing match
+      // 2. Direction match (rising/falling)
+      // 3. Approximate amplitude similarity
+      let score = 0;
+      let hasMatchingCrossing = false;
       
-      for (let i = 0; i < fadeLengthSamples; i++) {
-        const endSampleValue = channel0Data[endSamplePos - fadeLengthSamples + i]; 
-        const startSampleValue = channel0Data[startSamplePos - fadeLengthSamples + i + offset];
-        
-        correlation += endSampleValue * startSampleValue;
-        endRegionEnergy += endSampleValue * endSampleValue;
-        startRegionEnergy += startSampleValue * startSampleValue;
-      }
-      
-      if (endRegionEnergy > 0 && startRegionEnergy > 0) {
-        correlation = correlation / (Math.sqrt(endRegionEnergy) * Math.sqrt(startRegionEnergy));
-        
-        if (correlation > bestCorrelation) {
-          bestCorrelation = correlation;
-          bestMatchOffset = offset;
+      // Check if this position has a matching zero crossing type
+      for (let i = Math.max(0, testPos - 5); i < Math.min(testPos + 5, totalSamples - 1); i++) {
+        if ((channel0Data[i] <= 0 && channel0Data[i+1] > 0 && endCrossType === 'rising') ||
+            (channel0Data[i] >= 0 && channel0Data[i+1] < 0 && endCrossType === 'falling')) {
+          score += 50; // Big boost for matching zero crossing type
+          hasMatchingCrossing = true;
+          break;
         }
       }
+      
+      if (!hasMatchingCrossing) {
+        // Check for matching polarity if no zero crossing
+        const isPositive = channel0Data[testPos] >= 0;
+        if ((isPositive && endCrossType === 'positive') || 
+            (!isPositive && endCrossType === 'negative')) {
+          score += 20;
+        }
+        
+        // Check for matching direction
+        const testIsRising = channel0Data[Math.min(testPos + 3, totalSamples - 1)] > 
+                            channel0Data[Math.max(0, testPos - 3)];
+        if (testIsRising === endIsRising) {
+          score += 15;
+        }
+      }
+      
+      // Check amplitude similarity
+      const endAmplitude = Math.abs(channel0Data[crossfadeStartPos]);
+      const testAmplitude = Math.abs(channel0Data[testPos]);
+      score += 15 - Math.min(15, Math.abs(endAmplitude - testAmplitude) * 30);
+      
+      // Prefer positions closer to expected position
+      score += 20 - Math.min(20, Math.abs(offset) / searchWindow * 15);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestLeadInPos = testPos;
+      }
     }
     
-    console.log(`Found best match with correlation ${bestCorrelation.toFixed(3)} at offset ${bestMatchOffset}`);
+    console.log(`Selected lead-in position: ${bestLeadInPos}, score: ${bestScore.toFixed(1)}`);
     
-    const adjustedStart = Math.max(fadeLengthSamples, startSamplePos + bestMatchOffset);
-    const fadeInStart = adjustedStart - fadeLengthSamples;
-    loopLength = endSamplePos - adjustedStart;
+    // Set up final positions for the crossfaded buffer
+    adjustedStart = startSamplePos;
+    fadeInStart = bestLeadInPos;
     
-    console.log(`Adjusted start sample: ${adjustedStart}, fadeInStart: ${fadeInStart}`);
+    // Create the output buffer
+    const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
     
-    if (loopLength <= 0) {
-      console.error("Invalid loop length calculated:", loopLength);
-      return null;
-    }
-    
-    // Create the final buffer with guaranteed positive length
-    const newBuffer = audioCtx.createBuffer(channels, Math.max(1, loopLength), sampleRate);
-    
+    // Process each channel
     for (let channel = 0; channel < channels; channel++) {
       const origData = sourceBuffer.getChannelData(channel);
       const newData = newBuffer.getChannelData(channel);
       
+      // Copy the main loop content
       for (let i = 0; i < loopLength; i++) {
         newData[i] = origData[adjustedStart + i];
       }
       
-      // Apply crossfade at loop end
+      // Apply crossfade at the end - THIS IS THE CRITICAL PART
       for (let i = 0; i < fadeLengthSamples; i++) {
         const idx = loopLength - fadeLengthSamples + i;
-        if (idx >= 0) { 
-          const t = i / fadeLengthSamples;
-          
-          // Equal power crossfade
-          const fadeOutFactor = Math.cos(t * Math.PI/2);
-          const fadeInFactor = Math.sin(t * Math.PI/2);
+        if (idx >= 0) {
+          // Use equal power crossfade curve for clean mixing
+          // This is crucial to avoid clicks and dips in volume
+          const ratio = i / fadeLengthSamples;
+          const fadeOutGain = Math.cos(ratio * Math.PI/2);
+          const fadeInGain = Math.sin(ratio * Math.PI/2);
           
           const loopEndSample = newData[idx];
           const leadInSample = origData[fadeInStart + i];
           
-          newData[idx] = (loopEndSample * fadeOutFactor) + (leadInSample * fadeInFactor);
+          // Apply phase-aligned crossfade
+          newData[idx] = (loopEndSample * fadeOutGain) + (leadInSample * fadeInGain);
         }
       }
     }
     
     console.log(`Created crossfaded buffer: ${(loopLength / sampleRate).toFixed(3)}s loop`);
     return { buffer: newBuffer, adjustedStartFraction: adjustedStart / totalSamples };
-} catch (e) {
+    
+  } catch (e) {
     console.error("Error creating crossfaded buffer:", e);
-    return { 
-      buffer: fadedBuffer || originalBuffer,
-      adjustedStartFraction: startFraction 
-    };
+    return { buffer: fadedBuffer || originalBuffer, adjustedStartFraction: startFraction };
   }
 }
-
 // Knob initializations (only one set)
 const knobInitializations = {
       
