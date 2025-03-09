@@ -1444,85 +1444,129 @@ sampleGainNode.gain.value = 0.5;
 // Update the createNote function to use a reference to the current gain value
 let currentSampleGain = 0.5; // Add this with other global variables
 let currentSamplePosition = 0; // Add this with other global variables
-
+const knobDefaults = {
+  'sample-start-knob': 0.0,     // Start at beginning of sample
+  'sample-end-knob': 1.0,       // End at end of sample
+  'sample-crossfade-knob': 0.0, // No crossfade initially
+  'glide-time-knob': 0.05,      // 100ms (5% of 2000ms)
+  // All other knobs default to 0.5
+};
 // Replace all knob-related code with this single implementation
 function initializeKnob(knob, onChange) {
-    let rotation = -150;
-    let isDragging = false;
-    let lastY;
-    const defaultValue = 0.5;
+  // Remove any existing event listeners first
+  const newKnob = knob.cloneNode(true);
+  knob.parentNode.replaceChild(newKnob, knob);
+  knob = newKnob;
+  
+  // Use default value from knobDefaults if available, otherwise 0.5
+  const defaultValue = knobDefaults[knob.id] !== undefined ? knobDefaults[knob.id] : 0.5;
+  
+  // Set initial rotation based on default value WITHOUT triggering tooltip
+  let rotation = -150 + (defaultValue * 300);
+  let isDragging = false;
+  let lastY;
+  let initialMovement = true;  // Flag to track first movement
 
-    function resetToDefault() {
-        rotation = -150 + (defaultValue * 300);
-        knob.style.transform = `rotate(${rotation}deg)`;
-        if (onChange) {
-            onChange(defaultValue);
-        }
+  // Set the initial visual rotation
+  knob.style.transform = `rotate(${rotation}deg)`;
+
+  function resetToDefault() {
+    rotation = -150 + (defaultValue * 300);
+    knob.style.transform = `rotate(${rotation}deg)`;
+    if (onChange) {
+      onChange(defaultValue);
+    }
+  }
+
+  function handleMouseMove(e) {
+    if (!isDragging) return;
+    
+    const sensitivity = e.shiftKey ? 0.25 : 1.0;
+    const deltaY = (lastY - e.clientY) * sensitivity;
+    
+    if (initialMovement) {
+      // On first movement, just record the position but don't apply the delta
+      // This prevents the "bounce" effect
+      initialMovement = false;
+      lastY = e.clientY;
+      return;
     }
 
-    function handleMouseMove(e) {
-        if (!isDragging) return;
-        
-        // Apply different sensitivity based on shift key state
-        const sensitivity = e.shiftKey ? 0.25 : 1.0;
-        const deltaY = (lastY - e.clientY) * sensitivity;
-        lastY = e.clientY;
-        
-        // Range from -150 to +150 degrees
-        const newRotation = Math.min(150, Math.max(-150, rotation + deltaY));
-        
-        if (newRotation !== rotation) {
-            rotation = newRotation;
-            knob.style.transform = `rotate(${rotation}deg)`;
-            
-            if (onChange) {
-                const normalizedValue = (rotation + 150) / 300;
-                onChange(normalizedValue);
-            }
-        }
-        
-        e.preventDefault();
-        e.stopPropagation();
+    lastY = e.clientY;
+    
+    const newRotation = Math.min(150, Math.max(-150, rotation + deltaY));
+    
+    if (newRotation !== rotation) {
+      rotation = newRotation;
+      knob.style.transform = `rotate(${rotation}deg)`;
+      
+      if (onChange) {
+        const normalizedValue = (rotation + 150) / 300;
+        onChange(normalizedValue);
+      }
     }
+    
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
-    function handleMouseUp() {
-        isDragging = false;
-        knob.style.cursor = 'grab';
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+  function handleMouseUp() {
+    isDragging = false;
+    initialMovement = true; // Reset for next drag
+    knob.style.cursor = 'grab';
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  }
+
+  knob.addEventListener('click', (e) => {
+    if (e.altKey) {
+      resetToDefault();
     }
+  });
 
-    // Add click handlers for reset functionality
-    knob.addEventListener('click', (e) => {
-        if (e.altKey) {
-            resetToDefault();
-        }
-    });
+  knob.addEventListener('dblclick', () => {
+    resetToDefault();
+  });
 
-    knob.addEventListener('dblclick', () => {
-        resetToDefault();
-    });
+  knob.addEventListener('mousedown', (e) => {
+    if (!e.altKey) {
+      isDragging = true;
+      initialMovement = true; // Reset flag on new drag
+      lastY = e.clientY;
+      knob.style.cursor = 'grabbing';
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    e.preventDefault();
+  });
 
-    knob.addEventListener('mousedown', (e) => {
-        if (!e.altKey) { // Only start dragging if not alt-clicking
-            isDragging = true;
-            lastY = e.clientY;
-            knob.style.cursor = 'grabbing';
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
-        }
-        e.preventDefault();
-    });
+  // Also update the parameters directly when the default is applied
+  if (knob.id === 'sample-start-knob') {
+    sampleStartPosition = defaultValue;
+  } else if (knob.id === 'sample-end-knob') {
+    sampleEndPosition = defaultValue;
+  } else if (knob.id === 'sample-crossfade-knob') {
+    sampleCrossfadeAmount = defaultValue;
+    isSampleLoopOn = defaultValue > 0.01;
+  } else if (knob.id === 'glide-time-knob') {
+    glideTime = defaultValue * 2; // 0-2 seconds range
+  }
 
-    return {
-        getValue: () => (rotation + 150) / 300,
-        setValue: (value) => {
-            const newRotation = (value * 300) - 150;
-            rotation = Math.min(150, Math.max(-150, newRotation));
-            knob.style.transform = `rotate(${rotation}deg)`;
-        }
-    };
+  return {
+    getValue: () => (rotation + 150) / 300,
+    setValue: (value, triggerOnChange = false) => {
+      const newRotation = (value * 300) - 150;
+      rotation = Math.min(150, Math.max(-150, newRotation));
+      knob.style.transform = `rotate(${rotation}deg)`;
+      
+      // Only trigger onChange if explicitly requested
+      if (onChange && triggerOnChange) {
+        onChange(value);
+      }
+    }
+  };
 }
+
 
 
 // Place this code right after the initializeKnob function and before any initialization calls
@@ -2697,27 +2741,30 @@ function createNote(noteNumber, buffer, audioCtx, destination) {
 
 // Update the DOMContentLoaded event listener
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize all regular knobs
-    Object.entries(knobInitializations).forEach(([id, callback]) => {
-        const knob = D(id);
-        if (knob) {
-            const control = initializeKnob(knob, callback);
-            control.setValue(0.5);
-        }
-    });
+  // Initialize all regular knobs
+  Object.entries(knobInitializations).forEach(([id, callback]) => {
+    const knob = D(id);
+    if (knob) {
+      const defaultValue = knobDefaults[id] !== undefined ? knobDefaults[id] : 0.5;
+      const control = initializeKnob(knob, callback);
+    }
+  });
 
-    // Initialize octave knobs
-    ['osc1-octave-knob', 'osc2-octave-knob'].forEach(id => {
-        const knob = D(id);
-        const valueId = id.replace('-knob', '-value');
-        if (knob) {
-            const control = initializeNotchedKnob(knob, (value) => {
-                D(valueId).textContent = value > 0 ? `+${value}` : value;
-                console.log(`${id} octave:`, value);
-            });
-            control.setValue(0);
-        }
-    });
+  // Initialize octave knobs
+  ['osc1-octave-knob', 'osc2-octave-knob'].forEach(id => {
+    const knob = D(id);
+    const valueId = id.replace('-knob', '-value');
+    if (knob) {
+      const control = initializeNotchedKnob(knob, (value) => {
+        D(valueId).textContent = value > 0 ? `+${value}` : value;
+        console.log(`${id} octave:`, value);
+      });
+      control.setValue(0);
+    }
+  });
+  
+  // Initialize any remaining parameters
+  updateSampleProcessing();
 });
 
 // Remove any other knob initialization code
@@ -3492,27 +3539,7 @@ function checkAudioAvailable() {
     };
 });
 
-    // Initialize all regular knobs
-    Object.entries(knobInitializations).forEach(([id, callback]) => {
-        const knob = D(id);
-        if (knob) {
-            const control = initializeKnob(knob, callback);
-            control.setValue(0.5); // Set initial position
-        }
-    });
 
-    // Initialize octave knobs
-    ['osc1-octave-knob', 'osc2-octave-knob'].forEach(id => {
-        const knob = D(id);
-        const valueId = id.replace('-knob', '-value');
-        if (knob) {
-            const control = initializeNotchedKnob(knob, (value) => {
-                D(valueId).textContent = value > 0 ? `+${value}` : value;
-                console.log(`${id} octave:`, value);
-            });
-            control.setValue(0); // Set initial position to center
-        }
-    });
 
 // Add tooltip creation function
 function createTooltip() {
