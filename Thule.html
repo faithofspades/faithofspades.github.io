@@ -1453,6 +1453,81 @@ const knobDefaults = {
 };
 // Replace all knob-related code with this single implementation
 // Add touch support for knobs and keyboard
+// Create a startup overlay for iOS devices
+function createiOSStartupOverlay() {
+  const overlay = document.createElement('div');
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.backgroundColor = 'rgba(245, 245, 220, 0.95)'; // Match your theme
+  overlay.style.zIndex = '9999'; // Ensure it's on top
+  overlay.style.display = 'flex';
+  overlay.style.flexDirection = 'column';
+  overlay.style.justifyContent = 'center';
+  overlay.style.alignItems = 'center';
+  overlay.style.textAlign = 'center';
+  
+  const heading = document.createElement('h2');
+  heading.textContent = 'THULE Sampler';
+  heading.style.color = '#8b4513';
+  heading.style.marginBottom = '20px';
+  
+  const message = document.createElement('p');
+  message.textContent = 'Touch anywhere to enable audio';
+  message.style.marginBottom = '30px';
+  message.style.color = '#3f2101';
+  
+  const button = document.createElement('button');
+  button.textContent = 'Start Synth';
+  button.style.padding = '15px 30px';
+  button.style.fontSize = '18px';
+  button.style.backgroundColor = '#e6e6e6';
+  button.style.border = '1px solid #3f2101';
+  button.style.borderRadius = '8px';
+  button.style.color = '#3f2101';
+  button.style.cursor = 'pointer';
+  
+  overlay.appendChild(heading);
+  overlay.appendChild(message);
+  overlay.appendChild(button);
+  
+  document.body.appendChild(overlay);
+  
+  // Function to unlock audio context
+  function unlockAudio() {
+    // Create and play a silent audio buffer
+    const silentBuffer = audioCtx.createBuffer(1, 1, 22050);
+    const source = audioCtx.createBufferSource();
+    source.buffer = silentBuffer;
+    source.connect(audioCtx.destination);
+    
+    // Play the silent sound
+    if (source.start) {
+      source.start(0);
+    } else {
+      source.noteOn(0);
+    }
+    
+    // Resume audio context (needed for newer browsers)
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    
+    // Remove the overlay
+    document.body.removeChild(overlay);
+    
+    console.log("Audio unlocked for iOS");
+  }
+  
+  // Add event listeners to unlock audio
+  overlay.addEventListener('touchstart', unlockAudio, { once: true });
+  button.addEventListener('touchstart', unlockAudio, { once: true });
+  overlay.addEventListener('click', unlockAudio, { once: true });
+  
+  console.log("iOS audio unlock overlay created");
+}
 function initializeKnob(knob, onChange) {
   // Remove any existing event listeners first
   const newKnob = knob.cloneNode(true);
@@ -3722,72 +3797,7 @@ document.addEventListener('mouseup', () => {
         tooltip.style.opacity = '0';
     });
 });
-function initAudioContext() {
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume().then(() => {
-      console.log('AudioContext resumed successfully');
-    }).catch(error => {
-      console.error('Error resuming AudioContext:', error);
-    });
-  }
-}
-// Add a startup overlay that requires user interaction
-function createStartupOverlay() {
-  const overlay = document.createElement('div');
-  overlay.style.position = 'fixed';
-  overlay.style.top = '0';
-  overlay.style.left = '0';
-  overlay.style.width = '100%';
-  overlay.style.height = '100%';
-  overlay.style.backgroundColor = 'rgba(245, 245, 220, 0.9)';
-  overlay.style.zIndex = '1000';
-  overlay.style.display = 'flex';
-  overlay.style.flexDirection = 'column';
-  overlay.style.justifyContent = 'center';
-  overlay.style.alignItems = 'center';
-  overlay.style.textAlign = 'center';
-  overlay.style.padding = '20px';
-  
-  const title = document.createElement('h2');
-  title.textContent = 'THULE Sampler';
-  title.style.color = '#8b4513';
-  title.style.marginBottom = '20px';
-  overlay.appendChild(title);
-  
-  const text = document.createElement('p');
-  text.textContent = 'Tap anywhere to enable audio';
-  text.style.marginBottom = '30px';
-  text.style.color = '#3f2101';
-  overlay.appendChild(text);
-  
-  const button = document.createElement('button');
-  button.textContent = 'Start Synth';
-  button.style.padding = '12px 24px';
-  button.style.backgroundColor = '#e6e6e6';
-  button.style.border = '1px solid #3f2101';
-  button.style.borderRadius = '5px';
-  button.style.fontSize = '16px';
-  button.style.color = '#3f2101';
-  button.style.cursor = 'pointer';
-  overlay.appendChild(button);
-  
-  document.body.appendChild(overlay);
-  
-  // When overlay is tapped, initialize audio
-  function removeOverlay() {
-    initAudioContext();
-    document.body.removeChild(overlay);
-  }
-  
-  overlay.addEventListener('click', removeOverlay);
-  button.addEventListener('click', removeOverlay);
-  
-  // Also handle keyboard interaction
-  document.addEventListener('keydown', function onKey(e) {
-    removeOverlay();
-    document.removeEventListener('keydown', onKey);
-  }, { once: true });
-}
+
 function initializePrecisionSlider(slider) {
     let lastY;
     let isDragging = false;
@@ -4858,25 +4868,47 @@ function setupMIDIAccess() {
   }
 }
 
-// Add these calls to your document ready function
+// Initialize MIDI when document is ready
 document.addEventListener('DOMContentLoaded', function() {
-  // Initialize existing elements
-  generateKeyboard();
-  updateSliderValues();
-  updateVoiceDisplay();
-  updateADSRVisualization();
-  initializeSwitches();
   setupMIDIAccess();
-  setupMicRecording();
+});
+// Detect iOS device
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// Only show the unlock overlay on iOS devices
+if (isIOS()) {
+  // Wait a moment for everything else to initialize
+  setTimeout(() => {
+    createiOSStartupOverlay();
+  }, 100);
+}
+
+// Add explicit touch handling for iOS throughout your UI
+function addIOSTouchHandlers() {
+  // Add touch handlers to all interactive elements
+  const touchElements = document.querySelectorAll('.key, .knob, button, .switch-container, .vertical-switch');
   
-  // Create start overlay
-  createStartupOverlay();
-  
-  // Add touch events to all controls to ensure audio context is resumed
-  document.querySelectorAll('.knob, .key, button, .switch-container, input').forEach(el => {
-    el.addEventListener('touchstart', initAudioContext, { passive: false });
-    el.addEventListener('mousedown', initAudioContext);
+  touchElements.forEach(el => {
+    el.addEventListener('touchstart', function(e) {
+      // Ensure audio context is resumed on any touch
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().then(() => {
+          console.log('AudioContext resumed by user interaction');
+        });
+      }
+      // Don't prevent default here to allow the original handlers to work
+    });
   });
+}
+
+// Call this during initialization
+document.addEventListener('DOMContentLoaded', function() {
+  if (isIOS()) {
+    addIOSTouchHandlers();
+  }
 });
     </script>
 </body>
