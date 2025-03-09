@@ -1575,6 +1575,100 @@ if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(naviga
     createiOSStartupOverlay();
   });
 }
+// Add this function at the beginning of your script
+function createIOSChromeAudioUnlocker() {
+  // Create a special overlay for Chrome on iOS
+  const overlay = document.createElement('div');
+  overlay.innerHTML = `
+    <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+         background: rgba(245, 245, 220, 0.95); z-index: 99999; display: flex; 
+         flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+      <h2 style="color: #8b4513;">THULE Sampler</h2>
+      <p style="margin: 20px 0;">Tap the button below to enable audio</p>
+      <button id="ios-chrome-audio-unlock" style="padding: 16px 32px; font-size: 18px; 
+              background: #e6e6e6; border: 1px solid #3f2101; border-radius: 8px; 
+              color: #3f2101; cursor: pointer;">START SYNTHESIZER</button>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  // Create a hidden HTML5 audio element (crucial for Chrome on iOS)
+  const audioElement = document.createElement('audio');
+  audioElement.setAttribute('src', 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIgD///////////////////////////////////////////8AAAA8TEFNRTMuMTAwAQAAAAAAAAAAABUgJAMGQQABmgAAIicg4EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=');
+  audioElement.setAttribute('playsinline', '');
+  audioElement.setAttribute('preload', 'auto');
+  audioElement.setAttribute('loop', 'loop');
+  audioElement.style.display = 'none';
+  document.body.appendChild(audioElement);
+  
+  // Function to unlock audio with special handling for Chrome on iOS
+  function unlockAudioForChromeIOS() {
+    console.log("Attempting to unlock audio for Chrome on iOS");
+    
+    // 1. First, try to play the HTML5 audio element
+    const playPromise = audioElement.play();
+    
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        console.log("Audio element playback successful");
+        
+        // 2. After successful audio element play, resume AudioContext
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume().then(() => {
+            console.log("AudioContext resumed");
+          }).catch(err => {
+            console.error("Failed to resume AudioContext:", err);
+          });
+        }
+        
+        // 3. Create a silent oscillator (important for iOS Chrome)
+        try {
+          const oscillator = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          gain.gain.value = 0.001;
+          oscillator.connect(gain);
+          gain.connect(audioCtx.destination);
+          oscillator.start(0);
+          oscillator.stop(audioCtx.currentTime + 0.5);
+          console.log("Created silent oscillator");
+        } catch(e) {
+          console.error("Failed to create oscillator:", e);
+        }
+        
+        // Remove the overlay
+        setTimeout(() => {
+          document.body.removeChild(overlay);
+        }, 100);
+        
+      }).catch(err => {
+        console.error("Audio playback failed:", err);
+        // Show a more direct error message to the user
+        alert("Audio couldn't be enabled. Please reload and try again, making sure to tap directly on the button.");
+      });
+    }
+  }
+  
+  // Add event listener directly to the button
+  document.getElementById('ios-chrome-audio-unlock').addEventListener('click', unlockAudioForChromeIOS);
+  document.getElementById('ios-chrome-audio-unlock').addEventListener('touchend', unlockAudioForChromeIOS);
+}
+// Function to detect Chrome on iOS specifically
+function isChromeOnIOS() {
+  const userAgent = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(userAgent) && /CriOS/.test(userAgent);
+}
+
+// Show the special Chrome iOS unlocker only when needed
+document.addEventListener('DOMContentLoaded', function() {
+  if (isChromeOnIOS()) {
+    console.log("Detected Chrome on iOS - showing special audio unlock UI");
+    createIOSChromeAudioUnlocker();
+  } else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+    // Use your original iOS unlocker for Safari
+    createiOSStartupOverlay();
+  }
+});
 // Detect if the device is a touch device
 function isTouchDevice() {
   return ('ontouchstart' in window) || 
