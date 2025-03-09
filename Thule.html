@@ -1583,49 +1583,81 @@ function isTouchDevice() {
 }
 // Track double taps for resetting controls
 function setupDoubleTapReset() {
-  const touchElements = document.querySelectorAll('.knob, .vertical-switch');
-  const doubleTapThreshold = 300; // ms between taps
+  // Track taps globally per element
+  const lastTapTimes = {};
+  const doubleTapThreshold = 400; // Increased threshold for more reliable detection
   
-  touchElements.forEach(element => {
-    let lastTapTime = 0;
+  // Process all knobs and switches
+  document.querySelectorAll('.knob, .vertical-switch').forEach(element => {
+    if (!element.id) return; // Skip elements without ID
+    
+    // Create a consistent element identifier
+    const elementId = element.id;
+    
+    // Initialize the tracking for this element
+    lastTapTimes[elementId] = 0;
+    
+    // Remove any existing touchend listeners to prevent duplicates
+    const newElement = element.cloneNode(true);
+    element.parentNode.replaceChild(newElement, element);
+    element = newElement;
+    
+    // Add improved double-tap detection
+    element.addEventListener('touchstart', function(e) {
+      // Just record the touch started and let the native event continue
+      e.stopPropagation(); // Prevent propagation to avoid conflicts
+    }, { passive: true });
     
     element.addEventListener('touchend', function(e) {
       const currentTime = new Date().getTime();
+      const lastTapTime = lastTapTimes[elementId] || 0;
       const tapTimeDiff = currentTime - lastTapTime;
       
-      if (tapTimeDiff < doubleTapThreshold && tapTimeDiff > 0) {
-        // Double tap detected, reset the control
-        console.log('Double tap detected on', element.id);
+      // Update last tap time immediately
+      lastTapTimes[elementId] = currentTime;
+      
+      // Check if it's a double tap (within threshold)
+      if (tapTimeDiff > 0 && tapTimeDiff < doubleTapThreshold) {
+        console.log(`Double tap detected on ${elementId}, time diff: ${tapTimeDiff}ms`);
         
-        // For knobs
+        // Reset the element based on its type
         if (element.classList.contains('knob')) {
-          const defaultValue = knobDefaults[element.id] !== undefined ? knobDefaults[element.id] : 0.5;
+          const defaultValue = knobDefaults[elementId] !== undefined ? knobDefaults[elementId] : 0.5;
           
-          // Find the knob control and reset it
-          const knobId = element.id;
-          const onChange = knobInitializations[knobId];
-          if (onChange) {
-            // Re-initialize the knob but keep the element
-            const control = initializeKnob(element, onChange);
-            control.setValue(defaultValue, true); // Set to default value and trigger onChange
-            console.log(`Reset ${knobId} to default value:`, defaultValue);
+          // Reset the knob immediately
+          element.style.transform = `rotate(${-150 + (defaultValue * 300)}deg)`;
+          
+          // Find the onChange handler and trigger it
+          if (knobInitializations[elementId]) {
+            // Minor delay to ensure UI is updated first
+            setTimeout(() => {
+              knobInitializations[elementId](defaultValue);
+              console.log(`Reset ${elementId} to default value: ${defaultValue}`);
+            }, 10);
           }
+        } 
+        // Reset switch if needed
+        else if (element.classList.contains('vertical-switch') && element.classList.contains('active')) {
+          setTimeout(() => {
+            // Simulate click to toggle off
+            element.click();
+          }, 10);
         }
         
-        // For switches
-        if (element.classList.contains('vertical-switch')) {
-          // Toggle off if it's on
-          if (element.classList.contains('active')) {
-            element.click(); // Simulate click to toggle off
-          }
-        }
-        
+        // Prevent default behavior to ensure our double-tap takes precedence
         e.preventDefault();
       }
-      
-      lastTapTime = currentTime;
     }, { passive: false });
   });
+  
+  // Clear all double-tap timers when the user interacts with any other element
+  document.addEventListener('touchstart', function(e) {
+    if (!e.target.classList.contains('knob') && !e.target.classList.contains('vertical-switch')) {
+      Object.keys(lastTapTimes).forEach(key => {
+        lastTapTimes[key] = 0;
+      });
+    }
+  }, { passive: true });
 }
 function initializeKnob(knob, onChange) {
   // Remove any existing event listeners first
@@ -4370,43 +4402,58 @@ document.addEventListener('mouseup', () => {
 });
 // Auto-hide tooltips after inactivity
 function setupAutoHideTooltips() {
-  let tooltipHideTimer = null;
+  let tooltipHideTimers = {}; // Track timers per tooltip
   const tooltipHideDelay = 2000; // 2 seconds
   
-  // When any touchmove happens, show tooltip and reset timer
-  document.addEventListener('touchmove', function() {
-    // First clear any existing hide timer
-    if (tooltipHideTimer) {
-      clearTimeout(tooltipHideTimer);
+  // Function to hide all tooltips
+  function hideAllTooltips() {
+    document.querySelectorAll('.tooltip').forEach(tooltip => {
+      tooltip.style.opacity = '0';
+    });
+  }
+  
+  // Function to schedule hiding a specific tooltip
+  function scheduleTooltipHide(tooltipId) {
+    // Clear any existing timer for this tooltip
+    if (tooltipHideTimers[tooltipId]) {
+      clearTimeout(tooltipHideTimers[tooltipId]);
     }
     
-    // Make sure all visible tooltips stay visible
-    document.querySelectorAll('.tooltip').forEach(tooltip => {
-      if (tooltip.style.opacity > 0) {
-        tooltip.style.opacity = '1';
-      }
-    });
-    
-    // Set a new timer to hide tooltips
-    tooltipHideTimer = setTimeout(() => {
-      document.querySelectorAll('.tooltip').forEach(tooltip => {
-        tooltip.style.opacity = '0';
-      });
+    // Set new timer
+    tooltipHideTimers[tooltipId] = setTimeout(() => {
+      const tooltip = document.getElementById(tooltipId);
+      if (tooltip) tooltip.style.opacity = '0';
+      delete tooltipHideTimers[tooltipId];
     }, tooltipHideDelay);
+  }
+  
+  // When any touch interaction ends, schedule hiding all tooltips
+  document.addEventListener('touchend', () => {
+    setTimeout(hideAllTooltips, tooltipHideDelay);
   });
   
-  // Also hide tooltips when touch ends after a delay
-  document.addEventListener('touchend', function() {
-    if (tooltipHideTimer) {
-      clearTimeout(tooltipHideTimer);
+  // Force hide tooltips when leaving the page or switching tabs
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      hideAllTooltips();
     }
-    
-    tooltipHideTimer = setTimeout(() => {
-      document.querySelectorAll('.tooltip').forEach(tooltip => {
-        tooltip.style.opacity = '0';
-      });
-    }, tooltipHideDelay);
   });
+  
+  // Ensure tooltips hide after inactivity
+  let globalInactivityTimer = null;
+  
+  function resetInactivityTimer() {
+    if (globalInactivityTimer) clearTimeout(globalInactivityTimer);
+    globalInactivityTimer = setTimeout(hideAllTooltips, tooltipHideDelay);
+  }
+  
+  // Reset the timer on any touch event
+  ['touchstart', 'touchmove', 'touchend'].forEach(eventName => {
+    document.addEventListener(eventName, resetInactivityTimer, { passive: true });
+  });
+  
+  // Initially reset timer
+  resetInactivityTimer();
 }
 function initializeSwitches() {
     const switches = {
@@ -5048,10 +5095,10 @@ document.addEventListener('DOMContentLoaded', function() {
     addIOSTouchHandlers();
   }
 });
-// Initialize the touchscreen enhancements
+// Initialize when the document is ready
 document.addEventListener('DOMContentLoaded', function() {
   if (isTouchDevice()) {
-    console.log("Touch device detected, enabling touch-specific enhancements");
+    console.log("Touch device detected, enabling improved touch-specific enhancements");
     setupDoubleTapReset();
     setupAutoHideTooltips();
   }
