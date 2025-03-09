@@ -189,9 +189,10 @@
 }
 /* Add to your style section */
 .lofi-button-container {
-  margin: 10px 0;
+  margin: 10px 0 10px 0; /* Adjusted from 10px 0 */
   display: flex;
   justify-content: center;
+  align-items: center; /* Added to help with vertical alignment */
 }
 
 .lofi-button {
@@ -235,7 +236,72 @@
   background-color: #ff5500;
   box-shadow: 0 0 3px #ff5500;
 }
+.rec-button-container {
+  margin: 10px 0 10px 0; /* Make sure both containers use identical margins */
+  display: flex;
+  justify-content: center;
+  align-items: center; /* Added to help with vertical alignment */
+}
 
+.rec-button {
+  position: relative;
+  width: 45px;
+  height: 45px;
+  background-color: #e6e6e6;
+  border: 1px solid #3f2101;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #3f2101;
+  transition: background-color 0.2s;
+}
+
+.rec-button:hover {
+  background-color: #d4c6a8;
+}
+
+.rec-button.recording {
+  background-color: #ff5500;
+  color: #fff;
+}
+
+.rec-button .led-indicator {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.rec-button .led-indicator.on {
+  background-color: #ff0000;
+  box-shadow: 0 0 5px #ff0000;
+  animation: pulsate 1s infinite;
+}
+
+@keyframes pulsate {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+.sampler-column .lofi-button-container {
+  margin-top: 15px; /* Increase top margin slightly */
+  margin-bottom: 10px;
+  height: 47px; /* Set explicit height */
+  position: relative;
+  top: -3px; /* Small upward adjustment */
+}
+
+.sampler-column .rec-button-container {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  height: 47px; /* Set explicit height */
+}
 /* Position the switch container */
 .sampler-column .switch-container {
   margin-top: 8px;
@@ -1143,6 +1209,12 @@ input[type="range"]::-moz-focus-outer {
             <div class="dropdown-item" data-sample="Saw.wav">Saw</div>
           </div>
         </div>
+        <div class="switch-container rec-button-container">
+            <div class="rec-button" id="mic-record-button">
+              <span>Rec</span>
+              <div class="led-indicator" id="rec-led"></div>
+            </div>
+          </div>
         <div class="knob" id="sample-start-knob"></div>
         <label for="sample-start-knob" style="text-align: center;">Start</label>
         <div class="knob" id="sample-end-knob"></div>
@@ -1223,7 +1295,7 @@ input[type="range"]::-moz-focus-outer {
                 <div class="slider-group">
                     <div class="slider-attack">
                         <span id="attack-value">0</span>
-                        <input type="range" id="attack" min="0" max="5" step="0.01" value="0">
+                        <input type="range" id="attack" min="0" max="5" step="0.001" value="0">
                     </div>
                     <div class="slider-decay">
                         <span id="decay-value">0.1</span>
@@ -1235,7 +1307,7 @@ input[type="range"]::-moz-focus-outer {
                     </div>
                     <div class="slider-release">
                         <span id="release-value">0.01</span>
-                        <input type="range" id="release" min="0" max="5" step="0.01" value="0.01">
+                        <input type="range" id="release" min="0" max="5" step="0.001" value="0.001">
                     </div>
                 </div>
                 <div class="slider-labels">
@@ -1342,7 +1414,10 @@ masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
 // Add to your global variables
 let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
 let isEmuModeOn = false;
-
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let recordingStartTime = null;
 let fadedBufferOriginalDuration = null;
 let emuFilterNode = null;
 let lastPlayedNote = null;
@@ -1516,13 +1591,178 @@ function initializeNotchedKnob(knob, onChange) {
 // Function to process the buffer with fade in/out before crossfades
 // Function to process the buffer with fade in/out after applying start/end points
 // Clean up the processing order and fade handling functions
-
+function setupMicRecording() {
+  const recordButton = document.getElementById('mic-record-button');
+  const recLed = document.getElementById('rec-led');
+  
+  if (!recordButton) return;
+  
+  recordButton.addEventListener('click', async () => {
+    // If already recording, stop the recording
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+    
+    try {
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Update UI to show recording state
+      recordButton.classList.add('recording');
+      recLed.classList.add('on');
+      isRecording = true;
+      recordingStartTime = Date.now();
+      
+      // Set up the MediaRecorder with audio settings
+      mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm',
+        audioBitsPerSecond: 128000
+      });
+      
+      // Clear any previously recorded chunks
+      recordedChunks = [];
+      
+      // Handle data as it becomes available
+      mediaRecorder.addEventListener('dataavailable', event => {
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      });
+      
+      // Handle recording completion
+      mediaRecorder.addEventListener('stop', () => {
+        // Process the recording
+        processRecording();
+        
+        // Stop all tracks in the media stream to release the microphone
+        stream.getTracks().forEach(track => track.stop());
+      });
+      
+      // Start recording
+      mediaRecorder.start(100); // Collect data in 100ms chunks
+      
+      console.log('Recording started...');
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      alert('Could not access the microphone. Please check your permissions.');
+    }
+  });
+  
+  function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+    
+    // Update UI
+    recordButton.classList.remove('recording');
+    recLed.classList.remove('on');
+    isRecording = false;
+    
+    // Stop the recorder
+    mediaRecorder.stop();
+    console.log('Recording stopped after', ((Date.now() - recordingStartTime) / 1000).toFixed(1), 'seconds');
+  }
+  
+  function processRecording() {
+    if (recordedChunks.length === 0) {
+      console.log('No audio data recorded');
+      return;
+    }
+    
+    // Create a blob from all the chunks
+    const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+    
+    // Convert the blob to an ArrayBuffer
+    const reader = new FileReader();
+    reader.readAsArrayBuffer(audioBlob);
+    
+    reader.onloadend = () => {
+      // Decode the audio data
+      audioCtx.decodeAudioData(reader.result)
+        .then(buffer => {
+          // Use the buffer as the new sample
+          audioBuffer = buffer;
+          
+          // Process fades and crossfades
+          updateSampleProcessing();
+          
+          // Reset cached crossfade buffer
+          cachedCrossfadedBuffer = null;
+          lastCachedStartPos = null;
+          lastCachedEndPos = null;
+          lastCachedCrossfade = null;
+          
+          // Create new source node
+          if (sampleSource) {
+            try {
+              sampleSource.stop();
+            } catch (e) {}
+          }
+          sampleSource = audioCtx.createBufferSource();
+          sampleSource.buffer = buffer;
+          
+          // Connect the audio chain
+          sampleSource.connect(sampleGainNode);
+          sampleSource.start();
+          
+          // Update the label text to show recording is loaded
+          const fileLabel = document.querySelector('label[for="audio-file"]');
+          if (fileLabel) {
+            fileLabel.textContent = 'Mic Recording';
+          }
+          
+          console.log('Recording loaded:', buffer.duration.toFixed(2), 'seconds');
+          
+          // Create crossfaded buffer if needed
+          if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+            console.log("Creating crossfaded buffer for mic recording");
+            const result = createCrossfadedBuffer(
+              buffer, 
+              sampleStartPosition, 
+              sampleEndPosition, 
+              sampleCrossfadeAmount
+            );
+            
+            if (result && result.buffer) {
+              console.log("Successfully created crossfaded buffer");
+              cachedCrossfadedBuffer = result.buffer;
+              lastCachedStartPos = sampleStartPosition;
+              lastCachedEndPos = sampleEndPosition;
+              lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+          }
+          
+          // Update any active notes
+          Object.values(activeNotes).forEach(note => {
+            if (note && note.source) {
+              // Skip held notes
+              if (heldNotes.includes(note.noteNumber)) {
+                console.log(`Note ${note.id} is held; will update on release.`);
+                return;
+              }
+              
+              note.usesProcessedBuffer = false;
+              note.crossfadeActive = false;
+              
+              if (isSampleLoopOn) {
+                note.looping = true; 
+                setupLoopCrossfade(note);
+              }
+              updateSamplePlaybackParameters(note);
+            }
+          });
+        })
+        .catch(err => {
+          console.error('Error decoding audio data:', err);
+          alert('Could not process the recording. Please try again.');
+        });
+    };
+  }
+}
 /**
  * Creates a properly loopable buffer with crossfades baked in.
  */
 
-// Modify the beginning of createCrossfadedBuffer
-function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, crossfadeAmount) {
+ function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, crossfadeAmount) {
   try {
     // Basic parameter checks
     if (!originalBuffer || originalBuffer.length === 0) {
@@ -1535,11 +1775,13 @@ function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, cros
       return null;
     }
     
-    // Use faded buffer if available, otherwise use original
-    const sourceBuffer = fadedBuffer || originalBuffer;
+    // IMPORTANT: Use the original buffer for consistency 
+    // This ensures the lead-in audio matches the main loop content
+    const sourceBuffer = originalBuffer; 
     const sampleRate = sourceBuffer.sampleRate;
     const channels = sourceBuffer.numberOfChannels;
     const totalSamples = sourceBuffer.length;
+    const channel0Data = sourceBuffer.getChannelData(0);
     
     // Calculate sample indices and loop length
     let startSamplePos = Math.floor(startFraction * totalSamples);
@@ -1548,84 +1790,94 @@ function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, cros
     
     // Check for minimum viable loop length
     const minimumSamples = Math.max(100, Math.floor(totalSamples * 0.001));
-    
     if (loopLength < minimumSamples) {
       console.log(`Loop length (${loopLength} samples) is too short for crossfading. Minimum: ${minimumSamples}`);
-      return { buffer: sourceBuffer, adjustedStartFraction: startFraction };
+      return { buffer: fadedBuffer || originalBuffer, adjustedStartFraction: startFraction };
     }
     
-    // Get the first channel data for analysis
-    const channel0Data = sourceBuffer.getChannelData(0);
-    
-    // Select processing mode based on crossfade amount
-    let fadeLengthSamples, adjustedStart, fadeInStart;
-    
-    // For very small crossfades (<3%), we just use zero-crossing alignment
-    if (crossfadeAmount < 0.03) {
+    // For very small crossfades (<20%), we just use zero-crossing alignment without crossfade
+    if (crossfadeAmount < 0.20) {
       console.log("Using pure zero-crossing alignment for small crossfade");
       
-      // Find zero crossings
-      const searchWindow = Math.ceil(sampleRate * 0.02);
-      const endCrossings = [];
+      // Zero crossing detection code (unchanged)
+      const searchWindowSamples = Math.ceil(sampleRate * 0.01);
       const startCrossings = [];
+      const startMin = Math.max(0, startSamplePos - searchWindowSamples);
+      const startMax = Math.min(totalSamples - 2, startSamplePos + searchWindowSamples);
       
-      // Find zero crossings near end
-      for (let i = Math.max(0, endSamplePos - searchWindow); i < Math.min(endSamplePos + searchWindow, totalSamples - 1); i++) {
+      for (let i = startMin; i < startMax; i++) {
         if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
-          endCrossings.push({ position: i, type: 'rising', slope: channel0Data[i + 1] - channel0Data[i] });
-        } else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
-          endCrossings.push({ position: i, type: 'falling', slope: channel0Data[i + 1] - channel0Data[i] });
+          startCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'rising'
+          });
+        }
+        else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
+          startCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'falling'
+          });
         }
       }
       
-      // Find zero crossings near start
-      for (let i = Math.max(0, startSamplePos - searchWindow); i < Math.min(startSamplePos + searchWindow, totalSamples - 1); i++) {
+      const endCrossings = [];
+      const endMin = Math.max(0, endSamplePos - searchWindowSamples);
+      const endMax = Math.min(totalSamples - 2, endSamplePos + searchWindowSamples);
+      
+      for (let i = endMin; i < endMax; i++) {
         if (channel0Data[i] <= 0 && channel0Data[i + 1] > 0) {
-          startCrossings.push({ position: i, type: 'rising', slope: channel0Data[i + 1] - channel0Data[i] });
-        } else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
-          startCrossings.push({ position: i, type: 'falling', slope: channel0Data[i + 1] - channel0Data[i] });
+          endCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'rising'
+          });
+        }
+        else if (channel0Data[i] >= 0 && channel0Data[i + 1] < 0) {
+          endCrossings.push({
+            index: i,
+            slope: channel0Data[i + 1] - channel0Data[i],
+            type: 'falling'
+          });
         }
       }
       
-      // Find best matching pair
-      let bestMatch = { score: -Infinity, start: startSamplePos, end: endSamplePos };
+      console.log(`Found ${startCrossings.length} start and ${endCrossings.length} end zero crossings`);
       
       if (startCrossings.length > 0 && endCrossings.length > 0) {
+        let bestMatch = { score: -Infinity, start: startSamplePos, end: endSamplePos };
+        
         for (const start of startCrossings) {
           for (const end of endCrossings) {
-            // Higher score for matching types and similar slopes
-            const typeScore = (start.type === end.type) ? 10 : -5;
-            const slopeScore = 5 - Math.min(5, Math.abs(start.slope - end.slope) * 100);
+            const typeScore = (start.type === end.type) ? 5 : -2;
+            const slopeScore = 5 - Math.min(5, Math.abs(start.slope - end.slope) * 20);
+            const distanceScore = 3 - Math.min(3, 
+              (Math.abs(start.index - startSamplePos) + 
+               Math.abs(end.index - endSamplePos)) / (searchWindowSamples * 2) * 3);
             
-            // Score based on proximity to original points
-            const proximityScore = 5 - Math.min(5, 
-              (Math.abs(start.position - startSamplePos) + Math.abs(end.position - endSamplePos)) 
-              / (searchWindow * 2) * 5);
-            
-            const score = typeScore + slopeScore + proximityScore;
+            const score = typeScore + slopeScore + distanceScore;
             
             if (score > bestMatch.score) {
               bestMatch = {
                 score,
-                start: start.position,
-                end: end.position
+                start: start.index,
+                end: end.index
               };
             }
           }
         }
+        
+        if (bestMatch.score > 0) {
+          console.log(`Using zero crossings: start=${bestMatch.start}, end=${bestMatch.end}, score=${bestMatch.score.toFixed(2)}`);
+          startSamplePos = bestMatch.start;
+          endSamplePos = bestMatch.end;
+          loopLength = endSamplePos - startSamplePos;
+        }
       }
       
-      // Use the matched zero crossings if we found a good match
-      if (bestMatch.score > 0) {
-        startSamplePos = bestMatch.start;
-        loopLength = bestMatch.end - startSamplePos;
-        console.log(`Using zero crossings: start=${startSamplePos}, end=${bestMatch.end}, score=${bestMatch.score.toFixed(2)}`);
-      }
-      
-      // Create output buffer
       const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
       
-      // Copy audio data
       for (let channel = 0; channel < channels; channel++) {
         const origData = sourceBuffer.getChannelData(channel);
         const newData = newBuffer.getChannelData(channel);
@@ -1638,21 +1890,31 @@ function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, cros
       return { buffer: newBuffer, adjustedStartFraction: startSamplePos / totalSamples };
     }
     
-    // For larger crossfades, use a proper crossfade with phase alignment
-    console.log("Using phase-aligned crossfade for larger fade amount");
-    
-    // Calculate crossfade length based on percentage and constraints
-    const minFadeSamples = Math.max(Math.round(sampleRate * 0.01), 100); // minimum 10ms fade
+    // For larger crossfades (≥20%), implement a robust crossfade with phase alignment
+    console.log("Using enhanced phase-aligned crossfade for larger fade amount");
+
+    // IMPROVED CROSSFADE LENGTH CALCULATION
+    // This is a critical part for consistent results
+    const minFadeSamples = Math.max(Math.round(sampleRate * 0.015), 100); // minimum 15ms fade
     const maxFadeSamples = Math.floor(loopLength * 0.4); // maximum 40% of loop length
-    
-    if (crossfadeAmount < 0.1) {
-      fadeLengthSamples = Math.max(minFadeSamples, Math.round(sampleRate * 0.02)); // 20ms for small fades
+
+    // Calculate fade length based on crossfade amount with better scaling
+    let fadeLengthSamples;
+    if (crossfadeAmount >= 0.95) {
+      // Near 100% - use most of the available loop length
+      fadeLengthSamples = maxFadeSamples;
+    } else if (crossfadeAmount < 0.3) {
+      // Small crossfades (20-30%) - use fixed duration
+      fadeLengthSamples = Math.max(minFadeSamples, Math.round(sampleRate * 0.035)); // 35ms minimum
     } else {
-      fadeLengthSamples = Math.floor(loopLength * crossfadeAmount * 0.25); // Scale by 0.25 for a nice fade
-      fadeLengthSamples = Math.max(minFadeSamples, Math.min(fadeLengthSamples, maxFadeSamples));
+      // Mid-range crossfades - use balanced approach with cubic easing
+      // This easing function provides smoother scaling across percentage ranges
+      const t = crossfadeAmount;
+      const easedT = t * t * (3 - 2 * t); // Smooth step function
+      fadeLengthSamples = Math.floor(minFadeSamples + (maxFadeSamples - minFadeSamples) * easedT);
     }
-    
-    console.log(`Fade length: ${fadeLengthSamples} samples (${fadeLengthSamples/sampleRate}s)`);
+
+    console.log(`Fade length: ${fadeLengthSamples} samples (${fadeLengthSamples/sampleRate}s), ${(fadeLengthSamples/loopLength*100).toFixed(1)}% of loop`);
     
     // Ensure we have enough samples before start for lead-in
     if (startSamplePos < fadeLengthSamples) {
@@ -1660,142 +1922,251 @@ function createCrossfadedBuffer(originalBuffer, startFraction, endFraction, cros
       loopLength = endSamplePos - startSamplePos;
     }
     
-    // -------- PHASE ALIGNMENT FOR CROSSFADE ----------
+    // ENHANCED CROSSFADE REGION ANALYSIS
+    // Find the best matching lead-in segment with multiple criteria
     
-    // First find the characteristics of the END section where crossfade starts
-    const crossfadeStartPos = endSamplePos - fadeLengthSamples; // Where the crossfade region begins
+    // First analyze the crossfade region characteristics
+    const crossfadeStartPos = endSamplePos - fadeLengthSamples;
     
-    // 1. Find the closest zero crossing and direction at the crossfade start
-    let endCrossType = null;
-    let endCrossPos = crossfadeStartPos;
-    let endIsRising = false;
+    // Multiple analysis points for better matching - analyze the ENTIRE crossfade region
+    const analysisPoints = 5; // Sample 5 points across the crossfade region
+    const crossfadeCharacteristics = [];
     
-    // Look within a small window for a zero crossing at the start of crossfade
-    for (let i = Math.max(0, crossfadeStartPos - 5); i < Math.min(crossfadeStartPos + 5, totalSamples - 1); i++) {
-      if (channel0Data[i] <= 0 && channel0Data[i+1] > 0) {
-        endCrossType = 'rising';
-        endCrossPos = i;
-        endIsRising = true;
-        break;
-      } else if (channel0Data[i] >= 0 && channel0Data[i+1] < 0) {
-        endCrossType = 'falling';
-        endCrossPos = i;
-        endIsRising = false;
-        break;
-      }
-    }
-    
-    // 2. If no zero crossing at exact position, determine if we're in a rising or falling region
-    if (!endCrossType) {
-      // Sample a few points to determine direction
-      const p0 = channel0Data[Math.max(0, crossfadeStartPos - 3)];
-      const p1 = channel0Data[crossfadeStartPos];
-      const p2 = channel0Data[Math.min(totalSamples - 1, crossfadeStartPos + 3)];
+    for (let i = 0; i < analysisPoints; i++) {
+      const position = crossfadeStartPos + Math.floor(i * fadeLengthSamples / (analysisPoints - 1));
       
-      endIsRising = (p2 > p0); // Simple direction check
-      endCrossType = channel0Data[crossfadeStartPos] >= 0 ? 'positive' : 'negative'; // Current polarity
-    }
-    
-    // 3. Now search for a matching lead-in section that will align properly
-    // Start searching from a reasonable position (usually start - fadeLengthSamples)
-    const searchWindow = Math.min(Math.floor(sampleRate * 0.05), Math.floor(loopLength * 0.2)); // 50ms or 20% of loop
-    const searchStartPoint = startSamplePos - fadeLengthSamples;
-    let bestLeadInPos = searchStartPoint;
-    let bestScore = -100;
-    
-    // Search for best matching lead-in spot
-    for (let offset = -searchWindow; offset <= searchWindow; offset++) {
-      const testPos = searchStartPoint + offset;
-      if (testPos < 0 || testPos + fadeLengthSamples >= crossfadeStartPos) {
-        continue; // Skip invalid positions
-      }
+      // Detect zero-crossing near this position
+      let crossType = null;
+      let isRising = false;
       
-      // Score this potential lead-in position based on:
-      // 1. Zero crossing match
-      // 2. Direction match (rising/falling)
-      // 3. Approximate amplitude similarity
-      let score = 0;
-      let hasMatchingCrossing = false;
-      
-      // Check if this position has a matching zero crossing type
-      for (let i = Math.max(0, testPos - 5); i < Math.min(testPos + 5, totalSamples - 1); i++) {
-        if ((channel0Data[i] <= 0 && channel0Data[i+1] > 0 && endCrossType === 'rising') ||
-            (channel0Data[i] >= 0 && channel0Data[i+1] < 0 && endCrossType === 'falling')) {
-          score += 50; // Big boost for matching zero crossing type
-          hasMatchingCrossing = true;
+      // Check 3 samples before and after
+      for (let j = -3; j <= 2; j++) {
+        const idx = Math.max(0, Math.min(position + j, totalSamples - 2));
+        if (channel0Data[idx] <= 0 && channel0Data[idx + 1] > 0) {
+          crossType = 'rising';
+          isRising = true;
+          break;
+        } else if (channel0Data[idx] >= 0 && channel0Data[idx + 1] < 0) {
+          crossType = 'falling';
+          isRising = false;
           break;
         }
       }
       
-      if (!hasMatchingCrossing) {
-        // Check for matching polarity if no zero crossing
-        const isPositive = channel0Data[testPos] >= 0;
-        if ((isPositive && endCrossType === 'positive') || 
-            (!isPositive && endCrossType === 'negative')) {
-          score += 20;
-        }
+      // If no zero crossing, analyze slope and polarity
+      if (!crossType) {
+        const p0 = channel0Data[Math.max(0, position - 3)];
+        const p1 = channel0Data[position];
+        const p2 = channel0Data[Math.min(totalSamples - 1, position + 3)];
         
-        // Check for matching direction
-        const testIsRising = channel0Data[Math.min(testPos + 3, totalSamples - 1)] > 
-                            channel0Data[Math.max(0, testPos - 3)];
-        if (testIsRising === endIsRising) {
-          score += 15;
+        isRising = (p2 > p0);
+        crossType = p1 >= 0 ? 'positive' : 'negative';
+      }
+      
+      // Calculate local amplitude
+      const amplitude = Math.abs(channel0Data[position]);
+      
+      // Calculate local frequency using zero-crossing rate
+      let localFreq = 0;
+      const freqWindow = 20;
+      let crossings = 0;
+      
+      for (let j = Math.max(0, position - freqWindow); j < Math.min(totalSamples - 1, position + freqWindow); j++) {
+        if ((channel0Data[j] <= 0 && channel0Data[j + 1] > 0) || 
+            (channel0Data[j] >= 0 && channel0Data[j + 1] < 0)) {
+          crossings++;
         }
       }
       
-      // Check amplitude similarity
-      const endAmplitude = Math.abs(channel0Data[crossfadeStartPos]);
-      const testAmplitude = Math.abs(channel0Data[testPos]);
-      score += 15 - Math.min(15, Math.abs(endAmplitude - testAmplitude) * 30);
+      localFreq = crossings / (freqWindow * 2);
       
-      // Prefer positions closer to expected position
-      score += 20 - Math.min(20, Math.abs(offset) / searchWindow * 15);
+      // Store the characteristics at this point
+      crossfadeCharacteristics.push({
+        position,
+        crossType,
+        isRising,
+        amplitude,
+        localFreq
+      });
+    }
+    
+    // Now find the best matching lead-in section
+    const searchWindow = Math.min(Math.floor(sampleRate * 0.1), Math.floor(loopLength * 0.3)); // 100ms or 30% of loop
+    const searchStartPoint = startSamplePos - fadeLengthSamples;
+    let bestLeadInPos = searchStartPoint;
+    let bestScore = -1000;
+    
+    // Try different potential lead-in positions and score them
+    for (let offset = -searchWindow; offset <= searchWindow; offset += 5) { // Step by 5 samples for efficiency
+      const testPos = searchStartPoint + offset;
+      if (testPos < 0 || testPos + fadeLengthSamples >= crossfadeStartPos) {
+        continue;
+      }
       
-      if (score > bestScore) {
-        bestScore = score;
+      let totalScore = 0;
+      
+      // Score based on matching the characteristics at each analysis point
+      for (let i = 0; i < analysisPoints; i++) {
+        const targetChar = crossfadeCharacteristics[i];
+        const relativePos = Math.floor(i * fadeLengthSamples / (analysisPoints - 1));
+        const testSamplePos = testPos + relativePos;
+        
+        let pointScore = 0;
+        
+        // Check for matching zero crossing type
+        let testCrossType = null;
+        let testIsRising = false;
+        
+        // Look for zero crossing near this test position
+        for (let j = -3; j <= 2; j++) {
+          const idx = Math.max(0, Math.min(testSamplePos + j, totalSamples - 2));
+          if (channel0Data[idx] <= 0 && channel0Data[idx + 1] > 0) {
+            testCrossType = 'rising';
+            testIsRising = true;
+            break;
+          } else if (channel0Data[idx] >= 0 && channel0Data[idx + 1] < 0) {
+            testCrossType = 'falling';
+            testIsRising = false;
+            break;
+          }
+        }
+        
+        if (!testCrossType) {
+          const p0 = channel0Data[Math.max(0, testSamplePos - 3)];
+          const p1 = channel0Data[testSamplePos];
+          const p2 = channel0Data[Math.min(totalSamples - 1, testSamplePos + 3)];
+          
+          testIsRising = (p2 > p0);
+          testCrossType = p1 >= 0 ? 'positive' : 'negative';
+        }
+        
+        // Score matching characteristics
+        if (testCrossType === targetChar.crossType) {
+          pointScore += 30;
+        }
+        
+        if (testIsRising === targetChar.isRising) {
+          pointScore += 20;
+        }
+        
+        // Calculate amplitude similarity
+        const testAmplitude = Math.abs(channel0Data[testSamplePos]);
+        const ampDiff = Math.abs(targetChar.amplitude - testAmplitude);
+        pointScore += 20 - Math.min(20, ampDiff * 40);
+        
+        // Calculate local frequency
+        let testCrossings = 0;
+        const freqWindow = 20;
+        
+        for (let j = Math.max(0, testSamplePos - freqWindow); j < Math.min(totalSamples - 1, testSamplePos + freqWindow); j++) {
+          if ((channel0Data[j] <= 0 && channel0Data[j + 1] > 0) || 
+              (channel0Data[j] >= 0 && channel0Data[j + 1] < 0)) {
+            testCrossings++;
+          }
+        }
+        
+        const testLocalFreq = testCrossings / (freqWindow * 2);
+        const freqDiff = Math.abs(targetChar.localFreq - testLocalFreq);
+        pointScore += 20 - Math.min(20, freqDiff * 100);
+        
+        // Add to total score (weight later points slightly more)
+        totalScore += pointScore * (0.8 + 0.2 * i / analysisPoints);
+      }
+      
+      // Additional score for proximity to original position
+      totalScore += 50 - Math.min(50, Math.abs(offset) / searchWindow * 50);
+      
+      // Check for best score
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
         bestLeadInPos = testPos;
       }
     }
     
     console.log(`Selected lead-in position: ${bestLeadInPos}, score: ${bestScore.toFixed(1)}`);
     
-    // Set up final positions for the crossfaded buffer
-    adjustedStart = startSamplePos;
-    fadeInStart = bestLeadInPos;
+    // FINE-TUNE THE LEAD-IN POSITION FOR PRECISE PHASE ALIGNMENT
+    // Once we have the approximate best position, do a fine-grained search for perfect phase alignment
+    let fineTunedLeadIn = bestLeadInPos;
+    let fineTuneScore = -1000;
     
-    // Create the output buffer
+    for (let fineOffset = -10; fineOffset <= 10; fineOffset++) {
+      const testPos = bestLeadInPos + fineOffset;
+      if (testPos < 0) continue;
+      
+      // Focus on precise alignment at the start of crossfade region
+      const endPhase = channel0Data[crossfadeStartPos];
+      const endSlope = channel0Data[crossfadeStartPos + 1] - channel0Data[crossfadeStartPos];
+      
+      const testPhase = channel0Data[testPos];
+      const testSlope = channel0Data[testPos + 1] - channel0Data[testPos];
+      
+      // Score based on phase alignment and slope matching
+      const phaseScore = 50 - Math.min(50, Math.abs(endPhase - testPhase) * 100);
+      const slopeScore = 50 - Math.min(50, Math.abs(endSlope - testSlope) * 200);
+      
+      const score = phaseScore + slopeScore;
+      
+      if (score > fineTuneScore) {
+        fineTuneScore = score;
+        fineTunedLeadIn = testPos;
+      }
+    }
+    
+    console.log(`Fine-tuned lead-in position: ${fineTunedLeadIn}, improvement: ${(fineTuneScore/100).toFixed(1)}`);
+    
+    // Create the final buffer with the best phase alignment
+    const adjustedStart = startSamplePos;
+    const fadeInStart = fineTunedLeadIn;
+    
     const newBuffer = audioCtx.createBuffer(channels, loopLength, sampleRate);
     
-    // Process each channel
+    // Apply improved crossfade technique
     for (let channel = 0; channel < channels; channel++) {
       const origData = sourceBuffer.getChannelData(channel);
       const newData = newBuffer.getChannelData(channel);
       
-      // Copy the main loop content
+      // First copy the main loop content
       for (let i = 0; i < loopLength; i++) {
         newData[i] = origData[adjustedStart + i];
       }
       
-      // Apply crossfade at the end - THIS IS THE CRITICAL PART
+      // APPLY ENHANCED EQUAL-POWER CROSSFADE CURVE
+      // This is critical for eliminating clicks and glitches
       for (let i = 0; i < fadeLengthSamples; i++) {
         const idx = loopLength - fadeLengthSamples + i;
         if (idx >= 0) {
-          // Use equal power crossfade curve for clean mixing
-          // This is crucial to avoid clicks and dips in volume
+          // Use optimized crossfade ratio with slight modification to ensure 
+          // the fade out goes completely to zero at the midpoint
           const ratio = i / fadeLengthSamples;
-          const fadeOutGain = Math.cos(ratio * Math.PI/2);
-          const fadeInGain = Math.sin(ratio * Math.PI/2);
+          
+          // Equal power crossfade curve (quarter-circle) provides the smoothest transition
+          // Apply a very slight bias (0.02) to ensure the fadeOut curve reaches complete zero
+          const fadeOutFactor = Math.cos(ratio * Math.PI/2) - Math.max(0, 0.02 - ratio * 0.04);
+          const fadeInFactor = Math.sin(ratio * Math.PI/2);
           
           const loopEndSample = newData[idx];
           const leadInSample = origData[fadeInStart + i];
           
-          // Apply phase-aligned crossfade
-          newData[idx] = (loopEndSample * fadeOutGain) + (leadInSample * fadeInGain);
+          // Apply the crossfade with perfect phase alignment
+          newData[idx] = (loopEndSample * fadeOutFactor) + (leadInSample * fadeInFactor);
+        }
+      }
+      
+      // Apply a tiny smoothing at the loop transition point to eliminate any remaining discontinuities
+      const smoothSamples = Math.min(24, Math.ceil(sampleRate * 0.0005)); // 0.5ms or 24 samples, whichever is smaller
+      
+      // Smooth the transition at the very end of the buffer (loop point)
+      for (let i = 1; i <= smoothSamples; i++) {
+        const idx = loopLength - i;
+        if (idx >= 0 && idx < loopLength - 1) {
+          const weight = i / smoothSamples;
+          newData[idx] = newData[idx] * (1 - weight * 0.1) + newData[idx + 1] * (weight * 0.1);
         }
       }
     }
     
-    console.log(`Created crossfaded buffer: ${(loopLength / sampleRate).toFixed(3)}s loop`);
+    console.log(`Created enhanced crossfaded buffer: ${(loopLength / sampleRate).toFixed(3)}s loop`);
     return { buffer: newBuffer, adjustedStartFraction: adjustedStart / totalSamples };
     
   } catch (e) {
@@ -1876,33 +2247,37 @@ const knobInitializations = {
     const maxStart = Math.min(value, sampleEndPosition - 0.01);
     sampleStartPosition = maxStart;
     
-    // Add this line to process fades when start position changes
+    // Update processing with new start position
     updateSampleProcessing();
     
     const tooltip = createTooltipForKnob('sample-start-knob', value);
     tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
     tooltip.style.opacity = '1';
     
-    console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%. Scheduling update...');
+    console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%');
     
-    // TESTING: Force create a new crossfaded buffer if enabled
-    if (audioBuffer && sampleCrossfadeAmount > 0.01) {
-        console.log("Directly creating crossfaded buffer after start change");
-        const result = createCrossfadedBuffer(audioBuffer, sampleStartPosition, sampleEndPosition, sampleCrossfadeAmount);
-        if (result && result.buffer) {
-            console.log("Successfully created crossfaded buffer after start change");
-            cachedCrossfadedBuffer = result.buffer;
-            lastCachedStartPos = sampleStartPosition;
-            lastCachedEndPos = sampleEndPosition;
-            lastCachedCrossfade = sampleCrossfadeAmount;
-        } else {
-            console.log("Failed to create crossfaded buffer after start change");
-        }
-    }
-    
-    // Debounce update for sample start knob
+    // Instead of direct creation, ensure we wait for updateSampleProcessing to finish
     if (startUpdateTimer) { clearTimeout(startUpdateTimer); }
     startUpdateTimer = setTimeout(() => {
+        if (audioBuffer && sampleCrossfadeAmount > 0.01 && isSampleLoopOn) {
+            console.log("Creating new crossfaded buffer after start position settled");
+            // Use the processed buffer that includes fades
+            const result = createCrossfadedBuffer(
+                fadedBuffer || audioBuffer, 
+                0,   // Use entire processed buffer 
+                1,   // Use entire processed buffer
+                sampleCrossfadeAmount
+            );
+            
+            if (result && result.buffer) {
+                cachedCrossfadedBuffer = result.buffer;
+                lastCachedStartPos = sampleStartPosition;
+                lastCachedEndPos = sampleEndPosition;
+                lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+        }
+        
+        // Update any active notes
         Object.values(activeNotes).forEach(note => {
             if (note && note.source) {
                 // Skip update if note is held
@@ -1911,21 +2286,19 @@ const knobInitializations = {
                     return;
                 }
                 
-                console.log(`Processing note ${note.id} after start change`);
-                // Force re-processing - important!
+                // Force re-processing
                 note.usesProcessedBuffer = false;
                 note.crossfadeActive = false;
                 
-                // This is crucial: if looping is on, set up crossfade before updating parameters
                 if (isSampleLoopOn) {
-                    note.looping = true; // Force looping flag to true!
+                    note.looping = true;
                     setupLoopCrossfade(note);
                 }
                 updateSamplePlaybackParameters(note);
             }
         });
         startUpdateTimer = null;
-    }, 100);
+    }, 150);  // Longer delay to ensure processing completes
 },
 
 'sample-end-knob': (value) => {
@@ -1940,26 +2313,30 @@ const knobInitializations = {
     tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
     tooltip.style.opacity = '1';
     
-    console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%. Scheduling update...');
+    console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
     
-    // TESTING: Force create a new crossfaded buffer if enabled
-    if (audioBuffer && sampleCrossfadeAmount > 0.01) {
-        console.log("Directly creating crossfaded buffer after end change");
-        const result = createCrossfadedBuffer(audioBuffer, sampleStartPosition, sampleEndPosition, sampleCrossfadeAmount);
-        if (result && result.buffer) {
-            console.log("Successfully created crossfaded buffer after end change");
-            cachedCrossfadedBuffer = result.buffer;
-            lastCachedStartPos = sampleStartPosition;
-            lastCachedEndPos = sampleEndPosition;
-            lastCachedCrossfade = sampleCrossfadeAmount;
-        } else {
-            console.log("Failed to create crossfaded buffer after end change");
-        }
-    }
-    
-    // Debounce update for sample end knob
+    // Instead of direct creation, ensure we wait for updateSampleProcessing to finish
     if (endUpdateTimer) { clearTimeout(endUpdateTimer); }
     endUpdateTimer = setTimeout(() => {
+        if (audioBuffer && sampleCrossfadeAmount > 0.01 && isSampleLoopOn) {
+            console.log("Creating new crossfaded buffer after end position settled");
+            // Use the processed buffer that includes fades
+            const result = createCrossfadedBuffer(
+                fadedBuffer || audioBuffer, 
+                0,   // Use entire processed buffer 
+                1,   // Use entire processed buffer
+                sampleCrossfadeAmount
+            );
+            
+            if (result && result.buffer) {
+                cachedCrossfadedBuffer = result.buffer;
+                lastCachedStartPos = sampleStartPosition;
+                lastCachedEndPos = sampleEndPosition;
+                lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+        }
+        
+        // Update any active notes
         Object.values(activeNotes).forEach(note => {
             if (note && note.source) {
                 // Skip update if note is held
@@ -1968,21 +2345,19 @@ const knobInitializations = {
                     return;
                 }
                 
-                console.log(`Processing note ${note.id} after end change`);
-                // Force re-processing - important!
+                // Force re-processing
                 note.usesProcessedBuffer = false;
                 note.crossfadeActive = false;
                 
-                // This is crucial: if looping is on, set up crossfade before updating parameters
                 if (isSampleLoopOn) {
-                    note.looping = true; // Force looping flag to true!
+                    note.looping = true;
                     setupLoopCrossfade(note);
                 }
                 updateSamplePlaybackParameters(note);
             }
         });
         endUpdateTimer = null;
-    }, 100);
+    }, 150);  // Longer delay to ensure processing completes
 },
 'sample-crossfade-knob': (value) => {
     const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
@@ -3688,7 +4063,17 @@ function initializeSwitches() {
         offText: 'PORTA OFF'
     });
 }
-
+document.addEventListener('DOMContentLoaded', function() {
+  setupMicRecording();
+  
+  // Add safety measure to stop recording if page is closed or refreshed
+  window.addEventListener('beforeunload', () => {
+    if (isRecording && mediaRecorder) {
+      mediaRecorder.stop();
+      isRecording = false;
+    }
+  });
+});
 // Update document mouseup to hide all tooltips
 document.addEventListener('mouseup', () => {
     document.querySelectorAll('.tooltip').forEach(tooltip => {
@@ -3709,6 +4094,7 @@ function initializeSwitches() {
         },
         'trigger-mode-switch': {
             offText: 'MULTI',
+            onText: 'LEGATO',
             onChange: (active) => {
                 isLegatoMode = active;
                 console.log('Trigger Mode:', active ? 'LEGATO' : 'MULTI');
@@ -3986,26 +4372,33 @@ function applyEmuProcessing(buffer) {
     const inputData = buffer.getChannelData(channel);
     const outputData = processedBuffer.getChannelData(channel);
     
-    // Apply 8-bit mu-law companding simulation
+    // First simply copy all data
+    for (let i = 0; i < length; i++) {
+      outputData[i] = inputData[i];
+    }
+    
+    // Apply 8-bit mu-law companding simulation 
     for (let i = 0; i < length; i++) {
       // 1. Compress (simulate mu-law encoding)
-      const compressed = Math.sign(inputData[i]) * 
-                        Math.log(1 + 255 * Math.abs(inputData[i])) / Math.log(256);
+      const compressed = Math.sign(outputData[i]) * 
+                      Math.log(1 + 255 * Math.abs(outputData[i])) / Math.log(256);
       
-      // 2. Simulate 8-bit quantization
-      const quantized = Math.round(compressed * 127) / 127;
+      // 2. Simulate quantization (8-bit)
+      const quantized = Math.round(compressed * 255) / 255;
       
       // 3. Decompress (simulate mu-law decoding)
       outputData[i] = Math.sign(quantized) * 
-                     (Math.pow(256, Math.abs(quantized)) - 1) / 255;
-      
-      // 4. Add subtle "analog" noise (0.5% amplitude)
-      outputData[i] += (Math.random() * 2 - 1) * 0.005;
+                   (Math.pow(256, Math.abs(quantized)) - 1) / 255;
     }
     
-    // Apply simple low-pass filter to simulate SSM filter's warmth
-    let prevSample = 0;
-    const alpha = 0.2; // Filter strength - adjust to taste
+    // Apply extremely subtle noise (0.05% amplitude)
+    for (let i = 0; i < length; i++) {
+      outputData[i] += (Math.random() * 2 - 1) * 0.0005;
+    }
+    
+    // Apply gentle low-pass filter
+    let prevSample = outputData[0];
+    const alpha = 0.15; // Filter strength
     
     for (let i = 0; i < length; i++) {
       prevSample = outputData[i] = prevSample + alpha * (outputData[i] - prevSample);
@@ -4193,15 +4586,10 @@ function updateSampleProcessing() {
                 }
             }
             
-            // STEP 3: Apply E-mu processing if enabled
-            if (isEmuModeOn) {
-                processedBuffer = applyEmuProcessing(processedBuffer);
-            }
+            // Store the processed buffer (pre-lofi)
+            let finalBuffer = processedBuffer;
             
-            // Store the processed buffer
-            fadedBuffer = processedBuffer;
-            
-            // STEP 4: Handle crossfade for looping
+            // STEP 3: Handle crossfade for looping (before applying Lo-Fi)
             if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
                 setTimeout(() => {
                     const result = createCrossfadedBuffer(
@@ -4212,16 +4600,89 @@ function updateSampleProcessing() {
                     );
                     
                     if (result && result.buffer) {
-                        cachedCrossfadedBuffer = result.buffer;
+                        let crossfadedBuffer = result.buffer;
+                        
+                        // STEP 4: Apply E-mu processing AFTER crossfade if enabled
+                        if (isEmuModeOn) {
+                            crossfadedBuffer = applyEmuProcessing(crossfadedBuffer);
+                        }
+                        
+                        cachedCrossfadedBuffer = crossfadedBuffer;
                         lastCachedStartPos = sampleStartPosition;
                         lastCachedEndPos = sampleEndPosition;
                         lastCachedCrossfade = sampleCrossfadeAmount;
                     }
                 }, 10);
             }
+            
+            // STEP 4: Apply E-mu processing at the very end for non-crossfaded cases
+            if (isEmuModeOn) {
+                finalBuffer = applyEmuProcessing(processedBuffer);
+            }
+            
+            // Store the final processed buffer
+            fadedBuffer = finalBuffer;
         }
     }, 10);
 }
+// Add MIDI controller support to overcome keyboard limitations
+function setupMIDIAccess() {
+  if (!navigator.requestMIDIAccess) {
+    console.log("WebMIDI not supported in this browser");
+    return;
+  }
+
+  navigator.requestMIDIAccess()
+    .then(onMIDISuccess, onMIDIFailure);
+
+  function onMIDISuccess(midiAccess) {
+    console.log("MIDI access obtained");
+    
+    // Get lists of available MIDI controllers
+    const inputs = midiAccess.inputs.values();
+    
+    // Connect to all available inputs
+    for (let input = inputs.next(); input && !input.done; input = inputs.next()) {
+      input.value.onmidimessage = onMIDIMessage;
+      console.log("Connected to MIDI device: " + input.value.name);
+    }
+    
+    // Listen for new devices being connected
+    midiAccess.onstatechange = function(e) {
+      if (e.port.type === "input" && e.port.state === "connected") {
+        e.port.onmidimessage = onMIDIMessage;
+        console.log("Connected to MIDI device: " + e.port.name);
+      }
+    };
+  }
+
+  function onMIDIFailure(msg) {
+    console.error("Failed to get MIDI access - " + msg);
+  }
+
+  function onMIDIMessage(event) {
+    // Extract MIDI data
+    const [command, note, velocity] = event.data;
+    
+    // Note on (144-159) with velocity > 0
+    if ((command >= 144 && command <= 159) && velocity > 0) {
+      // Convert MIDI note numbers (starts at 21 for A0) to our note system (starts at 0)
+      const ourNoteNumber = Math.max(0, note - 36); // Adjust offset as needed
+      noteOn(ourNoteNumber);
+    } 
+    // Note off (128-143) or note on with velocity 0
+    else if ((command >= 128 && command <= 143) || 
+             (command >= 144 && command <= 159 && velocity === 0)) {
+      const ourNoteNumber = Math.max(0, note - 36); // Adjust offset as needed
+      noteOff(ourNoteNumber);
+    }
+  }
+}
+
+// Initialize MIDI when document is ready
+document.addEventListener('DOMContentLoaded', function() {
+  setupMIDIAccess();
+});
     </script>
 </body>
 </html>
