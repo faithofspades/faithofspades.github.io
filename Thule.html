@@ -1454,6 +1454,7 @@ const knobDefaults = {
 // Replace all knob-related code with this single implementation
 // Add touch support for knobs and keyboard
 // Create a startup overlay for iOS devices
+// Enhanced iOS audio unlocking for Chrome and Safari
 function createiOSStartupOverlay() {
   const overlay = document.createElement('div');
   overlay.style.position = 'fixed';
@@ -1461,8 +1462,8 @@ function createiOSStartupOverlay() {
   overlay.style.left = '0';
   overlay.style.width = '100%';
   overlay.style.height = '100%';
-  overlay.style.backgroundColor = 'rgba(245, 245, 220, 0.95)'; // Match your theme
-  overlay.style.zIndex = '9999'; // Ensure it's on top
+  overlay.style.backgroundColor = 'rgba(245, 245, 220, 0.95)';
+  overlay.style.zIndex = '9999';
   overlay.style.display = 'flex';
   overlay.style.flexDirection = 'column';
   overlay.style.justifyContent = 'center';
@@ -1475,7 +1476,7 @@ function createiOSStartupOverlay() {
   heading.style.marginBottom = '20px';
   
   const message = document.createElement('p');
-  message.textContent = 'Touch anywhere to enable audio';
+  message.textContent = 'Tap anywhere to enable audio';
   message.style.marginBottom = '30px';
   message.style.color = '#3f2101';
   
@@ -1495,39 +1496,131 @@ function createiOSStartupOverlay() {
   
   document.body.appendChild(overlay);
   
-  // Function to unlock audio context
-  function unlockAudio() {
-    // Create and play a silent audio buffer
-    const silentBuffer = audioCtx.createBuffer(1, 1, 22050);
-    const source = audioCtx.createBufferSource();
-    source.buffer = silentBuffer;
-    source.connect(audioCtx.destination);
+  // Function to unlock audio - improved for Chrome on iOS
+  function unlockAudio(event) {
+    // Create multiple silent oscillators to fully unlock audio
+    // Chrome on iOS often requires this more aggressive approach
+    const nodes = [];
     
-    // Play the silent sound
-    if (source.start) {
+    // Create multiple silent oscillator nodes
+    for (let i = 0; i < 3; i++) {
+      try {
+        // Create oscillator
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        // Set to silent
+        gainNode.gain.value = 0.001;
+        
+        // Connect and start
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start(0);
+        oscillator.stop(0.1);
+        
+        // Store to prevent garbage collection before sound plays
+        nodes.push(oscillator);
+        nodes.push(gainNode);
+        
+      } catch (e) {
+        console.log("Error creating unlock oscillator:", e);
+      }
+    }
+    
+    // Also create a silent buffer source
+    try {
+      const silentBuffer = audioCtx.createBuffer(1, 1, 22050);
+      const source = audioCtx.createBufferSource();
+      source.buffer = silentBuffer;
+      source.connect(audioCtx.destination);
       source.start(0);
-    } else {
-      source.noteOn(0);
+      nodes.push(source);
+    } catch(e) {
+      console.log("Error creating silent buffer:", e);
     }
     
-    // Resume audio context (needed for newer browsers)
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
-    
+    // Resume the audio context (needed for Safari and newer Chrome)
+    audioCtx.resume().then(() => {
+      console.log('AudioContext resumed state:', audioCtx.state);
+      
+      // Create a test tone to keep audio system active
+      try {
+        const testOsc = audioCtx.createOscillator();
+        const testGain = audioCtx.createGain();
+        testGain.gain.value = 0.001; // Effectively silent
+        testOsc.connect(testGain);
+        testGain.connect(audioCtx.destination);
+        testOsc.start(0);
+        testOsc.stop(audioCtx.currentTime + 0.5); // Let it run for half a second
+      } catch (e) {
+        console.log("Error creating test tone:", e);
+      }
+      
+      // Attempt to preload a tiny sample if possible
+      try {
+        const tinyBuffer = audioCtx.createBuffer(1, 1024, 22050);
+        // Fill with a tiny sine wave
+        const data = tinyBuffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+          data[i] = Math.sin(i / 10) * 0.0001; // Very quiet
+        }
+        
+        const tinySource = audioCtx.createBufferSource();
+        tinySource.buffer = tinyBuffer;
+        tinySource.connect(audioCtx.destination);
+        tinySource.start(0);
+        nodes.push(tinySource);
+      } catch (e) {
+        console.log("Error creating tiny sample:", e);
+      }
+    }).catch(err => {
+      console.error('Failed to resume AudioContext:', err);
+    });
+
     // Remove the overlay
-    document.body.removeChild(overlay);
+    setTimeout(() => {
+      document.body.removeChild(overlay);
+      console.log("Audio unlock overlay removed");
+    }, 300);
     
-    console.log("Audio unlocked for iOS");
+    // Clean up event listeners
+    overlay.removeEventListener('touchstart', unlockAudio);
+    button.removeEventListener('touchstart', unlockAudio);
+    overlay.removeEventListener('click', unlockAudio);
+    
+    // Prevent any default behavior
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }
   
-  // Add event listeners to unlock audio
-  overlay.addEventListener('touchstart', unlockAudio, { once: true });
-  button.addEventListener('touchstart', unlockAudio, { once: true });
-  overlay.addEventListener('click', unlockAudio, { once: true });
-  
-  console.log("iOS audio unlock overlay created");
+  // Add event listeners with capturing phase to ensure they fire first
+  overlay.addEventListener('touchstart', unlockAudio, { once: true, capture: true, passive: false });
+  button.addEventListener('touchstart', unlockAudio, { once: true, capture: true, passive: false });
+  overlay.addEventListener('click', unlockAudio, { once: true, capture: true });
 }
+function isIOS() {
+  // Check for iOS-specific features
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  
+  // Additional check for Chrome on iOS
+  const isChromeOnIOS = isIOS && /CriOS/.test(navigator.userAgent);
+  
+  console.log(`Detected: ${isChromeOnIOS ? 'Chrome on iOS' : 
+               isIOS ? 'iOS device' : 'Not iOS'}`);
+  
+  return isIOS;
+}
+// Show the unlock overlay for all mobile browsers to be safe
+if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+  // Delay to ensure DOM is ready
+  setTimeout(() => {
+    createiOSStartupOverlay();
+  }, 100);
+}
+
 function initializeKnob(knob, onChange) {
   // Remove any existing event listeners first
   const newKnob = knob.cloneNode(true);
@@ -4909,6 +5002,35 @@ document.addEventListener('DOMContentLoaded', function() {
   if (isIOS()) {
     addIOSTouchHandlers();
   }
+});
+document.addEventListener('DOMContentLoaded', function() {
+  // Always add touch handlers, regardless of platform detection
+  const allInteractiveElements = document.querySelectorAll(
+    '.key, .knob, button, input, select, .switch-container, .vertical-switch, .lofi-button, .rec-button'
+  );
+  
+  allInteractiveElements.forEach(el => {
+    // Use capture and passive: false to ensure our handler runs first
+    el.addEventListener('touchstart', function(e) {
+      if (audioCtx.state === 'suspended') {
+        // Try to resume the context directly from the touch event
+        audioCtx.resume().then(() => {
+          console.log('AudioContext resumed from element interaction');
+        });
+        
+        // Also trigger a silent sound for maximum compatibility
+        try {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          gain.gain.value = 0.001;
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(0);
+          osc.stop(audioCtx.currentTime + 0.1);
+        } catch(e) {}
+      }
+    }, { capture: true, passive: false });
+  });
 });
     </script>
 </body>
