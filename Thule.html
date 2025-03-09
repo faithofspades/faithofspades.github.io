@@ -1721,6 +1721,8 @@ function initializeKnob(knob, onChange) {
   function handleTouchMove(e) {
     if (!isDragging || !e.touches[0]) return;
     handleMove(e.touches[0].clientY);
+    
+    // Critical: prevent default to stop page scrolling while turning knobs
     e.preventDefault();
     e.stopPropagation();
   }
@@ -1758,12 +1760,14 @@ function initializeKnob(knob, onChange) {
     e.preventDefault();
   });
 
-  // Add touch support
+  // Add touch support with proper scroll prevention
   knob.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
       isDragging = true;
       initialMovement = true;
       lastY = e.touches[0].clientY;
+      
+      // Critical: add touchmove listener with passive: false to allow preventDefault
       document.addEventListener('touchmove', handleTouchMove, { passive: false });
       document.addEventListener('touchend', handleEnd);
       document.addEventListener('touchcancel', handleEnd);
@@ -1797,11 +1801,7 @@ function initializeKnob(knob, onChange) {
     }
   };
 }
-
-
-// Place this code right after the initializeKnob function and before any initialization calls
-
-// Fix notched knobs for touch support
+// Also fix the notched knob function with the same change
 function initializeNotchedKnob(knob, onChange) {
   let rotation = 0;
   let isDragging = false;
@@ -1843,6 +1843,8 @@ function initializeNotchedKnob(knob, onChange) {
   function handleTouchMove(e) {
     if (!isDragging || !e.touches[0]) return;
     handleMove(e.touches[0].clientY);
+    
+    // Critical: prevent default to stop page scrolling
     e.preventDefault();
     e.stopPropagation();
   }
@@ -1866,11 +1868,13 @@ function initializeNotchedKnob(knob, onChange) {
     e.preventDefault();
   });
 
-  // Add touch support
+  // Add touch support with proper scroll prevention
   knob.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
       isDragging = true;
       lastY = e.touches[0].clientY;
+      
+      // Critical: add touchmove listener with passive: false
       document.addEventListener('touchmove', handleTouchMove, { passive: false });
       document.addEventListener('touchend', handleEnd);
       document.addEventListener('touchcancel', handleEnd);
