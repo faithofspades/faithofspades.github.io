@@ -2105,12 +2105,12 @@ function refreshIosRecordingListeners() {
     e.stopPropagation();
     console.log("iOS rec button clicked");
 
-    // If recording, stop it
-    if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
-      stopRecording();
-    } else {
-      startRecording();
-    }
+// Replace the state check with your local 'localIsRecording' variable:
+if (window.localMediaRecorder && localIsRecording) {
+  stopRecording();
+} else {
+  startRecording();
+}
   });
 }
 function preventScrollOnControls() {
