@@ -1917,68 +1917,61 @@ function fixMicRecording() {
   const recButton = document.getElementById('mic-record-button');
   if (!recButton) return;
   
+  // Create a completely fresh button without any existing listeners
   const newRecButton = recButton.cloneNode(true);
   recButton.parentNode.replaceChild(newRecButton, recButton);
   
   const recLed = newRecButton.querySelector('.led-indicator');
   
+  // Global state for recording
   window.localMediaRecorder = null;
   let localRecordedChunks = [];
   let localIsRecording = false;
+  let processingLock = false; // Prevent double-triggers
   
-
-// // INSTEAD, use a single event handler for all platforms:
-// newRecButton.addEventListener('touchend', function(e) {
-//   e.preventDefault();
-//   e.stopPropagation();
-//   handleRecButtonPress(e);
-// }, { passive: false });
-// // You need a mousedown handler for desktop, but prevent double triggering on iOS
-// newRecButton.addEventListener('click', function(e) {
-//   // This check prevents double triggering on iOS touch devices
-//   if (!e.pointerType || e.pointerType !== 'touch') {
-//     handleRecButtonPress(e);
-//   }
-// });
-// Use click for all devices, it works on both desktop and mobile
-newRecButton.addEventListener('click', function(e) {
-  e.preventDefault();
-  e.stopPropagation();
-  handleRecButtonPress(e);
-});
-// newRecButton.addEventListener('click', function(e) {
-//   if (e.pointerType !== 'touch') {  // Avoid double triggering on iOS
-//     handleRecButtonPress(e);
-//   }
-// });
-  
-  function handleRecButtonPress(e) {
+  // Use a single event handler for all devices
+  newRecButton.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
     
-    console.log("Record button pressed, current state:", localIsRecording);
+    // Debounce rapid clicking
+    if (processingLock) {
+      console.log("Processing lock active, ignoring click");
+      return;
+    }
+    
+    processingLock = true;
+    setTimeout(() => { processingLock = false; }, 300);
+    
+    console.log("Record button clicked, current state:", localIsRecording);
     
     if (localIsRecording) {
       // STOPPING RECORDING
-      console.log("Attempting to stop recording");
-      if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
-        // Update UI
-        newRecButton.classList.remove('recording');
-        
-        // Update LED state
-        if (recLed) {
-          recLed.classList.remove('on');
-        }
-        
-        localIsRecording = false;
-        
-        // Stop the recorder - this will trigger the 'stop' event handler
-        window.localMediaRecorder.stop();
-        console.log("Recording stopped manually");
-      }
+      stopRecording();
     } else {
       // STARTING RECORDING
       startRecording();
+    }
+  });
+  
+  // Separate the stop function for clarity
+  function stopRecording() {
+    console.log("Attempting to stop recording");
+    if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
+      // Update UI first
+      newRecButton.classList.remove('recording');
+      
+      // Update LED state
+      if (recLed) {
+        recLed.classList.remove('on');
+      }
+      
+      // Set state before stopping
+      localIsRecording = false;
+      
+      // Stop the recorder
+      window.localMediaRecorder.stop();
+      console.log("Recording stopped manually");
     }
   }
   
