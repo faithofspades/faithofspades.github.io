@@ -5127,7 +5127,7 @@ if (isIOS()) {
 // Add explicit touch handling for iOS throughout your UI
 function addIOSTouchHandlers() {
   // Add touch handlers to all interactive elements
-  const touchElements = document.querySelectorAll('.key, .knob, button, .switch-container, .vertical-switch');
+  const touchElements = document.querySelectorAll('.key, .knob, .button, .switch-container, .vertical-switch');
   
   touchElements.forEach(el => {
     el.addEventListener('touchstart', function(e) {
