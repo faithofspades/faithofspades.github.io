@@ -1595,7 +1595,7 @@ function createIOSChromeAudioUnlocker() {
   
   // Create a hidden HTML5 audio element (crucial for Chrome on iOS)
   const audioElement = document.createElement('audio');
-  audioElement.setAttribute('src', 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIgD///////////////////////////////////////////8AAAA8TEFNRTMuMTAwAQAAAAAAAAAAABUgJAMGQQABmgAAIicg4EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=');
+  audioElement.setAttribute('src', 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABIgD///////////////////////////////////////////8AAAA8TEFNRTMuMTAwAQAAAAAAAAAAABUgJAMGQQABmgAAIicg4EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=');
   audioElement.setAttribute('playsinline', '');
   audioElement.setAttribute('preload', 'auto');
   audioElement.setAttribute('loop', 'loop');
@@ -1675,84 +1675,7 @@ function isTouchDevice() {
          (navigator.maxTouchPoints > 0) || 
          (navigator.msMaxTouchPoints > 0);
 }
-// Track double taps for resetting controls
-function setupDoubleTapReset() {
-  // Track taps globally per element
-  const lastTapTimes = {};
-  const doubleTapThreshold = 400; // Increased threshold for more reliable detection
-  
-  // Process all knobs and switches
-  document.querySelectorAll('.knob, .vertical-switch').forEach(element => {
-    if (!element.id) return; // Skip elements without ID
-    
-    // Create a consistent element identifier
-    const elementId = element.id;
-    
-    // Initialize the tracking for this element
-    lastTapTimes[elementId] = 0;
-    
-    // Remove any existing touchend listeners to prevent duplicates
-    const newElement = element.cloneNode(true);
-    element.parentNode.replaceChild(newElement, element);
-    element = newElement;
-    
-    // Add improved double-tap detection
-    element.addEventListener('touchstart', function(e) {
-      // Just record the touch started and let the native event continue
-      e.stopPropagation(); // Prevent propagation to avoid conflicts
-    }, { passive: true });
-    
-    element.addEventListener('touchend', function(e) {
-      const currentTime = new Date().getTime();
-      const lastTapTime = lastTapTimes[elementId] || 0;
-      const tapTimeDiff = currentTime - lastTapTime;
-      
-      // Update last tap time immediately
-      lastTapTimes[elementId] = currentTime;
-      
-      // Check if it's a double tap (within threshold)
-      if (tapTimeDiff > 0 && tapTimeDiff < doubleTapThreshold) {
-        console.log(`Double tap detected on ${elementId}, time diff: ${tapTimeDiff}ms`);
-        
-        // Reset the element based on its type
-        if (element.classList.contains('knob')) {
-          const defaultValue = knobDefaults[elementId] !== undefined ? knobDefaults[elementId] : 0.5;
-          
-          // Reset the knob immediately
-          element.style.transform = `rotate(${-150 + (defaultValue * 300)}deg)`;
-          
-          // Find the onChange handler and trigger it
-          if (knobInitializations[elementId]) {
-            // Minor delay to ensure UI is updated first
-            setTimeout(() => {
-              knobInitializations[elementId](defaultValue);
-              console.log(`Reset ${elementId} to default value: ${defaultValue}`);
-            }, 10);
-          }
-        } 
-        // Reset switch if needed
-        else if (element.classList.contains('vertical-switch') && element.classList.contains('active')) {
-          setTimeout(() => {
-            // Simulate click to toggle off
-            element.click();
-          }, 10);
-        }
-        
-        // Prevent default behavior to ensure our double-tap takes precedence
-        e.preventDefault();
-      }
-    }, { passive: false });
-  });
-  
-  // Clear all double-tap timers when the user interacts with any other element
-  document.addEventListener('touchstart', function(e) {
-    if (!e.target.classList.contains('knob') && !e.target.classList.contains('vertical-switch')) {
-      Object.keys(lastTapTimes).forEach(key => {
-        lastTapTimes[key] = 0;
-      });
-    }
-  }, { passive: true });
-}
+
 function initializeKnob(knob, onChange) {
   // Remove any existing event listeners first
   const newKnob = knob.cloneNode(true);
@@ -1987,172 +1910,197 @@ function initializeNotchedKnob(knob, onChange) {
 // Function to process the buffer with fade in/out before crossfades
 // Function to process the buffer with fade in/out after applying start/end points
 // Clean up the processing order and fade handling functions
-function setupMicRecording() {
-  const recordButton = document.getElementById('mic-record-button');
+
+// Fix the mic recording functionality once and for all
+function fixMicRecording() {
+  // Find the record button
+  const recButton = document.getElementById('mic-record-button');
+  if (!recButton) return;
+  
+  // Get a reference to the LED element before cloning
   const recLed = document.getElementById('rec-led');
   
-  if (!recordButton) return;
+  // Create a new button to avoid any existing listeners
+  const newRecButton = recButton.cloneNode(true);
+  recButton.parentNode.replaceChild(newRecButton, recButton);
   
-  recordButton.addEventListener('click', async () => {
-    // If already recording, stop the recording
-    if (isRecording) {
-      stopRecording();
+  // IMPORTANT: After cloning, update the reference to the LED inside the new button
+  const newRecLed = newRecButton.querySelector('.led-indicator');
+  
+  // Make these variables more accessible within this function
+  let localMediaRecorder = null;
+  let localRecordedChunks = [];
+  let localIsRecording = false;
+  
+  newRecButton.addEventListener('click', async function() {
+    console.log("Record button clicked, current state:", localIsRecording);
+    
+    if (localIsRecording) {
+      // STOPPING RECORDING
+      if (localMediaRecorder && localMediaRecorder.state === 'recording') {
+        // Update UI
+        newRecButton.classList.remove('recording');
+        
+        // Update the LED visibility state - this is the key fix
+        if (newRecLed) {
+          newRecLed.classList.remove('on');
+        } else if (recLed) {
+          recLed.classList.remove('on');
+        }
+        
+        localIsRecording = false;
+        
+        // Stop the recorder - this will trigger the 'stop' event handler
+        localMediaRecorder.stop();
+        console.log("Recording stopped manually");
+      }
       return;
     }
     
     try {
-      // Request microphone access
+      // STARTING RECORDING
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Update UI to show recording state
-      recordButton.classList.add('recording');
-      recLed.classList.add('on');
-      isRecording = true;
-      recordingStartTime = Date.now();
+      // Update UI
+      newRecButton.classList.add('recording');
       
-      // Set up the MediaRecorder with audio settings
-      mediaRecorder = new MediaRecorder(stream, {
+      // Update the LED visibility state - this is the key fix
+      if (newRecLed) {
+        newRecLed.classList.add('on');
+      } else if (recLed) {
+        recLed.classList.add('on');
+      }
+      
+      localIsRecording = true;
+      
+      // Set up the MediaRecorder
+      localMediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm',
         audioBitsPerSecond: 128000
       });
       
       // Clear any previously recorded chunks
-      recordedChunks = [];
+      localRecordedChunks = [];
       
       // Handle data as it becomes available
-      mediaRecorder.addEventListener('dataavailable', event => {
+      localMediaRecorder.addEventListener('dataavailable', event => {
         if (event.data.size > 0) {
-          recordedChunks.push(event.data);
+          localRecordedChunks.push(event.data);
+          console.log("Recorded chunk added");
         }
       });
       
-      // Handle recording completion
-      mediaRecorder.addEventListener('stop', () => {
-        // Process the recording
-        processRecording();
+      // THIS IS THE KEY - Handle the 'stop' event
+      localMediaRecorder.addEventListener('stop', () => {
+        console.log("MediaRecorder stopped, processing recording...");
         
-        // Stop all tracks in the media stream to release the microphone
-        stream.getTracks().forEach(track => track.stop());
+        if (localRecordedChunks.length === 0) {
+          console.log('No audio data recorded');
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        
+        // Create a blob from all the chunks
+        const audioBlob = new Blob(localRecordedChunks, { type: 'audio/webm' });
+        console.log("Created audio blob:", audioBlob.size, "bytes");
+        
+        // Convert the blob to an ArrayBuffer
+        const reader = new FileReader();
+        reader.readAsArrayBuffer(audioBlob);
+        
+        reader.onloadend = () => {
+          console.log("FileReader loaded blob, decoding audio...");
+          
+          // Decode the audio data
+          audioCtx.decodeAudioData(reader.result)
+            .then(buffer => {
+              console.log("Audio decoded successfully:", buffer.duration.toFixed(2), "seconds");
+              
+              // Use the buffer as the new sample
+              audioBuffer = buffer;
+              
+            //   // Reset the parameters
+            //   sampleStartPosition = 0;
+            //   sampleEndPosition = 1;
+              
+            //   // Update knob positions
+            //   const startKnob = document.getElementById('sample-start-knob');
+            //   const endKnob = document.getElementById('sample-end-knob');
+              
+            //   if (startKnob && knobInitializations['sample-start-knob']) {
+            //     const control = initializeKnob(startKnob, knobInitializations['sample-start-knob']);
+            //     control.setValue(0, true);
+            //   }
+              
+            //   if (endKnob && knobInitializations['sample-end-knob']) {
+            //     const control = initializeKnob(endKnob, knobInitializations['sample-end-knob']);
+            //     control.setValue(1, true);
+            //   }
+              
+              // Process the new sample
+              updateSampleProcessing();
+              
+              // Update the label text
+              const fileLabel = document.querySelector('label[for="audio-file"]');
+              if (fileLabel) {
+                fileLabel.textContent = 'Mic Recording';
+              }
+              
+              console.log('Recording loaded as sample');
+              
+              // Stop all tracks in the stream
+              stream.getTracks().forEach(track => track.stop());
+            })
+            .catch(err => {
+              console.error("Error decoding audio:", err);
+              stream.getTracks().forEach(track => track.stop());
+            });
+        };
       });
       
       // Start recording
-      mediaRecorder.start(100); // Collect data in 100ms chunks
+      localMediaRecorder.start(100);
+      console.log("Recording started");
       
-      console.log('Recording started...');
     } catch (err) {
-      console.error('Error accessing microphone:', err);
-      alert('Could not access the microphone. Please check your permissions.');
+      console.error("Error starting recording:", err);
+      newRecButton.classList.remove('recording');
+      recLed.classList.remove('on');
+      localIsRecording = false;
     }
   });
+}
+function preventScrollOnControls() {
+  // More targeted approach - add touch event handlers to each UI control type individually
   
-  function stopRecording() {
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-    
-    // Update UI
-    recordButton.classList.remove('recording');
-    recLed.classList.remove('on');
-    isRecording = false;
-    
-    // Stop the recorder
-    mediaRecorder.stop();
-    console.log('Recording stopped after', ((Date.now() - recordingStartTime) / 1000).toFixed(1), 'seconds');
-  }
   
-  function processRecording() {
-    if (recordedChunks.length === 0) {
-      console.log('No audio data recorded');
-      return;
-    }
-    
-    // Create a blob from all the chunks
-    const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-    
-    // Convert the blob to an ArrayBuffer
-    const reader = new FileReader();
-    reader.readAsArrayBuffer(audioBlob);
-    
-    reader.onloadend = () => {
-      // Decode the audio data
-      audioCtx.decodeAudioData(reader.result)
-        .then(buffer => {
-          // Use the buffer as the new sample
-          audioBuffer = buffer;
-          
-          // Process fades and crossfades
-          updateSampleProcessing();
-          
-          // Reset cached crossfade buffer
-          cachedCrossfadedBuffer = null;
-          lastCachedStartPos = null;
-          lastCachedEndPos = null;
-          lastCachedCrossfade = null;
-          
-          // Create new source node
-          if (sampleSource) {
-            try {
-              sampleSource.stop();
-            } catch (e) {}
-          }
-          sampleSource = audioCtx.createBufferSource();
-          sampleSource.buffer = buffer;
-          
-          // Connect the audio chain
-          sampleSource.connect(sampleGainNode);
-          sampleSource.start();
-          
-          // Update the label text to show recording is loaded
-          const fileLabel = document.querySelector('label[for="audio-file"]');
-          if (fileLabel) {
-            fileLabel.textContent = 'Mic Recording';
-          }
-          
-          console.log('Recording loaded:', buffer.duration.toFixed(2), 'seconds');
-          
-          // Create crossfaded buffer if needed
-          if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
-            console.log("Creating crossfaded buffer for mic recording");
-            const result = createCrossfadedBuffer(
-              buffer, 
-              sampleStartPosition, 
-              sampleEndPosition, 
-              sampleCrossfadeAmount
-            );
-            
-            if (result && result.buffer) {
-              console.log("Successfully created crossfaded buffer");
-              cachedCrossfadedBuffer = result.buffer;
-              lastCachedStartPos = sampleStartPosition;
-              lastCachedEndPos = sampleEndPosition;
-              lastCachedCrossfade = sampleCrossfadeAmount;
-            }
-          }
-          
-          // Update any active notes
-          Object.values(activeNotes).forEach(note => {
-            if (note && note.source) {
-              // Skip held notes
-              if (heldNotes.includes(note.noteNumber)) {
-                console.log(`Note ${note.id} is held; will update on release.`);
-                return;
-              }
-              
-              note.usesProcessedBuffer = false;
-              note.crossfadeActive = false;
-              
-              if (isSampleLoopOn) {
-                note.looping = true; 
-                setupLoopCrossfade(note);
-              }
-              updateSamplePlaybackParameters(note);
-            }
-          });
-        })
-        .catch(err => {
-          console.error('Error decoding audio data:', err);
-          alert('Could not process the recording. Please try again.');
-        });
-    };
-  }
+  
+  // 2. Fix sliders
+  document.querySelectorAll('input[type="range"]').forEach(slider => {
+    slider.addEventListener('touchstart', function(e) {
+      // Don't prevent default on sliders to allow native handling
+    }, { passive: false });
+  });
+  
+
+  
+  // 4. Fix oscillator selectors (wave-select)
+  document.querySelectorAll('.wave-select').forEach(select => {
+    select.addEventListener('touchstart', function(e) {
+      // Allow default behavior for selects
+    }, { passive: true });
+  });
+  
+  // 5. Fix special buttons (emu mode and rec button)
+  document.querySelectorAll('.lofi-button, .rec-button').forEach(button => {
+    button.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      // Simulate a click
+      button.click();
+    }, { passive: false });
+  });
+  
+  
 }
 /**
  * Creates a properly loopable buffer with crossfades baked in.
@@ -2805,19 +2753,19 @@ const knobInitializations = {
             
             console.log(`Zero-crossings recalculated: start=${sampleStartPosition.toFixed(4)}, end=${sampleEndPosition.toFixed(4)}`);
             
-            // Update knob positions to reflect new values
-            const startKnob = D('sample-start-knob');
-            const endKnob = D('sample-end-knob');
+            // // Update knob positions to reflect new values
+            // const startKnob = D('sample-start-knob');
+            // const endKnob = D('sample-end-knob');
             
-            if (startKnob) {
-                const control = initializeKnob(startKnob, knobInitializations['sample-start-knob']);
-                control.setValue(sampleStartPosition);
-            }
+            // if (startKnob) {
+            //     const control = initializeKnob(startKnob, knobInitializations['sample-start-knob']);
+            //     control.setValue(sampleStartPosition);
+            // }
             
-            if (endKnob) {
-                const control = initializeKnob(endKnob, knobInitializations['sample-end-knob']);
-                control.setValue(sampleEndPosition);
-            }
+            // if (endKnob) {
+            //     const control = initializeKnob(endKnob, knobInitializations['sample-end-knob']);
+            //     control.setValue(sampleEndPosition);
+            // }
         }
     }
     
@@ -4481,17 +4429,8 @@ function initializeSwitches() {
         offText: 'PORTA OFF'
     });
 }
-document.addEventListener('DOMContentLoaded', function() {
-  setupMicRecording();
-  
-  // Add safety measure to stop recording if page is closed or refreshed
-  window.addEventListener('beforeunload', () => {
-    if (isRecording && mediaRecorder) {
-      mediaRecorder.stop();
-      isRecording = false;
-    }
-  });
-});
+// Call this function during initialization instead of setupMicRecording
+
 // Update document mouseup to hide all tooltips
 document.addEventListener('mouseup', () => {
     document.querySelectorAll('.tooltip').forEach(tooltip => {
@@ -4501,7 +4440,7 @@ document.addEventListener('mouseup', () => {
 // Auto-hide tooltips after inactivity
 function setupAutoHideTooltips() {
   let tooltipHideTimers = {}; // Track timers per tooltip
-  const tooltipHideDelay = 2000; // 2 seconds
+  const tooltipHideDelay = 250; // 2 seconds
   
   // Function to hide all tooltips
   function hideAllTooltips() {
@@ -5151,10 +5090,7 @@ function setupMIDIAccess() {
   }
 }
 
-// Initialize MIDI when document is ready
-document.addEventListener('DOMContentLoaded', function() {
-  setupMIDIAccess();
-});
+
 // Detect iOS device
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
@@ -5187,19 +5123,428 @@ function addIOSTouchHandlers() {
   });
 }
 
-// Call this during initialization
-document.addEventListener('DOMContentLoaded', function() {
-  if (isIOS()) {
-    addIOSTouchHandlers();
+
+
+
+
+// Comprehensive fix for knobs and controls on both desktop and mobile
+function fixAllControls() {
+  // Fix desktop and mobile knob interaction
+  document.querySelectorAll('.knob').forEach(knob => {
+    // Create a completely fresh knob without any event listeners
+    const newKnob = knob.cloneNode(true);
+    knob.parentNode.replaceChild(newKnob, knob);
+    
+    // Extract ID and initial state
+    const knobId = newKnob.id;
+    const callback = knobInitializations[knobId];
+    const defaultValue = knobDefaults[knobId] !== undefined ? knobDefaults[knobId] : 0.5;
+    
+    // Set up initial rotation
+    let rotation = -150 + (defaultValue * 300);
+    newKnob.style.transform = `rotate(${rotation}deg)`;
+    
+    // Track interaction state
+    let isDragging = false;
+    let startY, lastY;
+    
+    // Double-click/tap detection
+    let lastClickTime = 0;
+    
+    // Desktop mouse handling
+    newKnob.addEventListener('mousedown', function(e) {
+      // Check for double-click
+      const now = new Date().getTime();
+      const timeSinceLastClick = now - lastClickTime;
+      
+      if (timeSinceLastClick < 350 && timeSinceLastClick > 0) {
+        // Double-click - reset to default
+        resetToDefault();
+        e.preventDefault();
+        return;
+      }
+      
+      lastClickTime = now;
+      
+      // Start dragging
+      isDragging = true;
+      startY = e.clientY;
+      lastY = startY;
+      this.style.cursor = 'grabbing';
+      
+      // Set up document-level handlers
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      e.preventDefault();
+    });
+    
+    function handleMouseMove(e) {
+      if (!isDragging) return;
+      
+      // Calculate movement
+      const deltaY = lastY - e.clientY;
+      lastY = e.clientY;
+      
+      updateKnob(deltaY);
+      e.preventDefault();
+    }
+    
+    function handleMouseUp() {
+      if (isDragging) {
+        isDragging = false;
+        newKnob.style.cursor = 'grab';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      }
+    }
+    
+    // Touch handling
+    newKnob.addEventListener('touchstart', function(e) {
+      // Check for double-tap
+      const now = new Date().getTime();
+      const timeSinceLastClick = now - lastClickTime;
+      
+      if (timeSinceLastClick < 350 && timeSinceLastClick > 0) {
+        // Double-tap - reset to default
+        resetToDefault();
+        e.preventDefault();
+        return;
+      }
+      
+      lastClickTime = now;
+      
+      // Only handle single touches
+      if (e.touches.length !== 1) return;
+      
+      isDragging = true;
+      startY = e.touches[0].clientY;
+      lastY = startY;
+      
+      // Set up document-level handlers
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
+      document.addEventListener('touchcancel', handleTouchEnd);
+      
+      e.preventDefault();
+    }, { passive: false });
+    
+    function handleTouchMove(e) {
+      if (!isDragging || e.touches.length !== 1) return;
+      
+      const deltaY = lastY - e.touches[0].clientY;
+      lastY = e.touches[0].clientY;
+      
+      updateKnob(deltaY);
+      e.preventDefault();
+    }
+    
+    function handleTouchEnd() {
+      if (isDragging) {
+        isDragging = false;
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        document.removeEventListener('touchcancel', handleTouchEnd);
+      }
+    }
+    
+    // Common function to update knob rotation and value
+    function updateKnob(delta) {
+      // Apply movement with sensitivity
+      const newRotation = Math.min(150, Math.max(-150, rotation + delta));
+      
+      // Only update if there's actual change
+      if (newRotation !== rotation) {
+        rotation = newRotation;
+        newKnob.style.transform = `rotate(${rotation}deg)`;
+        
+        if (callback) {
+          const normalizedValue = (rotation + 150) / 300;
+          callback(normalizedValue);
+        }
+      }
+    }
+    
+    // Reset function for double-click/tap
+    function resetToDefault() {
+      rotation = -150 + (defaultValue * 300);
+      newKnob.style.transform = `rotate(${rotation}deg)`;
+      if (callback) {
+        callback(defaultValue);
+      }
+      console.log(`Reset ${knobId} to default value:`, defaultValue);
+    }
+  });
+  
+  // Fix switch controls
+  document.querySelectorAll('.vertical-switch').forEach(switchEl => {
+    // Create fresh switch
+    const newSwitch = switchEl.cloneNode(true);
+    switchEl.parentNode.replaceChild(newSwitch, switchEl);
+    
+    // Simple click handler - works for both mouse and touch
+    newSwitch.addEventListener('click', function(e) {
+      this.classList.toggle('active');
+      
+      // Trigger switch updates based on ID
+      const switchId = this.id;
+      if (switchId === 'voice-mode-switch') {
+        isMonoMode = this.classList.contains('active');
+        cleanupAllNotes();
+      } else if (switchId === 'trigger-mode-switch') {
+        isLegatoMode = this.classList.contains('active');
+      } else if (switchId === 'portamento-switch') {
+        isPortamentoOn = this.classList.contains('active');
+      }
+      
+      e.stopPropagation();
+    });
+    
+    // Prevent default on touchstart to avoid scrolling
+    newSwitch.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+    }, { passive: false });
+  });
+}
+
+// Fix Lo-Fi and Rec buttons (special buttons)
+function initializeSpecialButtons() {
+  // Fix for LoFi button
+  const emuModeSwitch = document.getElementById('emu-mode-switch');
+  if (emuModeSwitch) {
+    // Remove any existing listeners first
+    const newEmuSwitch = emuModeSwitch.cloneNode(true);
+    emuModeSwitch.parentNode.replaceChild(newEmuSwitch, emuModeSwitch);
+    
+    // Add a single click handler with touch lock
+    let touchLock = false;
+    let touchTimeout;
+    
+    newEmuSwitch.addEventListener('click', function(e) {
+      // Prevent rapid toggling
+      if (touchLock) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      
+      touchLock = true;
+      
+      // Toggle state
+      const isActive = newEmuSwitch.classList.contains('active');
+      isEmuModeOn = !isActive;
+      
+      // Update LED indicator
+      const led = document.getElementById('emu-led');
+      if (led) {
+        led.classList.toggle('on', !isActive);
+      }
+      
+      // Toggle active class
+      newEmuSwitch.classList.toggle('active', !isActive);
+      
+      // Process with E-mu mode
+      updateSampleProcessing();
+      
+      // Update any playing notes
+      Object.values(activeNotes).forEach(note => {
+        if (note && note.source && !heldNotes.includes(note.noteNumber)) {
+          updateSamplePlaybackParameters(note);
+        }
+      });
+      
+      console.log('Lo-Fi Mode:', !isActive ? 'ON' : 'OFF');
+      
+      // Release lock after a delay
+      clearTimeout(touchTimeout);
+      touchTimeout = setTimeout(() => {
+        touchLock = false;
+      }, 300);
+    });
+    
+    // Add touch handling that prevents propagation
+    newEmuSwitch.addEventListener('touchstart', function(e) {
+      e.stopPropagation();
+    }, { passive: true });
+    
+    newEmuSwitch.addEventListener('touchend', function(e) {
+      if (!touchLock) {
+        this.click();
+      }
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
   }
-});
-// Initialize when the document is ready
+  
+  // Fix for Rec button - simply trigger the main record button
+  const recButton = document.getElementById('mic-record-button');
+  if (recButton) {
+    // Remove any existing listeners first
+    const newRecButton = recButton.cloneNode(true);
+    recButton.parentNode.replaceChild(newRecButton, recButton);
+    
+    // Add touch lock
+    let touchLock = false;
+    let touchTimeout;
+    
+    // Add the main click handler
+    newRecButton.addEventListener('click', function(e) {
+      // Prevent rapid toggling
+      if (touchLock) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      
+      touchLock = true;
+      
+      // For record button, just call the global functions directly
+      if (isRecording) {
+        window.stopRecording(); // Use the globally accessible function
+      } else {
+        // Click the button itself to start recording via setupMicRecording
+        this.click();
+      }
+      
+      // Release lock after delay
+      clearTimeout(touchTimeout);
+      touchTimeout = setTimeout(() => {
+        touchLock = false;
+      }, 300);
+    });
+    
+    // Add touch handling that prevents propagation
+    newRecButton.addEventListener('touchstart', function(e) {
+      e.stopPropagation();
+    }, { passive: true });
+    
+    newRecButton.addEventListener('touchend', function(e) {
+      if (!touchLock) {
+        this.click();
+      }
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
+  }
+}
+
+
+
+// Direct fix for vertical switches in touch mode
+function fixSwitchesTouchMode() {
+  // Target specific switches by ID
+  const switchIds = ['voice-mode-switch', 'trigger-mode-switch', 'portamento-switch'];
+  
+  switchIds.forEach(id => {
+    const switchEl = document.getElementById(id);
+    if (!switchEl) return;
+    
+    // Remove ALL existing event listeners by cloning
+    const newSwitch = switchEl.cloneNode(true);
+    switchEl.parentNode.replaceChild(newSwitch, switchEl);
+    
+    // Add a single, simple touchstart event with proper passive setting
+    newSwitch.addEventListener('touchstart', function(e) {
+      // This is critical - must be at the top
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Simply toggle the active class
+      this.classList.toggle('active');
+      
+      // Update state based on ID
+      const isActive = this.classList.contains('active');
+      console.log(`Switch ${id} touched, state now: ${isActive}`);
+      
+      switch(id) {
+        case 'voice-mode-switch':
+          isMonoMode = isActive;
+          cleanupAllNotes();
+          console.log('Voice Mode:', isActive ? 'MONO' : 'POLY');
+          break;
+        case 'trigger-mode-switch':
+          isLegatoMode = isActive;
+          console.log('Trigger Mode:', isActive ? 'LEGATO' : 'MULTI');
+          break;
+        case 'portamento-switch':
+          isPortamentoOn = isActive;
+          console.log('Portamento:', isPortamentoOn ? 'ON' : 'OFF');
+          break;
+      }
+    }, { passive: false });  // passive: false is critical here!
+    
+    // Also handle normal clicks for mouse users
+    newSwitch.addEventListener('click', function(e) {
+      // Skip if this was a touch event that bubbled to click
+      if (e.pointerType === 'touch') return;
+      
+      this.classList.toggle('active');
+      const isActive = this.classList.contains('active');
+      
+      switch(id) {
+        case 'voice-mode-switch':
+          isMonoMode = isActive;
+          cleanupAllNotes();
+          break;
+        case 'trigger-mode-switch':
+          isLegatoMode = isActive;
+          break;
+        case 'portamento-switch':
+          isPortamentoOn = isActive;
+          break;
+      }
+    });
+  });
+}
+
+
+// CLEAN UP - Delete redundant and outdated event listeners
+// Keep only this consolidated event listener for initialization
 document.addEventListener('DOMContentLoaded', function() {
+  // Core functionality
+  generateKeyboard();
+  updateSliderValues();
+  updateVoiceDisplay();
+  updateADSRVisualization();
+  
+  // Initialize controls
+  fixAllControls();
+  initializeSpecialButtons();
+  fixSwitchesTouchMode();
+  fixMicRecording();
+  preventScrollOnControls();
+  
+  // Set up special handling for touch devices
   if (isTouchDevice()) {
-    console.log("Touch device detected, enabling improved touch-specific enhancements");
-    setupDoubleTapReset();
     setupAutoHideTooltips();
   }
+  
+  // iOS-specific handling
+  if (isIOS()) {
+    addIOSTouchHandlers();
+    document.body.style.touchAction = 'none';
+    document.body.style.overscrollBehavior = 'none';
+  }
+  
+  // MIDI functionality
+  setupMIDIAccess();
+  
+  // Re-register any important listeners
+  if (D('audio-file')) {
+    D('audio-file').addEventListener('change', handleFileSelect);
+  }
+  
+  // Add audio context resume handlers
+  const resumeAudioContext = function() {
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => {
+        console.log('AudioContext resumed');
+      });
+    }
+  };
+  
+  document.body.addEventListener('touchstart', resumeAudioContext, { passive: true });
+  document.body.addEventListener('mousedown', resumeAudioContext, { passive: true });
 });
 
     </script>
