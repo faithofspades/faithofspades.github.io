@@ -1926,12 +1926,38 @@ function fixMicRecording() {
   let localRecordedChunks = [];
   let localIsRecording = false;
   
-  // USE ONLY ONE EVENT TYPE - for iOS use touchend instead of touchstart/click
+  // For iOS devices only:
   if (isIOS()) {
-    newRecButton.addEventListener('touchend', handleRecButtonPress, { passive: false });
+    // Use a click handler with a state toggle pattern instead of separate start/stop functions
+    newRecButton.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      console.log("Record button clicked on iOS, current state:", localIsRecording);
+      
+      // Toggle recording state
+      localIsRecording = !localIsRecording;
+      
+      if (localIsRecording) {
+        // START RECORDING
+        startRecording();
+        newRecButton.classList.add('recording');
+        if (recLed) recLed.classList.add('on');
+      } else {
+        // STOP RECORDING
+        if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
+          newRecButton.classList.remove('recording');
+          if (recLed) recLed.classList.remove('on');
+          window.localMediaRecorder.stop();
+          console.log("Recording stopped on iOS");
+        }
+      }
+    });
   } else {
+    // For non-iOS, keep your existing code
     newRecButton.addEventListener('click', handleRecButtonPress);
   }
+  
   function handleRecButtonPress(e) {
     e.preventDefault();
     e.stopPropagation();
