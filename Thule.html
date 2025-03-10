@@ -1912,72 +1912,76 @@ function initializeNotchedKnob(knob, onChange) {
 // Clean up the processing order and fade handling functions
 
 // Fix the mic recording functionality once and for all
+// FIXED VERSION
 function fixMicRecording() {
-  // Find the record button
   const recButton = document.getElementById('mic-record-button');
   if (!recButton) return;
   
-  // Get a reference to the LED element before cloning
-  const recLed = document.getElementById('rec-led');
-  
-  // Create a new button to avoid any existing listeners
   const newRecButton = recButton.cloneNode(true);
   recButton.parentNode.replaceChild(newRecButton, recButton);
   
-  // IMPORTANT: After cloning, update the reference to the LED inside the new button
-  const newRecLed = newRecButton.querySelector('.led-indicator');
+  const recLed = newRecButton.querySelector('.led-indicator');
   
-  // Make these variables more accessible within this function
-  let localMediaRecorder = null;
+  window.localMediaRecorder = null;
   let localRecordedChunks = [];
   let localIsRecording = false;
   
-  newRecButton.addEventListener('click', async function() {
-    console.log("Record button clicked, current state:", localIsRecording);
+  // USE ONLY ONE EVENT TYPE - for iOS use touchend instead of touchstart/click
+  if (isIOS()) {
+    newRecButton.addEventListener('touchend', handleRecButtonPress, { passive: false });
+  } else {
+    newRecButton.addEventListener('click', handleRecButtonPress);
+  }
+  function handleRecButtonPress(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log("Record button pressed, current state:", localIsRecording);
     
     if (localIsRecording) {
       // STOPPING RECORDING
-      if (localMediaRecorder && localMediaRecorder.state === 'recording') {
+      console.log("Attempting to stop recording");
+      if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
         // Update UI
         newRecButton.classList.remove('recording');
         
-        // Update the LED visibility state - this is the key fix
-        if (newRecLed) {
-          newRecLed.classList.remove('on');
-        } else if (recLed) {
+        // Update LED state
+        if (recLed) {
           recLed.classList.remove('on');
         }
         
         localIsRecording = false;
         
         // Stop the recorder - this will trigger the 'stop' event handler
-        localMediaRecorder.stop();
+        window.localMediaRecorder.stop();
         console.log("Recording stopped manually");
       }
-      return;
-    }
-    
-    try {
+    } else {
       // STARTING RECORDING
+      startRecording();
+    }
+  }
+  
+  async function startRecording() {
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Update UI
       newRecButton.classList.add('recording');
       
-      // Update the LED visibility state - this is the key fix
-      if (newRecLed) {
-        newRecLed.classList.add('on');
-      } else if (recLed) {
+      // Update LED state
+      if (recLed) {
         recLed.classList.add('on');
       }
       
       localIsRecording = true;
       
       // Set up the MediaRecorder
-      localMediaRecorder = new MediaRecorder(stream, {
+      window.localMediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm',
         audioBitsPerSecond: 128000
       });
+      
       
       // Clear any previously recorded chunks
       localRecordedChunks = [];
@@ -2064,11 +2068,8 @@ function fixMicRecording() {
       
     } catch (err) {
       console.error("Error starting recording:", err);
-      newRecButton.classList.remove('recording');
-      recLed.classList.remove('on');
-      localIsRecording = false;
     }
-  });
+  }
 }
 function preventScrollOnControls() {
   // More targeted approach - add touch event handlers to each UI control type individually
@@ -5376,81 +5377,9 @@ function initializeSpecialButtons() {
     }, { passive: false });
   }
   
- // Fix for Rec button
-const recButton = document.getElementById('mic-record-button');
-if (recButton) {
-  // Remove any existing listeners first
-  const newRecButton = recButton.cloneNode(true);
-  recButton.parentNode.replaceChild(newRecButton, recButton);
-  
-  // Add touch lock
-  let touchLock = false;
-  let touchTimeout;
-  
-  // Track recording state locally
-  let isButtonRecording = false;
-  
-  // Add the main click handler
-  newRecButton.addEventListener('click', function(e) {
-    // Prevent rapid toggling
-    if (touchLock) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    
-    touchLock = true;
-    
-    if (isButtonRecording) {
-      // We're already recording, so stop it
-      isButtonRecording = false;
-      newRecButton.classList.remove('recording');
-      
-      // Update the LED
-      const recLed = newRecButton.querySelector('.led-indicator');
-      if (recLed) {
-        recLed.classList.remove('on');
-      }
-      
-      // Stop the actual recording - access the localMediaRecorder from fixMicRecording
-      if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
-        window.localMediaRecorder.stop();
-        console.log("Recording stopped via button click");
-      }
-    } else {
-      // Start recording - the actual logic is in fixMicRecording
-      isButtonRecording = true;
-      newRecButton.classList.add('recording');
-      
-      // Update the LED
-      const recLed = newRecButton.querySelector('.led-indicator');
-      if (recLed) {
-        recLed.classList.add('on');
-      }
-    }
-    
-    // Release lock after delay
-    clearTimeout(touchTimeout);
-    touchTimeout = setTimeout(() => {
-      touchLock = false;
-    }, 300);
-  });
-  
-  // Add touch handling that prevents propagation
-  newRecButton.addEventListener('touchstart', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }, { passive: false });
-  
-  newRecButton.addEventListener('touchend', function(e) {
-    if (!touchLock) {
-      this.click();
-    }
-    e.preventDefault();
-    e.stopPropagation();
-  }, { passive: false });
+ 
 }
-}
+
 
 
 
