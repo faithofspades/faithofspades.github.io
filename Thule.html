@@ -1996,7 +1996,7 @@ function fixMicRecording() {
       
       // Set up the MediaRecorder
       window.localMediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=h264', 
+        mimeType: 'audio/webm',
         audioBitsPerSecond: 128000
       });
       
@@ -2088,6 +2088,30 @@ function fixMicRecording() {
       console.error("Error starting recording:", err);
     }
   }
+}
+function refreshIosRecordingListeners() {
+  if (!isIOS()) return; // use your existing isIOS() check
+  
+  const recButton = document.getElementById('mic-record-button');
+  if (!recButton) return;
+
+  // Create a fresh clone to remove all existing listeners
+  const newRecButton = recButton.cloneNode(true);
+  recButton.parentNode.replaceChild(newRecButton, recButton);
+
+  // Example single click handler
+  newRecButton.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log("iOS rec button clicked");
+
+    // If recording, stop it
+    if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  });
 }
 function preventScrollOnControls() {
   // More targeted approach - add touch event handlers to each UI control type individually
