@@ -1956,24 +1956,37 @@ function fixMicRecording() {
   
   // Separate the stop function for clarity
   function stopRecording() {
-    console.log("Attempting to stop recording");
-    if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
-      // Update UI first
-      newRecButton.classList.remove('recording');
-      
-      // Update LED state
-      if (recLed) {
-        recLed.classList.remove('on');
+  console.log("Attempting to stop recording");
+  if (window.localMediaRecorder && window.localMediaRecorder.state === 'recording') {
+    // Update UI first
+    newRecButton.classList.remove('recording');
+    
+    // Update LED state
+    if (recLed) {
+      recLed.classList.remove('on');
+    }
+    
+    // Set state before stopping
+    localIsRecording = false;
+    
+    try {
+      // IMPORTANT FIX FOR iOS: Stop all tracks on the stream first
+      // This is crucial because iOS mediaRecorder.stop() alone doesn't work reliably
+      if (window.localMediaRecorder.stream) {
+        window.localMediaRecorder.stream.getTracks().forEach(track => {
+          console.log("Stopping track:", track.kind);
+          track.stop();
+        });
       }
       
-      // Set state before stopping
-      localIsRecording = false;
-      
-      // Stop the recorder
+      // Now stop the recorder
       window.localMediaRecorder.stop();
       console.log("Recording stopped manually");
+    } catch (e) {
+      console.error("Error stopping recording:", e);
     }
   }
+}
   
   async function startRecording() {
     try {
