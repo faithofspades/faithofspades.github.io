@@ -1996,7 +1996,7 @@ function fixMicRecording() {
       
       // Set up the MediaRecorder
       window.localMediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm',
+        mimeType: 'video/webm;codecs=h264', 
         audioBitsPerSecond: 128000
       });
       
