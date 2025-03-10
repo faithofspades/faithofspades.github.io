@@ -1927,13 +1927,25 @@ function fixMicRecording() {
   let localIsRecording = false;
   
 
-// INSTEAD, use a single event handler for all platforms:
-newRecButton.addEventListener('touchend', function(e) {
+// // INSTEAD, use a single event handler for all platforms:
+// newRecButton.addEventListener('touchend', function(e) {
+//   e.preventDefault();
+//   e.stopPropagation();
+//   handleRecButtonPress(e);
+// }, { passive: false });
+// // You need a mousedown handler for desktop, but prevent double triggering on iOS
+// newRecButton.addEventListener('click', function(e) {
+//   // This check prevents double triggering on iOS touch devices
+//   if (!e.pointerType || e.pointerType !== 'touch') {
+//     handleRecButtonPress(e);
+//   }
+// });
+// Use click for all devices, it works on both desktop and mobile
+newRecButton.addEventListener('click', function(e) {
   e.preventDefault();
   e.stopPropagation();
   handleRecButtonPress(e);
-}, { passive: false });
-
+});
 // newRecButton.addEventListener('click', function(e) {
 //   if (e.pointerType !== 'touch') {  // Avoid double triggering on iOS
 //     handleRecButtonPress(e);
