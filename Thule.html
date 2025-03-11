@@ -1914,204 +1914,253 @@ function initializeNotchedKnob(knob, onChange) {
 // Fix the mic recording functionality once and for all
 // FIXED VERSION
 function fixMicRecording() {
+  // Get button reference FIRST
   const recButton = document.getElementById('mic-record-button');
   if (!recButton) return;
   
-  // Create a completely fresh button without any existing listeners
+  // Then clone it
   const newRecButton = recButton.cloneNode(true);
   recButton.parentNode.replaceChild(newRecButton, recButton);
   
+  // NOW you can safely access elements inside it
   const recLed = newRecButton.querySelector('.led-indicator');
   
-  // Global state for recording
-  window.localMediaRecorder = null;
-  let localRecordedChunks = [];
+  // Global state
   let localIsRecording = false;
-  let processingLock = false; // Prevent double-triggers
+  let processingLock = false;
+  let audioInputStream = null;
+  let audioInputNode = null;
+  let recordingChunks = [];
+  let recorderWorklet = null;
   
-  // Use a single event handler for all devices
+  // First, create and register the AudioWorklet processor
+  const workletCode = `
+  class RecorderWorkletProcessor extends AudioWorkletProcessor {
+    constructor() {
+      super();
+      this.isRecording = false;
+      
+      // ADD THIS HANDLER - it was completely missing!
+      this.port.onmessage = (event) => {
+        if (event.data.command === 'setRecording') {
+          console.log("RecorderWorklet: Set recording to", event.data.value);
+          this.isRecording = event.data.value;
+        }
+      };
+    }
+    
+    process(inputs, outputs, parameters) {
+      if (!this.isRecording || !inputs[0] || !inputs[0][0]) return true;
+      
+      // Clone the input data to send to main thread
+      const inputData = inputs[0][0];
+      const buffer = new Float32Array(inputData.length);
+      buffer.set(inputData);
+      
+      // Send buffer to main thread
+      this.port.postMessage({ type: 'chunk', data: buffer });
+      
+      return true;
+    }
+  }
+  
+  registerProcessor('recorder-processor', RecorderWorkletProcessor);
+`;
+  // Create a Blob URL for the worklet code
+  const blob = new Blob([workletCode], { type: 'application/javascript' });
+  const workletUrl = URL.createObjectURL(blob);
+  
+  // Register the worklet with the audio context
+  let workletReady = false;
+  
+  audioCtx.audioWorklet.addModule(workletUrl).then(() => {
+    workletReady = true;
+    console.log("Audio worklet ready for recording");
+  }).catch(err => {
+    console.error("Error loading audio worklet:", err);
+  });
+  
   newRecButton.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
     
-    // Debounce rapid clicking
-    if (processingLock) {
-      console.log("Processing lock active, ignoring click");
-      return;
-    }
-    
+    if (processingLock) return;
     processingLock = true;
     setTimeout(() => { processingLock = false; }, 300);
     
-    console.log("Record button clicked, current state:", localIsRecording);
-    
     if (localIsRecording) {
-      // STOPPING RECORDING
       stopRecording();
     } else {
-      // STARTING RECORDING
       startRecording();
     }
   });
   
-  // Separate the stop function for clarity
-  function stopRecording() {
-  console.log("Attempting to stop recording");
-  if (window.localMediaRecorder) {
-    // Update UI first
-    newRecButton.classList.remove('recording');
-    if (recLed) recLed.classList.remove('on');
-    localIsRecording = false;
-
-    try {
-      // Stop all tracks first (iOS workaround)
-      if (window.localMediaRecorder.stream) {
-        window.localMediaRecorder.stream.getTracks().forEach(track => {
-          console.log("Stopping track:", track.kind);
-          track.stop();
-        });
-      }
-      // Now stop the recorder
-      window.localMediaRecorder.stop();
-      console.log("Recording stopped manually");
-    } catch (e) {
-      console.error("Error stopping recording:", e);
-    }
-  }
-}
-  
   async function startRecording() {
     try {
+      if (!workletReady) {
+        console.error("Audio worklet not ready yet");
+        return;
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Update UI
       newRecButton.classList.add('recording');
-      
-      // Update LED state
-      if (recLed) {
-        recLed.classList.add('on');
-      }
-      
+      if (recLed) recLed.classList.add('on');
       localIsRecording = true;
       
-      // Set up the MediaRecorder
-      window.localMediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm',
-        audioBitsPerSecond: 128000
-      });
+      // Reset recording chunks
+      recordingChunks = [];
       
+      // Create audio input source
+      audioInputStream = stream;
+      audioInputNode = audioCtx.createMediaStreamSource(stream);
       
-      // Clear any previously recorded chunks
-      localRecordedChunks = [];
+      // Create and connect the AudioWorkletNode for recording
+      recorderWorklet = new AudioWorkletNode(audioCtx, 'recorder-processor');
       
-      // Handle data as it becomes available
-      localMediaRecorder.addEventListener('dataavailable', event => {
-        if (event.data.size > 0) {
-          localRecordedChunks.push(event.data);
-          console.log("Recorded chunk added");
+      // Set up message handling to collect audio chunks
+      recorderWorklet.port.onmessage = (event) => {
+        if (event.data.type === 'chunk') {
+          recordingChunks.push(event.data.data);
         }
-      });
+      };
       
-      // THIS IS THE KEY - Handle the 'stop' event
-      localMediaRecorder.addEventListener('stop', () => {
-        console.log("MediaRecorder stopped, processing recording...");
-        
-        if (localRecordedChunks.length === 0) {
-          console.log('No audio data recorded');
-          stream.getTracks().forEach(track => track.stop());
-          return;
-        }
-        
-        // Create a blob from all the chunks
-        const audioBlob = new Blob(localRecordedChunks, { type: 'audio/webm' });
-        console.log("Created audio blob:", audioBlob.size, "bytes");
-        
-        // Convert the blob to an ArrayBuffer
-        const reader = new FileReader();
-        reader.readAsArrayBuffer(audioBlob);
-        
-        reader.onloadend = () => {
-          console.log("FileReader loaded blob, decoding audio...");
-          
-          // Decode the audio data
-          audioCtx.decodeAudioData(reader.result)
-            .then(buffer => {
-              console.log("Audio decoded successfully:", buffer.duration.toFixed(2), "seconds");
-              
-              // Use the buffer as the new sample
-              audioBuffer = buffer;
-              
-            //   // Reset the parameters
-            //   sampleStartPosition = 0;
-            //   sampleEndPosition = 1;
-              
-            //   // Update knob positions
-            //   const startKnob = document.getElementById('sample-start-knob');
-            //   const endKnob = document.getElementById('sample-end-knob');
-              
-            //   if (startKnob && knobInitializations['sample-start-knob']) {
-            //     const control = initializeKnob(startKnob, knobInitializations['sample-start-knob']);
-            //     control.setValue(0, true);
-            //   }
-              
-            //   if (endKnob && knobInitializations['sample-end-knob']) {
-            //     const control = initializeKnob(endKnob, knobInitializations['sample-end-knob']);
-            //     control.setValue(1, true);
-            //   }
-              
-              // Process the new sample
-              updateSampleProcessing();
-              
-              // Update the label text
-              const fileLabel = document.querySelector('label[for="audio-file"]');
-              if (fileLabel) {
-                fileLabel.textContent = 'Mic Recording';
-              }
-              
-              console.log('Recording loaded as sample');
-              
-              // Stop all tracks in the stream
-              stream.getTracks().forEach(track => track.stop());
-            })
-            .catch(err => {
-              console.error("Error decoding audio:", err);
-              stream.getTracks().forEach(track => track.stop());
-            });
-        };
-      });
+      // Tell the worklet to start recording
+      recorderWorklet.port.postMessage({ command: 'setRecording', value: true });
       
-      // Start recording
-      localMediaRecorder.start(100);
-      console.log("Recording started");
+      // Connect the nodes
+      audioInputNode.connect(recorderWorklet);
+      recorderWorklet.connect(audioCtx.destination);
       
+      console.log("Recording started with AudioWorkletNode");
     } catch (err) {
       console.error("Error starting recording:", err);
     }
   }
-}
-function refreshIosRecordingListeners() {
-  if (!isIOS()) return; // use your existing isIOS() check
   
-  const recButton = document.getElementById('mic-record-button');
-  if (!recButton) return;
+  function stopRecording() {
+    
+    // Clean up BEFORE updating UI
+    if (audioInputStream) {
+      try {
+        audioInputStream.getTracks().forEach(track => track.stop());
+      } catch(e) {
+        console.error("Error stopping tracks:", e);
+      }
+    }
+    
+    // Handle each node individually
+    if (audioInputNode) {
+      try {
+        audioInputNode.disconnect();
+      } catch(e) {
+        console.error("Error disconnecting input node:", e);
+      }
+    }
+    
+    if (recorderWorklet) {
+      try {
+        // Tell the worklet to stop recording
+        recorderWorklet.port.postMessage({ command: 'setRecording', value: false });
+        recorderWorklet.disconnect();
+      } catch(e) {
+        console.error("Error disconnecting recorder worklet:", e);
+      }
+    }
+    
+    // NOW update UI
+    newRecButton.classList.remove('recording');
+    if (recLed) recLed.classList.remove('on');
+    localIsRecording = false;
+    
+    // Process the recording chunks if we have any
+    if (recordingChunks && recordingChunks.length > 0) {
+      processRecording(recordingChunks);
+    }
+  }
 
-  // Create a fresh clone to remove all existing listeners
-  const newRecButton = recButton.cloneNode(true);
-  recButton.parentNode.replaceChild(newRecButton, recButton);
+  function processRecording(chunks) {
+  console.log("Processing recorded audio...");
 
-  // Example single click handler
-  newRecButton.addEventListener('click', e => {
-    e.preventDefault();
-    e.stopPropagation();
-    console.log("iOS rec button clicked");
+  // 1) Build one buffer from the recorded chunks
+  let totalLength = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    totalLength += chunks[i].length;
+  }
+  const newBuffer = audioCtx.createBuffer(1, totalLength, audioCtx.sampleRate);
+  const channelData = newBuffer.getChannelData(0);
+  let offset = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    channelData.set(chunks[i], offset);
+    offset += chunks[i].length;
+  }
 
-// Replace the state check with your local 'localIsRecording' variable:
-if (window.localMediaRecorder && localIsRecording) {
-  stopRecording();
-} else {
-  startRecording();
-}
+  // 2) Use the same global audioBuffer
+  audioBuffer = newBuffer; 
+  console.log("Recording loaded as sample with duration:", audioBuffer.duration);
+
+  // 3) Process fades and crossfades using the same function
+  updateSampleProcessing();
+
+  // 4) Reset crossfade data to match loadPresetSample approach
+  cachedCrossfadedBuffer = null;
+  lastCachedStartPos = null;
+  lastCachedEndPos = null;
+  lastCachedCrossfade = null;
+
+  // 5) Create and connect a new source node, just like in loadPresetSample
+  if (sampleSource) {
+    sampleSource.stop();
+  }
+  sampleSource = audioCtx.createBufferSource();
+  sampleSource.buffer = audioBuffer;
+  sampleSource.connect(sampleGainNode);
+  sampleSource.start();
+
+  // 6) Set UI label (equivalent to showing loaded sample name)
+  const fileLabel = document.querySelector('label[for="audio-file"]');
+  if (fileLabel) {
+    fileLabel.textContent = 'Recording (mic)';
+  }
+
+  // 7) Create crossfaded buffer if needed
+  if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+    console.log("Creating crossfaded buffer for recorded sample");
+    const result = createCrossfadedBuffer(
+      audioBuffer,
+      sampleStartPosition,
+      sampleEndPosition,
+      sampleCrossfadeAmount
+    );
+    if (result && result.buffer) {
+      console.log("Successfully created crossfaded buffer for recorded sample");
+      cachedCrossfadedBuffer = result.buffer;
+      lastCachedStartPos = sampleStartPosition;
+      lastCachedEndPos = sampleEndPosition;
+      lastCachedCrossfade = sampleCrossfadeAmount;
+    }
+  }
+
+  // 8) Update any active notes to use the new buffer, same as loadPresetSample
+  Object.values(activeNotes).forEach(note => {
+    if (note && note.source) {
+      // Skip held notes
+      if (heldNotes.includes(note.noteNumber)) {
+        console.log(`Note ${note.id} is held; will update on release.`);
+        return;
+      }
+      console.log(`Updating note ${note.id} to use recorded sample`);
+      note.usesProcessedBuffer = false;
+      note.crossfadeActive = false;
+      if (isSampleLoopOn) {
+        note.looping = true;
+        setupLoopCrossfade(note);
+      }
+      updateSamplePlaybackParameters(note);
+    }
   });
+}
 }
 function preventScrollOnControls() {
   // More targeted approach - add touch event handlers to each UI control type individually
