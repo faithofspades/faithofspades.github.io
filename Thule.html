@@ -308,46 +308,7 @@
   margin-bottom: 8px;
   width: 100%;
 }
-.wave-select {
-    width: 100%;
-    padding: 8px;
-    border: 1px solid #3f2101;
-    border-radius: 4px;
-    background-color: #e6e6e6;
-    color: #3f2101;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 14px;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-}
 
-/* Custom dropdown arrow */
-.wave-select-container::after {
-    content: '';
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 0;
-    height: 0;
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
-    border-top: 6px solid #3f2101;
-    pointer-events: none;
-}
-
-/* Hover and focus states */
-.wave-select:hover {
-    background-color: #d4c6a8;
-}
-
-.wave-select:focus {
-    outline: none;
-    box-shadow: 0 0 0 2px rgba(139, 69, 19, 0.2);
-    background-color: #f5f5dc;
-}
 
 .tooltip {
     position: absolute;
@@ -602,159 +563,7 @@ body {
     -moz-user-select: none;
     -ms-user-select: none;
 }
-/* Base knob style */
-.knob.notched {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background-color: #e6e6e6;
-    border: 1px solid #3f2101;
-    position: absolute;
-    top: 0;
-    left: 0;
-    cursor: grab;
-    z-index: 2;
-}
 
-/* Notch marks around the knob */
-.knob.notched::before {
-    content: '';
-    position: absolute;
-    top: -4px;  /* Position outside the knob */
-    left: -4px;
-    width: 48px;  /* Larger than the knob */
-    height: 48px;
-    border-radius: 50%;
-    background: conic-gradient(
-        from 60deg,
-        transparent 0deg 2deg,
-        #3f2101 2deg 4deg,      /* -2 octave notch */
-        transparent 4deg 58deg,
-        #3f2101 58deg 60deg,    /* -1 octave notch */
-        transparent 60deg 118deg,
-        #3f2101 118deg 120deg,  /* 0 octave notch */
-        transparent 120deg 178deg,
-        #3f2101 178deg 180deg,  /* +1 octave notch */
-        transparent 180deg 238deg,
-        #3f2101 238deg 240deg,  /* +2 octave notch */
-        transparent 240deg 360deg
-    );
-    opacity: 0.6;
-    pointer-events: none;
-    z-index: 1;
-}
-
-/* Indicator line */
-.knob.notched::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 50%;
-    width: 2px;
-    height: 10px;
-    background-color: #3f2101;
-    transform-origin: bottom center;
-    transform: translateX(-50%);
-    z-index: 3;
-}
-
-.knob-container {
-    position: relative;
-    width: 40px;
-    height: 40px;
-    margin: 10px auto;
-}
-/* Fixed notch ring */
-.knob-container::before {
-    content: '';
-    position: absolute;
-    top: -4px;
-    left: -4px;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: conic-gradient(
-        from 240deg,
-        #3f2101 0deg 2deg,      /* -2 octave notch */
-        transparent 2deg 58deg,
-        #3f2101 58deg 60deg,    /* -1 octave notch */
-        transparent 60deg 118deg,
-        #3f2101 118deg 120deg,  /* 0 octave notch */
-        transparent 120deg 178deg,
-        #3f2101 178deg 180deg,  /* +1 octave notch */
-        transparent 180deg 238deg,
-        #3f2101 238deg 240deg,  /* +2 octave notch */
-        transparent 240deg 360deg
-    );
-    opacity: 0.6;
-    pointer-events: none;
-    z-index: 1;
-}
-.knob-value {
-    font-size: 12px;
-    margin-top: 4px;
-    color: #3f2101;
-}
-
-.octave-control {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    margin: 10px 0;
-    position: relative;
-    height: 120px;
-}
-
-.octave-slider {
-    width: 100px;
-    height: 30px;
-    -webkit-appearance: none;
-    background: transparent;
-    transform: rotate(270deg) translate(0%, 22%);
-    margin: 35px 0;
-
-}
-
-.octave-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    height: 28px;
-    width: 16px;
-    border-radius: 3px;
-    background: #d4c6a8;
-    border: 1px solid #3f2101;
-    cursor: grab;
-    margin-top: -12px;
-}
-
-.octave-slider::-webkit-slider-runnable-track {
-    width: 100%;
-    height: 4px;
-    background: #e6e6e6;
-    border: 1px solid #3f2101;
-    border-radius: 2px;
-}
-
-.octave-ticks {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    height: 100px;
-    font-size: 12px;
-    color: #3f2101;
-    margin-left: -80px; /* Adjust space between slider and ticks */
-}
-/* Adjust the label position */
-.octave-control label {
-    position: absolute;
-    bottom: -10px; /* Moved down by 10px */
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 15px;
-    color: #3f2101;
-}
-.octave-ticks span {
-    line-height: 20px;
-}
 /* Update the ADSR module layout */
 .module[style="grid-column: span 2;"] .module-title {
     margin-top: -5px; /* Adjust to move text up by 5px */
@@ -1207,6 +1016,7 @@ input[type="range"]::-moz-focus-outer {
             <div class="dropdown-item" data-sample="Keys - Piano.wav">Piano</div>
             <div class="dropdown-item" data-sample="Noise.wav">Noise</div>
             <div class="dropdown-item" data-sample="Saw.wav">Saw</div>
+            <div class="dropdown-item" data-sample="Mallet.wav">Mallet</div>
           </div>
         </div>
         <div class="switch-container rec-button-container">
@@ -1224,66 +1034,6 @@ input[type="range"]::-moz-focus-outer {
       </div>
     </div>
   </div>
-            <!-- OSC 1 Module -->
-            <div class="module">
-                <div class="module-title">OSC 1</div>
-                <div class="wave-select-container">
-                    <select class="wave-select" name="osc1-wave">
-                        <option value="sine">Sine</option>
-                        <option value="triangle">Triangle</option>
-                        <option value="saw">Saw</option>
-                        <option value="square">Square</option>
-                        <option value="pulse">Pulse</option>
-                    </select>
-                </div>
-                <div class="knob" id="osc1-pwm-knob"></div>
-                <label for="osc1-pwm-knob" style="text-align: center;">PWM</label>
-                <div class="knob" id="osc1-gain-knob"></div>
-                <label for="osc1-gain-knob" style="text-align: center;">Gain</label>
-                <div class="octave-control">
-                    <input type="range" class="octave-slider" min="-2" max="2" step="1" value="0">
-                    <div class="octave-ticks">
-                        <span>+2</span>
-                        <span>+1</span>
-                        <span>0</span>
-                        <span>-1</span>
-                        <span>-2</span>
-                    </div>
-                    <label>Octave</label>
-                </div>
-            </div>
-
-            <!-- OSC 2 Module -->
-            <div class="module">
-                <div class="module-title">OSC 2</div>
-                <div class="wave-select-container">
-                    <select class="wave-select" name="osc2-wave">
-                        <option value="sine">Sine</option>
-                        <option value="triangle">Triangle</option>
-                        <option value="saw">Saw</option>
-                        <option value="square">Square</option>
-                        <option value="pulse">Pulse</option>
-                    </select>
-                </div>
-                <div class="knob" id="osc2-pwm-knob"></div>
-                <label for="osc2-pwm-knob" style="text-align: center;">PWM</label>
-                <div class="knob" id="osc2-gain-knob"></div>
-                <label for="osc2-gain-knob" style="text-align: center;">Gain</label>
-                <div class="octave-control">
-                    <input type="range" class="octave-slider" min="-2" max="2" step="1" value="0">
-                    <div class="octave-ticks">
-                        <span>+2</span>
-                        <span>+1</span>
-                        <span>0</span>
-                        <span>-1</span>
-                        <span>-2</span>
-                    </div>
-                    <label>Octave</label>
-                </div>
-            </div>
-
-            
-
             <!-- ADSR Module -->
             <div class="module" style="grid-column: span 2;">
                 <div class="module-title">ADSR Envelope</div>
@@ -1818,100 +1568,7 @@ function initializeKnob(knob, onChange) {
     }
   };
 }
-// Also fix the notched knob function with the same change
-function initializeNotchedKnob(knob, onChange) {
-  let rotation = 0;
-  let isDragging = false;
-  let lastY;
-  const degreesPerStep = 60;
 
-  function snapToNotch(rotation) {
-    const steps = Math.round(rotation / degreesPerStep);
-    const limitedSteps = Math.max(-2, Math.min(2, steps));
-    return limitedSteps * degreesPerStep;
-  }
-
-  function handleMove(y) {
-    const sensitivity = 1.5; 
-    const deltaY = (lastY - y) * sensitivity;
-    lastY = y;
-    
-    let newRotation = rotation + deltaY;
-    newRotation = snapToNotch(newRotation);
-    
-    if (newRotation !== rotation) {
-      rotation = newRotation;
-      knob.style.transform = `rotate(${rotation}deg)`;
-      
-      if (onChange) {
-        const octaveValue = Math.round(-rotation / degreesPerStep);
-        onChange(octaveValue);
-      }
-    }
-  }
-
-  function handleMouseMove(e) {
-    if (!isDragging) return;
-    handleMove(e.clientY);
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  
-  function handleTouchMove(e) {
-    if (!isDragging || !e.touches[0]) return;
-    handleMove(e.touches[0].clientY);
-    
-    // Critical: prevent default to stop page scrolling
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  function handleEnd() {
-    isDragging = false;
-    knob.style.cursor = 'grab';
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleEnd);
-    document.removeEventListener('touchmove', handleTouchMove);
-    document.removeEventListener('touchend', handleEnd);
-    document.removeEventListener('touchcancel', handleEnd);
-  }
-
-  knob.addEventListener('mousedown', (e) => {
-    isDragging = true;
-    lastY = e.clientY;
-    knob.style.cursor = 'grabbing';
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleEnd);
-    e.preventDefault();
-  });
-
-  // Add touch support with proper scroll prevention
-  knob.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 1) {
-      isDragging = true;
-      lastY = e.touches[0].clientY;
-      
-      // Critical: add touchmove listener with passive: false
-      document.addEventListener('touchmove', handleTouchMove, { passive: false });
-      document.addEventListener('touchend', handleEnd);
-      document.addEventListener('touchcancel', handleEnd);
-    }
-    e.preventDefault();
-  }, { passive: false });
-
-  return {
-    getValue: () => -Math.round(rotation / degreesPerStep),
-    setValue: (octave) => {
-      rotation = -octave * degreesPerStep;
-      knob.style.transform = `rotate(${rotation}deg)`;
-    }
-  };
-}
-// Function to process the buffer with fade in/out before crossfades
-// Function to process the buffer with fade in/out after applying start/end points
-// Clean up the processing order and fade handling functions
-
-// Fix the mic recording functionality once and for all
 // FIXED VERSION
 function fixMicRecording() {
   // Get button reference FIRST
@@ -2176,12 +1833,7 @@ function preventScrollOnControls() {
   
 
   
-  // 4. Fix oscillator selectors (wave-select)
-  document.querySelectorAll('.wave-select').forEach(select => {
-    select.addEventListener('touchstart', function(e) {
-      // Allow default behavior for selects
-    }, { passive: true });
-  });
+
   
   // 5. Fix special buttons (emu mode and rec button)
   document.querySelectorAll('.lofi-button, .rec-button').forEach(button => {
@@ -2613,30 +2265,7 @@ function preventScrollOnControls() {
 // Knob initializations (only one set)
 const knobInitializations = {
       
-    'osc1-pwm-knob': (value) => {
-        const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
-        tooltip.textContent = `PWM: ${(value * 100).toFixed(0)}%`;
-        tooltip.style.opacity = '1';
-        console.log('OSC1 PWM:', value.toFixed(2));
-    },
-    'osc1-gain-knob': (value) => {
-        const tooltip = createTooltipForKnob('osc1-gain-knob', value);
-        tooltip.textContent = `Gain: ${value.toFixed(2)}`;
-        tooltip.style.opacity = '1';
-        console.log('OSC1 Gain:', value.toFixed(2));
-    },
-    'osc2-pwm-knob': (value) => {
-        const tooltip = createTooltipForKnob('osc2-pwm-knob', value);
-        tooltip.textContent = `PWM: ${(value * 100).toFixed(0)}%`;
-        tooltip.style.opacity = '1';
-        console.log('OSC2 PWM:', value.toFixed(2));
-    },
-    'osc2-gain-knob': (value) => {
-        const tooltip = createTooltipForKnob('osc2-gain-knob', value);
-        tooltip.textContent = `Gain: ${value.toFixed(2)}`;
-        tooltip.style.opacity = '1';
-        console.log('OSC2 Gain:', value.toFixed(2));
-    },
+
     'master-volume-knob': (value) => {
         const tooltip = createTooltipForKnob('master-volume-knob', value);
         tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
@@ -3142,18 +2771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Initialize octave knobs
-  ['osc1-octave-knob', 'osc2-octave-knob'].forEach(id => {
-    const knob = D(id);
-    const valueId = id.replace('-knob', '-value');
-    if (knob) {
-      const control = initializeNotchedKnob(knob, (value) => {
-        D(valueId).textContent = value > 0 ? `+${value}` : value;
-        console.log(`${id} octave:`, value);
-      });
-      control.setValue(0);
-    }
-  });
+
   
   // Initialize any remaining parameters
   updateSampleProcessing();
@@ -3208,81 +2826,9 @@ const MAX_MONO = 1;
             }
         });
     }
-  // Add this after your existing initializeKnob function
-  function initializeNotchedKnob(knob, onChange) {
-    let rotation = 0;
-    let isDragging = false;
-    let lastY;
-    const degreesPerStep = 60;
-
-    function snapToNotch(rotation) {
-        const steps = Math.round(rotation / degreesPerStep);
-        const limitedSteps = Math.max(-2, Math.min(2, steps));
-        return limitedSteps * degreesPerStep;
-    }
-
-    function handleMouseMove(e) {
-        if (!isDragging) return;
         
-        const sensitivity = 1.0; // Increased sensitivity
-        const deltaY = (lastY - e.clientY) * sensitivity;
-        lastY = e.clientY;
-        
-        let newRotation = rotation + deltaY;
-        newRotation = snapToNotch(newRotation);
-        
-        if (newRotation !== rotation) {
-            rotation = newRotation;
-            knob.style.transform = `rotate(${rotation}deg)`;
-            
-            if (onChange) {
-                // Convert rotation to octave value (-2 to +2)
-                const octaveValue = Math.round(-rotation / degreesPerStep);
-                onChange(octaveValue);
-            }
-        }
-        
-        e.preventDefault();
-        e.stopPropagation();
-    }
 
-    function handleMouseUp() {
-        isDragging = false;
-        knob.style.cursor = 'grab';
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-    }
 
-    knob.addEventListener('mousedown', (e) => {
-        isDragging = true;
-        lastY = e.clientY;
-        knob.style.cursor = 'grabbing';
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-        e.preventDefault();
-    });
-
-    return {
-        getValue: () => Math.round(-rotation / degreesPerStep),
-        setValue: (octave) => {
-            rotation = -octave * degreesPerStep;
-            knob.style.transform = `rotate(${rotation}deg)`;
-        }
-    };
-}
-
-// Replace the octave initialization code with this
-document.addEventListener('DOMContentLoaded', () => {
-    // Initialize octave sliders
-    ['osc1', 'osc2'].forEach(id => {
-        const slider = document.querySelector(`#${id}-octave-slider`);
-        if (slider) {
-            slider.addEventListener('input', (e) => {
-                console.log(`${id.toUpperCase()} Octave:`, e.target.value);
-            });
-        }
-    });
-});
 // Update the black keys creation in generateKeyboard
 const blackKeys = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]; // Positions for all black keys
 
@@ -3953,14 +3499,6 @@ function checkAudioAvailable() {
         document.addEventListener('DOMContentLoaded', () => {
     // Initialize all knobs with placeholder functionality
     const knobInitializations = {
-        'osc1-pwm-knob': (value) => console.log('OSC1 PWM:', value.toFixed(2)),
-        'osc1-gain-knob': (value) => console.log('OSC1 Gain:', value.toFixed(2)),
-        'osc2-pwm-knob': (value) => console.log('OSC2 PWM:', value.toFixed(2)),
-        'osc2-gain-knob': (value) => console.log('OSC2 Gain:', value.toFixed(2)),
-        'vcf-cutoff-knob': (value) => console.log('VCF Cutoff:', value.toFixed(2)),
-        'vcf-resonance-knob': (value) => console.log('VCF Resonance:', value.toFixed(2)),
-        'lfo-rate-knob': (value) => console.log('LFO Rate:', value.toFixed(2)),
-        'arp-rate-knob': (value) => console.log('ARP Rate:', value.toFixed(2)),
         'sample-volume-knob': (value) => {
             if (sampleGainNode) {
                 sampleGainNode.gain.setValueAtTime(value, audioCtx.currentTime);
@@ -5181,8 +4719,6 @@ function setupMIDIAccess() {
     }
   }
 }
-
-
 // Detect iOS device
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
@@ -5196,7 +4732,6 @@ if (isIOS()) {
     createiOSStartupOverlay();
   }, 100);
 }
-
 // Add explicit touch handling for iOS throughout your UI
 function addIOSTouchHandlers() {
   // Add touch handlers to all interactive elements
@@ -5214,11 +4749,6 @@ function addIOSTouchHandlers() {
     });
   });
 }
-
-
-
-
-
 // Comprehensive fix for knobs and controls on both desktop and mobile
 function fixAllControls() {
   // Fix desktop and mobile knob interaction
@@ -5367,7 +4897,6 @@ function fixAllControls() {
       console.log(`Reset ${knobId} to default value:`, defaultValue);
     }
   });
-  
   // Fix switch controls
   document.querySelectorAll('.vertical-switch').forEach(switchEl => {
     // Create fresh switch
@@ -5398,7 +4927,6 @@ function fixAllControls() {
     }, { passive: false });
   });
 }
-
 // Fix Lo-Fi and Rec buttons (special buttons)
 function initializeSpecialButtons() {
   // Fix for LoFi button
@@ -5407,11 +4935,9 @@ function initializeSpecialButtons() {
     // Remove any existing listeners first
     const newEmuSwitch = emuModeSwitch.cloneNode(true);
     emuModeSwitch.parentNode.replaceChild(newEmuSwitch, emuModeSwitch);
-    
     // Add a single click handler with touch lock
     let touchLock = false;
     let touchTimeout;
-    
     newEmuSwitch.addEventListener('click', function(e) {
       // Prevent rapid toggling
       if (touchLock) {
@@ -5419,46 +4945,36 @@ function initializeSpecialButtons() {
         e.stopPropagation();
         return;
       }
-      
       touchLock = true;
-      
       // Toggle state
       const isActive = newEmuSwitch.classList.contains('active');
       isEmuModeOn = !isActive;
-      
       // Update LED indicator
       const led = document.getElementById('emu-led');
       if (led) {
         led.classList.toggle('on', !isActive);
       }
-      
       // Toggle active class
       newEmuSwitch.classList.toggle('active', !isActive);
-      
       // Process with E-mu mode
       updateSampleProcessing();
-      
       // Update any playing notes
       Object.values(activeNotes).forEach(note => {
         if (note && note.source && !heldNotes.includes(note.noteNumber)) {
           updateSamplePlaybackParameters(note);
         }
       });
-      
       console.log('Lo-Fi Mode:', !isActive ? 'ON' : 'OFF');
-      
       // Release lock after a delay
       clearTimeout(touchTimeout);
       touchTimeout = setTimeout(() => {
         touchLock = false;
       }, 300);
     });
-    
     // Add touch handling that prevents propagation
     newEmuSwitch.addEventListener('touchstart', function(e) {
       e.stopPropagation();
     }, { passive: true });
-    
     newEmuSwitch.addEventListener('touchend', function(e) {
       if (!touchLock) {
         this.click();
@@ -5467,22 +4983,14 @@ function initializeSpecialButtons() {
       e.stopPropagation();
     }, { passive: false });
   }
-  
- 
 }
-
-
-
-
 // Direct fix for vertical switches in touch mode
 function fixSwitchesTouchMode() {
   // Target specific switches by ID
   const switchIds = ['voice-mode-switch', 'trigger-mode-switch', 'portamento-switch'];
-  
   switchIds.forEach(id => {
     const switchEl = document.getElementById(id);
     if (!switchEl) return;
-    
     // Remove ALL existing event listeners by cloning
     const newSwitch = switchEl.cloneNode(true);
     switchEl.parentNode.replaceChild(newSwitch, switchEl);
@@ -5492,10 +5000,8 @@ function fixSwitchesTouchMode() {
       // This is critical - must be at the top
       e.preventDefault();
       e.stopPropagation();
-      
       // Simply toggle the active class
       this.classList.toggle('active');
-      
       // Update state based on ID
       const isActive = this.classList.contains('active');
       console.log(`Switch ${id} touched, state now: ${isActive}`);
@@ -5516,7 +5022,6 @@ function fixSwitchesTouchMode() {
           break;
       }
     }, { passive: false });  // passive: false is critical here!
-    
     // Also handle normal clicks for mouse users
     newSwitch.addEventListener('click', function(e) {
       // Skip if this was a touch event that bubbled to click
@@ -5540,8 +5045,6 @@ function fixSwitchesTouchMode() {
     });
   });
 }
-
-
 // CLEAN UP - Delete redundant and outdated event listeners
 // Keep only this consolidated event listener for initialization
 document.addEventListener('DOMContentLoaded', function() {
@@ -5557,27 +5060,22 @@ document.addEventListener('DOMContentLoaded', function() {
   fixSwitchesTouchMode();
   fixMicRecording();
   preventScrollOnControls();
-  
   // Set up special handling for touch devices
   if (isTouchDevice()) {
     setupAutoHideTooltips();
   }
-  
   // iOS-specific handling
   if (isIOS()) {
     addIOSTouchHandlers();
     document.body.style.touchAction = 'none';
     document.body.style.overscrollBehavior = 'none';
   }
-  
   // MIDI functionality
   setupMIDIAccess();
-  
   // Re-register any important listeners
   if (D('audio-file')) {
     D('audio-file').addEventListener('change', handleFileSelect);
   }
-  
   // Add audio context resume handlers
   const resumeAudioContext = function() {
     if (audioCtx && audioCtx.state === 'suspended') {
@@ -5586,11 +5084,9 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     }
   };
-  
   document.body.addEventListener('touchstart', resumeAudioContext, { passive: true });
   document.body.addEventListener('mousedown', resumeAudioContext, { passive: true });
 });
-
     </script>
 </body>
 </html>
