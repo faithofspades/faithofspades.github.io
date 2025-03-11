@@ -4901,7 +4901,7 @@ function applyEmuProcessing(buffer) {
     
     // Apply gentle low-pass filter
     let prevSample = outputData[0];
-    const alpha = 0.15; // Filter strength
+    const alpha = 0.20; // Filter strength
     
     for (let i = 0; i < length; i++) {
       prevSample = outputData[i] = prevSample + alpha * (outputData[i] - prevSample);
