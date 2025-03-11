@@ -2718,36 +2718,36 @@ function createNote(noteNumber, buffer, audioCtx, destination) {
     source.start(0);
     
     if (!isSampleLoopOn) {
-        let originalDuration;
-        
-        // The key fix: When using a processed buffer (faded), we need to use
-        // the original duration calculation (from start/end positions on the original buffer),
-        // not the already trimmed buffer duration
-        if (fadedBuffer && sourceBuffer === fadedBuffer && fadedBufferOriginalDuration) {
-            // Use the stored original duration value for faded buffers
-            originalDuration = fadedBufferOriginalDuration;
-            console.log(`Using stored fadedBufferOriginalDuration: ${originalDuration.toFixed(3)}s`);
-        }
-        else if (!useOriginalBuffer && sourceBuffer === cachedCrossfadedBuffer) {
-            // For crossfaded buffers, use their full duration
-            originalDuration = sourceBuffer.duration;
-            console.log(`Using crossfaded buffer duration: ${originalDuration.toFixed(3)}s`);
-        }
-        else {
-            // Default calculation based on start/end positions
-            originalDuration = (sampleEndPosition - sampleStartPosition) * buffer.duration;
-            console.log(`Calculating original duration: ${originalDuration.toFixed(3)}s`);
-        }
-        
-        const now = audioCtx.currentTime;
-        sampleNode.gain.setValueAtTime(currentSampleGain, now);
-        
-        // Apply safety margin
-        const safetyMargin = 0.05;
-        source.stop(now + originalDuration + safetyMargin);
-        
-        console.log(`Note scheduled to play for duration: ${originalDuration.toFixed(3)}s + ${safetyMargin}s margin`);
+    let originalDuration;
+    
+    // Duration calculation logic (unchanged)
+    if (fadedBuffer && sourceBuffer === fadedBuffer && fadedBufferOriginalDuration) {
+        originalDuration = fadedBufferOriginalDuration;
+        console.log(`Using stored fadedBufferOriginalDuration: ${originalDuration.toFixed(3)}s`);
     }
+    else if (!useOriginalBuffer && sourceBuffer === cachedCrossfadedBuffer) {
+        originalDuration = sourceBuffer.duration;
+        console.log(`Using crossfaded buffer duration: ${originalDuration.toFixed(3)}s`);
+    }
+    else {
+        originalDuration = (sampleEndPosition - sampleStartPosition) * buffer.duration;
+        console.log(`Calculating original duration: ${originalDuration.toFixed(3)}s`);
+    }
+    
+    const now = audioCtx.currentTime;
+    sampleNode.gain.setValueAtTime(currentSampleGain, now);
+    
+    // CRITICAL FIX: Adjust duration based on playback rate
+    // Lower pitches = longer duration
+    const playbackRate = source.playbackRate.value;
+    const adjustedDuration = originalDuration / playbackRate;
+    
+    // Apply safety margin
+    const safetyMargin = 0.05;
+    source.stop(now + adjustedDuration + safetyMargin);
+    
+    console.log(`Note scheduled to play for adjusted duration: ${adjustedDuration.toFixed(3)}s (original: ${originalDuration.toFixed(3)}s) at rate ${playbackRate.toFixed(2)} + ${safetyMargin}s margin`);
+}
     
     // Store the note
     activeNotes[noteId] = note;
