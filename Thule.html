@@ -4,13 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap" rel="stylesheet">
     <title>ARDIST - Thule</title>
     <style>
         
         body {
-            font-family: 'Courier New', Courier, monospace;
-            background-color: #f5f5dc;
-            color: #3f2101;
+          font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+            background-color: #E8E3C4;
+            color: #35100B;
             margin: 0;
             padding: 20px;
             display: flex;
@@ -35,22 +41,23 @@
         
         /* Synth panel styling */
         /* Update the synth-panel class */
-.synth-panel {
-    display: flex;  /* Change from grid to flex */
-    flex-direction: row;
-    gap: 2px;
-    background-color: #f0e6d2;
-    border: 2px solid #3f2101;
-    border-radius: 5px;
-    padding: 15px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    overflow-x: auto;  /* Allow horizontal scrolling if needed */
+        .synth-panel {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  background-color: #f2eed3;
+  border: 2px solid #35100B;
+  border-radius: 5px;
+  padding: 15px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  overflow-x: auto;
+  align-items: stretch; /* Ensures same height for all modules */
 }
         
         .module {
-    background-color: #f5f5dc;
-    border: 1px solid #3f2101;
+    background-color: #f2eed3;
+    border: 1px solid #35100B;
     border-radius: 5px;
     padding: 10px;
     display: flex;
@@ -65,255 +72,301 @@
             font-weight: bold;
             margin-bottom: 14px;
             padding-bottom: 5px;
-            border-bottom: 1px solid #3f2101;
+            border-bottom: 1px solid #35100B;
         }
         .wave-select-container {
     position: relative;
     width: 100%;
     margin: 10px 0;
 }
-/* Styling for the sampler module with two columns */
-.sampler-module {
-  width: 160px; /* Double the width of regular modules */
-  min-width: 160px; /* Keep the minimum width consistent */
-  max-width: 160px; /* Maximum width */
+/* Updated Module title for sampler */
+.sampler {
+  color: #35100B;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 5px;
+  background-color: #cb7c73; /* Same color as LFO */
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+  margin-top: -15px; /* Pull it up slightly to connect with top edge */
 }
 
+/* Make sampler module match LFO module styling */
+.sampler-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 169px;
+  max-width: 169px;
+  align-items: center;
+  padding-top: 15px; /* Remove top padding */
+  overflow: hidden; /* Ensure the header connects to edges */
+  box-sizing: border-box; /* Include padding in width */
+}
+
+/* Update sample columns layout */
 .sampler-columns {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
   width: 100%;
+  margin-top: 10px; /* Reduced from 20px */
+  gap: 5px; /* Add small gap between columns */
 }
 
+/* Make columns narrower with less space */
 .sampler-column {
-  width: 48%; /* Slightly less than 50% to allow for spacing */
+  width: 47%; /* Slightly narrower */
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 0px; /* Add consistent spacing between elements */
 }
 
-/* Make the file section take full width of its column */
-.sampler-column .file-section {
-  width: 100%;
+/* Improve knob container spacing */
+.knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 3px 0; /* Reduced from 10px */
 }
 
-/* Adjust knobs to fit within narrower columns */
-.sampler-column .knob {
-  margin: 8px auto; /* Slightly reduced margin */
-}
-
-/* Update sampler column labels to match other modules */
-.sampler-column label {
-  font-size: 16px; /* Changed from 11px to match oscillator modules */
-  margin-bottom: 5px;
-  font-family: 'Courier New', Courier, monospace; /* Explicitly set font family */
-  color: #3f2101; /* Match text color */
-  text-align: center; /* Ensure consistent alignment */
-}
-/* Updated sample selector styling to match rest of the interface */
-.sample-selector-container {
-  width: 100%;
+/* Update knobs to match LFO knobs */
+.sampler-module .knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #f2eed3;
   position: relative;
-  margin: 5px 0 10px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  cursor: grab;
+  box-sizing: border-box;
+  
+  /* Double border effect - EXACT match to LFO depth knob */
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #f2eed3, 0 0 0 6px #35100B;
+  
+  /* Center point marker */
+  transform-origin: center center;
 }
 
-/* Match button styling perfectly to Load Sample button */
-#sample-selector-btn {
-  width: 80%;
-  height: 32px;
-  min-height: 32px;
+/* Style knob indicator lines to match LFO */
+.sampler-module .knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 5px;
+  top: 50%;
+  left: 50%;
+  width: 23px; /* Longer line from center to edge */
+  height: 3px;
+  background-color: #35100B;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
+}
+
+/* Update labels to match LFO style */
+.knob-container label, 
+.switch-container label,
+.lofi-button-container label,
+.rec-button-container label {
+  margin-top: 0px;
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
+  text-align: center;
+}
+
+/* Improved styling for Load Sample button and Presets dropdown */
+.custom-file-input {
+  position: relative;
+  width: 100%;
+  margin-bottom: 0px;
+}
+
+/* Important: Remove the existing border from the container */
+.custom-file-input {
+  border: none;
+  border-radius: 0;
+}
+
+.custom-file-input input[type="file"] {
+  position: absolute;
+  font-size: 100px;
+  opacity: 0;
+  right: 0;
+  top: 0;
+  cursor: pointer;
+}
+
+/* Style the file input label to match other buttons */
+.custom-file-input label {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e6e6e6;
-  color: #3f2101;
-  border: 1px solid #3f2101;
-  border-radius: 3px;
+  background-color: #f2eed3;
+  border: 2.5px solid #35100B; /* Match the border of LoFi/Rec buttons */
+  border-radius: 10px;        /* Match border-radius of other buttons */
   padding: 8px;
-  font-family: 'Courier New', Courier, monospace; /* Match font family */
-  font-size: 12px; /* Match font size */
+  font-size: 12px;
+  font-family: "Nunito", sans-serif;
+  color: #35100B;
   text-align: center;
   cursor: pointer;
+  height: 41px; /* Match height of other buttons */
+  width: 100%;
   box-sizing: border-box;
+  transition: background-color 0.2s, box-shadow 0.2s; /* Add transition for hover effects */
 }
 
+/* Add hover effect to match other buttons */
+.custom-file-input label:hover {
+  background-color: #E8E3C4;
+}
+
+/* Add pressed effect */
+.custom-file-input label:active {
+  background-color: #D6D2B4;
+  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+}
+
+#sample-selector-btn {
+  background-color: #f2eed3;
+  border: 2.5px solid #35100B;
+  border-radius: 10px;
+  padding: 8px;
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  font-weight: 600; /* Match the weight of other labels */
+  color: #35100B;
+  cursor: pointer;
+  height: 41px; /* Match height of other buttons */
+  width: 100%;
+  box-sizing: border-box;
+  transition: background-color 0.2s, box-shadow 0.2s;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 5px; /* Add spacing below */
+  margin-top: 5px; /* Add spacing above */
+}
+.sample-selector-container {
+  position: relative;
+  width: 100%;
+  margin-bottom: 0px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 #sample-selector-btn:hover {
-  background: #d4c6a8;
+  background-color: #E8E3C4;
 }
 
-/* Update dropdown menu styling to match theme */
+#sample-selector-btn:active {
+  background-color: #D6D2B4;
+  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+}
+
+/* Fix dropdown styling */
 .sample-dropdown {
   display: none;
   position: absolute;
-  top: 40px; /* Position below button */
-  background-color: #e6e6e6; /* Match button background */
-  width: 80%; /* Match button width */
-  box-shadow: 0px 8px 16px 0px rgba(63, 33, 1, 0.2);
-  z-index: 100;
-  border-radius: 3px;
-  border: 1px solid #3f2101;
-  max-height: 150px;
-  overflow-y: auto;
+  z-index: 10;
+  width: 100%;
+  top: 100%; /* Position below button */
+  left: 0;
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  margin-top: 2px;
 }
-
 .sample-dropdown.show {
   display: block;
 }
-
 .dropdown-item {
-  padding: 6px 8px;
-  text-decoration: none;
-  display: block;
-  color: #3f2101;
-  font-family: 'Courier New', Courier, monospace; /* Match font family */
-  font-size: 12px; /* Match font size */
+  padding: 8px;
+  border-radius: 5px;
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
   cursor: pointer;
 }
 
 .dropdown-item:hover {
-  background-color: #d4c6a8;
-}
-/* Fix alignment of right column knobs */
-#sample-start-knob {
-  margin-top: 11px !important; /* Push down the first knob in right column */
+  background-color: #E8E3C4;
 }
 
-/* Make space for dropdown to prevent elements pushing down */
-.sample-selector-container {
-  margin-bottom: 5px;
-  height: 42px; /* Fixed height to match file input area */
-}
-/* Add to your style section */
-.lofi-button-container {
-  margin: 10px 0 10px 0; /* Adjusted from 10px 0 */
-  display: flex;
-  justify-content: center;
-  align-items: center; /* Added to help with vertical alignment */
-}
-
-.lofi-button {
-  position: relative;
-  width: 45px;     /* Changed from 60px to make square */
-  height: 45px;    /* Changed from 30px to match width */
-  background-color: #e6e6e6;
-  border: 1px solid #3f2101;
-  border-radius: 8px;  /* Slightly increased for better appearance */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  user-select: none;
-  font-size: 12px;
-  color: #3f2101;
-  transition: background-color 0.2s;
-}
-
-
-
-.lofi-button:hover {
-  background-color: #d4c6a8;
-}
-
-.lofi-button.active {
-  background-color: #c0b090;
-}
-
-/* Update LED position for the square button */
-.lofi-button .led-indicator {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.lofi-button .led-indicator.on {
-  background-color: #ff5500;
-  box-shadow: 0 0 3px #ff5500;
-}
-.rec-button-container {
-  margin: 10px 0 10px 0; /* Make sure both containers use identical margins */
-  display: flex;
-  justify-content: center;
-  align-items: center; /* Added to help with vertical alignment */
-}
-
+/* Update Lo-Fi and Rec buttons to match Select button in LFO */
+.lofi-button,
 .rec-button {
   position: relative;
-  width: 45px;
-  height: 45px;
-  background-color: #e6e6e6;
-  border: 1px solid #3f2101;
-  border-radius: 8px;
+  width: 41px;
+  height: 41px;
+  background-color: #f2eed3;
+  border: 2.5px solid #35100B;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  font-size: 12px;
-  color: #3f2101;
-  transition: background-color 0.2s;
+  margin-bottom: 5px;
+  transition: background-color 0.2s, box-shadow 0.2s;
 }
 
+.lofi-button:hover,
 .rec-button:hover {
-  background-color: #d4c6a8;
+  background-color: #E8E3C4;
 }
 
+.lofi-button.active,
 .rec-button.recording {
-  background-color: #ff5500;
-  color: #fff;
+  background-color: #D6D2B4;
+  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
 }
 
-.rec-button .led-indicator {
+/* LED styling to match LFO module */
+.lofi-button .select-led,
+.rec-button .select-led {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  top: 24.5px;
+  width: 7.5px;
+  height: 7.5px;
+  background-color: #955b56;
+  border-radius: 50px;
+  transition: background-color 0.2s, box-shadow 0.2s;
 }
 
-.rec-button .led-indicator.on {
-  background-color: #ff0000;
-  box-shadow: 0 0 5px #ff0000;
-  animation: pulsate 1s infinite;
+.lofi-button.active .select-led,
+.rec-button.recording .select-led {
+  background-color: #c52a18;
+  box-shadow: 0 0 4px #ff0000;
 }
 
-@keyframes pulsate {
-  0% { opacity: 1; }
-  50% { opacity: 0.6; }
-  100% { opacity: 1; }
-}
-.sampler-column .lofi-button-container {
-  margin-top: 15px; /* Increase top margin slightly */
-  margin-bottom: 10px;
-  height: 47px; /* Set explicit height */
-  position: relative;
-  top: -3px; /* Small upward adjustment */
+/* Adjust special button containers (Lo-Fi, Rec) */
+.lofi-button-container,
+.rec-button-container {
+  margin: 0;
+  padding: 0;
 }
 
-.sampler-column .rec-button-container {
-  margin-top: 10px;
-  margin-bottom: 10px;
-  height: 47px; /* Set explicit height */
+/* Normalize title styles */
+.module-title.sampler {
+  margin-bottom: 0;
 }
-/* Position the switch container */
-.sampler-column .switch-container {
-  margin-top: 8px;
-  margin-bottom: 8px;
-  width: 100%;
-}
-
-
 .tooltip {
     position: absolute;
-    background: rgba(63, 33, 1, 0.9);
-    color: #f5f5dc;
+    background: #35100bcf;
+    color: #f2eed3;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 12px;
@@ -324,8 +377,8 @@
 }
 /* Style for options */
 .wave-select option {
-    background-color: #f5f5dc;
-    color: #3f2101;
+    background-color: #f2eed3;
+    color: #35100B;
     padding: 8px;
 }
         /* Sliders and knobs */
@@ -333,8 +386,8 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background-color: #e6e6e6;
-    border: 1px solid #3f2101;
+    background-color: #f2eed3;
+    border: 1px solid #35100B;
     position: relative;
     margin: 10px auto;
     cursor: grab;
@@ -353,7 +406,7 @@
     left: 50%;
     width: 3px;    /* Changed from 3px to 2px for consistency */
     height: 14px;   /* Changed from 14px to 10px for consistency */
-    background-color: #3f2101;
+    background-color: #35100B;
     transform-origin: bottom center;
     transform: translateX(-50%);
 }
@@ -369,14 +422,13 @@
 
 .slider-container label {
     font-size: 12px;
-    color: #3f2101;
+    color: #35100B;
     margin-top: 10px;
 }
 
 .slider-container input[type="range"] {
     width: 100px;
     height: 30px;
-    -webkit-appearance: none;
     background: transparent;
     transform: rotate(270deg) translate(-35px, 35px);
 }
@@ -386,8 +438,8 @@
     height: 28px;
     width: 16px;
     border-radius: 3px;
-    background: #d4c6a8;
-    border: 1px solid #3f2101;
+    background: #f2eed3;
+    border: 1px solid #35100B;
     cursor: grab;
     margin-top: -12px;
 }
@@ -395,14 +447,14 @@
 .slider-container input[type="range"]::-webkit-slider-runnable-track {
     width: 100%;
     height: 4px;
-    background: #e6e6e6;
-    border: 1px solid #3f2101;
+    background: #f2eed3;
+    border: 1px solid #35100B;
     border-radius: 2px;
 }
 
 .slider-container span {
     font-size: 12px;
-    color: #3f2101;
+    color: #35100B;
     margin-top: 5px;
 }
         
@@ -429,8 +481,8 @@
     display: flex;
     width: 100%;
     position: relative;
-    background-color: #f0e6d2;
-    border: 2px solid #3f2101;
+    background-color: #f2eed3;
+    border: 2px solid #35100B;
     border-radius: 5px;
     /* Create an aspect ratio container */
     aspect-ratio: 4 / 1; /* Width:Height ratio for the keyboard */
@@ -442,8 +494,8 @@
 .key {
     flex: 1;
     height: 100%;
-    background-color: #f5f5dc;
-    border: 1px solid #3f2101;
+    background-color: #f2eed3;
+    border: 1px solid #35100B;
     cursor: pointer;
     position: relative;
     user-select: none;
@@ -452,7 +504,7 @@
 }
 
 .key.black {
-    background-color: #3f2101;
+    background-color: #35100B;
     position: absolute;
     width: 7%; /* Relative width instead of fixed pixels */
     height: 60%; /* Height relative to keyboard height */
@@ -493,29 +545,29 @@
 /* Make sure the black keys overflow is visible */
 
 .key.pressed {
-    background-color: #d4c6a8;
+    background-color: #E8E3C4;
 }
 
 .key.black.pressed {
-    background-color: #6b4e29;
+    background-color: #4A261D;
 }
         
         /* Voice monitoring */
         .voice-monitor {
             margin-top: 20px;
             padding: 10px;
-            border: 1px solid #3f2101;
+            border: 1px solid #35100B;
             border-radius: 4px;
-            background-color: #f0e6d2;
+            background-color: #f2eed3;
         }
         
         .voice-item {
             display: inline-block;
             padding: 5px 10px;
             margin: 5px;
-            background-color: #e0e0e0;
+            background-color: #f2eed3;
             border-radius: 3px;
-            border: 1px solid #3f2101;
+            border: 1px solid #35100B;
         }
         
         .active-voice {
@@ -532,30 +584,14 @@
         }
         
         input[type="file"] {
-            background-color: #f0e6d2;
-            border: 1px solid #3f2101;
+            background-color: #f2eed3;
+            border: 1px solid #35100B;
             border-radius: 3px;
             padding: 5px;
         }
         
-        /* ADSR graph visualization */
-        .adsr-graph {
-            height: 100px;
-            width: 100%;
-            border: 1px solid #3f2101;
-            background-color: #f5f5dc;
-            margin: 10px 0;
-            position: relative;
-        }
         
-        .adsr-line {
-            position: absolute;
-            background-color: #8b4513;
-            width: 2px;
-            height: 100%;
-            top: 0;
-            left: 0;
-        }
+
         
 body {
     user-select: none; /* Prevent text selection */
@@ -564,134 +600,39 @@ body {
     -ms-user-select: none;
 }
 
-/* Update the ADSR module layout */
-.module[style="grid-column: span 2;"] .module-title {
-    margin-top: -5px; /* Adjust to move text up by 5px */
-    margin-bottom: 14px;
-    padding-top: 0;
-    padding-bottom: 5px; /* Add padding-bottom to put the underline in the right spot */
-    display: block;
-}
-
-.slider-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 60px;
-    height: 140px;
-    position: relative;
-    margin-bottom: 30px; /* Add space for the lower labels */
-}
-
-.slider-container label {
-    position: absolute;
-    bottom: -30px; /* Move labels much lower */
-    width: 100%;
-    text-align: center;
-    font-size: 12px;
-    color: #3f2101;
-}
-
-.slider-container span {
-    position: absolute;
-    top: 0;
-    width: 100%;
-    text-align: center;
-    font-size: 12px;
-    color: #3f2101;
-}
-
-.slider-group {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-evenly;
-    align-items: center;
-    width: 100%;
-    height: 170px;
-    margin: 10px 0;
-    padding-bottom: 30px; /* Increased padding for lower labels */
-}
-.module[style="grid-column: span 0;"] {
-    display: flex;
-    flex-direction: column;
-    min-height: 250px;
-    min-width: 400px; /* Add minimum width */
-    padding: 15px;
-}
-
 .adsr-graph {
     width: 100%;
     height: 100px;
     min-height: 100px;
-    border: 1px solid #3f2101;
-    background-color: #f5f5dc;
+    background-color: #f2eed3;
     margin: 10px 0;
     position: relative;
     overflow: hidden; /* Prevent overflow */
 }
-
-.slider-group {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-evenly; /* Changed from space-around */
-    align-items: center;
-    width: 100%;
-    height: 150px;
-    margin: 10px 0;
-}
-
-.slider-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 60px; /* Fixed width for container */
-    height: 140px;
-    position: relative;
-}
-
-.slider-container input[type="range"] {
-    width: 100px;
-    height: 30px;
-    -webkit-appearance: none;
-    background: transparent;
-    transform: rotate(270deg) translate(-35px, 35px);
-    margin: 35px 0;
-}
-
-.slider-container span {
-    position: absolute;
-    top: 0;
-    width: 100%;
-    text-align: center;
-    font-size: 12px;
-    color: #3f2101;
-}
-
-.slider-container label {
-    position: absolute;
-    bottom: 0;
-    width: 100%;
-    text-align: center;
-    font-size: 12px;
-    color: #3f2101;
-}
-/* ADSR module styles */
-.module[style="grid-column: span 0;"] {
-    display: flex;
-    flex-direction: column;
-    width: 160px; /* Match graph width */
-    min-width: 160px;
-    padding: 15px;
-    align-items: center;
+/* Make ADSR module match LFO/SAMPLER module styling */
+.module[style="grid-column: span 2;"] {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 169px;
+  max-width: 169px;
+  align-items: center;
+  padding-top: 15px; /* Remove top padding */
+  overflow: hidden; /* Ensure the header connects to edges */
+  box-sizing: border-box; /* Include padding in width */
 }
 
 .adsr-graph {
-    width: 105%; /* Reduced from 100% to 80% */
-    height: 80px;
-    border: 1px solid #3f2101;
-    background-color: #f5f5dc;
-    margin-bottom: 20px;
-    position: relative;
+  width: 90%;
+  height: 70px;
+  background-color: #35100B;
+  margin: 10px 0 15px 0;
+  position: relative;
+  border: 2px solid #35100B;
+  border-radius: 5px;
 }
 
 /* Values row */
@@ -704,44 +645,45 @@ body {
 
 .slider-values span {
     font-size: 12px;
-    color: #3f2101;
+    color: #35100B;
     width: 40px;
     text-align: center;
 }
 
 .slider-group {
-    width: 160px; /* Match graph width */
-    display: flex;
-    justify-content: center;
-    margin: 10px 0;
-    gap: 7%;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 90%;
+  margin: 0;
+  gap: 8px;
 }
 
-.slider-group input[type="range"] {
-    width: 120px; /* Reduced width */
-    height: 30px;
-    -webkit-appearance: none;
-    background: transparent;
-    transform: rotate(270deg) translate(0px, -50px); /* Adjusted translation */
-}
+
 
 .slider-group input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    height: 28px;
-    width: 16px;
-    border-radius: 3px;
-    background: #d4c6a8;
-    border: 1px solid #3f2101;
-    cursor: grab;
-    margin-top: -12px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  width: 24px;
+  height: 18px;
+  cursor: pointer;
+  border-radius: 5px;
+  /* Add indicator line like LFO sliders */
+  background-image: linear-gradient(to top, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+  background-size: 2px 100% ;
+  background-repeat: no-repeat;
+  background-position: center;
+margin-top: -6.5px;
 }
 
+/* ADSR slider tracks */
 .slider-group input[type="range"]::-webkit-slider-runnable-track {
-    width: 100%;
-    height: 4px;
-    background: #e6e6e6;
-    border: 1px solid #3f2101;
-    border-radius: 2px;
+  background: #35100B;
+  border-radius: 5px;
+  height: 5px;
+  border: none;
 }
 
 /* Labels row */
@@ -754,112 +696,90 @@ body {
 
 .slider-labels label {
     font-size: 12px;
-    color: #3f2101;
+    color: #35100B;
     width: 40px;
     text-align: center;
 }
+.module-title.adsr {
+  color: #35100B;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 5px;
+  background-color: #cb7c73; /* Same color as LFO/SAMPLER */
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+  margin-top: -15px; /* Pull it up slightly to connect with top edge */
+}
 /* ADSR container styles */
 .module[style="grid-column: span 2;"] {
-    display: flex;
-    flex-direction: column;
-    min-width: 170px;
-    max-width: 170px;
-    padding: 15px;
-    align-items: center;
-    
-}
-input[type="range"] {
-    -webkit-tap-highlight-color: transparent;
-    outline: none;
-}
-
-input[type="range"]:focus {
-    outline: none;
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 169px;
+  max-width: 169px;
+  align-items: center;
+  padding-top: 15px; /* Remove top padding */
+  overflow: hidden; /* Ensure the header connects to edges */
+  box-sizing: border-box; /* Include padding in width */
 }
 
-input[type="range"]::-moz-focus-outer {
-    border: 0;
-}
 
-.slider-group {
-    -webkit-tap-highlight-color: transparent;
-    outline: none;
-}
-
-.slider-container {
-    -webkit-tap-highlight-color: transparent;
-    outline: none;
-}
-
-* {
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    outline: none;
-}
 /* Individual slider containers */
 .slider-attack, .slider-decay, .slider-sustain, .slider-release {
-    position: relative;
-    width: 35px; /* Unchanged base width */
-    height: 120px;
-    margin: 0 7%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    user-select: none; /* Prevent text selection */
-    pointer-events: none; /* Prevent container from capturing clicks */
-
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 22%;
 }
 
 /* Common slider styles */
 .slider-group input[type="range"] {
-    position: absolute;
-    width: 160px;
-    height: 30px;
-    -webkit-appearance: none;
-    background: transparent;
-    transform: rotate(270deg) translate(-40%, 40%);
-    /* Center the slider over its label */
-    left: -89.5px;
-    pointer-events: auto; /* Re-enable clicks for slider */
+  -webkit-appearance: none;
+  appearance: none;
+  width: 230px;
+  height: 5px; /* Thinner track like LFO */
+  background: transparent;
+  transform: rotate(270deg);
+  position: absolute;
+  top: 130px;
 }
 
 /* Values above sliders */
 #attack-value, #decay-value, #sustain-value, #release-value {
-    position: absolute;
-    top: -20px;
-    width: 35px;
-    text-align: center;
-    font-size: 12px;
-    color: #3f2101;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  color: #35100B;
+  margin-bottom: 5px;
 }
 
 /* Labels below sliders */
 .slider-labels {
-    display: flex;
-    justify-content: space-between;
-    width: 180px;
-    margin-top: 5px;
+  display: flex;
+  justify-content: space-between;
+  width: 90%;
+  margin-top: 235px;
 }
 
 .slider-labels label {
-    width: 35px;
-    text-align: center;
-    font-size: 12px;
-    color: #3f2101;
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
+  text-align: center;
+  width: 22%;
 }
 
 /* Slider group containing all sliders */
-.slider-group {
-    display: flex;
-    justify-content: center;
-    width: 180px;
-    margin: 10px 0;
-    gap: 7%; /* Added gap property to match margin */
-    
-}
+
 /* Add to your existing CSS */
 .file-section {
     display: flex;
@@ -869,50 +789,7 @@ input[type="range"]::-moz-focus-outer {
     margin: 5px 0;
 }
 
-.custom-file-input {
-    position: relative;
-    width: 80%;
-    height: 45px;
-    overflow: hidden;
-}
 
-.custom-file-input input[type="file"] {
-    position: absolute;
-    font-size: 100px;
-    opacity: 0;
-    right: 0;
-    top: 0;
-    cursor: pointer;
-}
-
-.custom-file-input label {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #e6e6e6;
-    border: 1px solid #3f2101;
-    border-radius: 3px;
-    padding: 8px;
-    font-size: 12px;
-    color: #3f2101;
-    text-align: center;
-    cursor: pointer;
-    height: 32px;  /* Fixed height */
-    min-height: 32px;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-#file-status {
-    font-size: 10px;
-    color: #3f2101;
-    margin-top: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    width: 90%;
-    text-align: center;
-}
 /* Add vertical switch styling */
 .switch-container {
     display: flex;
@@ -924,7 +801,7 @@ input[type="range"]::-moz-focus-outer {
 .switch-label {
     font-size: 10px;
     margin-bottom: 5px;
-    color: #3f2101;
+    color: #35100B;
     text-align: center;
 }
 
@@ -932,8 +809,8 @@ input[type="range"]::-moz-focus-outer {
 .vertical-switch {
     width: 20px;
     height: 40px;
-    background: #e6e6e6;
-    border: 1px solid #3f2101;
+    background: #f2eed3;
+    border: 1px solid #35100B;
     border-radius: 10px;
     position: relative;
     cursor: grab;
@@ -945,7 +822,7 @@ input[type="range"]::-moz-focus-outer {
     width: 16px;
     height: 18px;
     background: #d4c6a8;
-    border: 1px solid #3f2101;
+    border: 1px solid #35100B;
     border-radius: 8px;
     left: 1px;
     top: 1px;
@@ -967,6 +844,639 @@ input[type="range"]::-moz-focus-outer {
     transition: opacity 0.3s;
 }
 
+
+/* Module title */
+.lfo {
+  color: #35100B;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 5px;
+  background-color:  #cb7c73;
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+
+  margin-top: -15px; /* Pull it up slightly to connect with top edge */
+}
+/* LFO Module container */
+.LFO-Module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 169px;
+  max-width: 169px;
+  align-items: center;
+  padding-top: 15px; /* Remove top padding */
+  overflow: hidden; /* Ensure the header connects to edges */
+  box-sizing: border-box; /* Include padding in width */
+}
+/* Add flex: none to prevent unwanted stretching */
+.synth-panel > div {
+  flex: none;
+}
+/* Main controls container (sliders + buttons) */
+.lfo-controls-container {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  height: 240px; /* Match your original height */
+  padding-top: 7%;
+  padding-bottom: 2%;
+}
+
+/* Left container for vertical sliders */
+.lfo-sliders-container {
+  position: relative;
+  display: flex;
+  gap: 25px; /* Reduced from 25px to make space for tick marks */
+  height: 100%;
+  margin-left: 4%; /* Reduced from 10% */
+  margin-right: 15px; /* Add right margin to prevent overlap */
+}
+
+/* Vertical sliders: Rate and Delay */
+.rate-slider-range,
+.delay-slider-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 5px; /* Thin track (matches the horizontal slider track height) */
+  height: 100%;
+  background: transparent;
+  writing-mode: vertical-lr; /* Modern vertical orientation */
+  direction: rtl; /* Bottom to top orientation */
+}
+
+.lfo-destination-container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 100%;
+  margin-top: 2px;
+  margin-right: 15%;
+  position: relative;
+}
+
+/* Vertical destination range slider */
+.lfo-destination-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px; /* Make the slider wider than standard */
+  height: 100%;
+  background: transparent;
+  writing-mode: vertical-lr;
+  direction: rtl; /* Bottom to top orientation */
+  margin: 15px;;
+}
+
+/* Custom track styling */
+.lfo-destination-range::-webkit-slider-runnable-track {
+  width: 10px; /* Keep the width */
+  height: 100%; /* Use full height without the calculation */
+  background: #35100B;
+  border-radius: 8px;
+}
+
+/* Ticks container positioned to the right of the slider */
+.lfo-destination-ticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100.3%;
+  margin-left: -11px;
+  pointer-events: none; /* Don't block interaction */
+}
+
+/* Individual tick with label container */
+.tick-with-label {
+  display: flex;
+  align-items: center;
+  height: calc(100% / 9);
+}
+
+/* Tick mark styling */
+.tick {
+  width: 5px;
+  height: 1.9px;
+  background-color: #35100B;
+}
+
+/* Label styling */
+.tick-label {
+  margin-left: 5px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: #35100B;
+}
+.lfo-selector-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 5px;
+}
+
+/* Horizontal five-step selector */
+.five-step-selector-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100px;
+  height: 14px;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+/* Shared slider track styling - make tracks thinner */
+.rate-slider-range::-webkit-slider-runnable-track,
+.delay-slider-range::-webkit-slider-runnable-track {
+  background: #35100B;
+  border-radius: 5px;
+  width: 5px; /* For vertical sliders (needed for proper appearance) */
+  border: none;
+}
+.five-step-selector-range::-webkit-slider-runnable-track{
+  background: #35100B;
+  border-radius: 5px;
+  height: 10px; /* For horizontal slider */
+  border: none;
+}
+
+
+.five-step-selector-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  width: 18px;
+  height: 24px;
+  cursor: pointer;
+  margin-top: -6.7px; /* For horizontal slider */
+  border-radius: 5px;
+      /* Optional: Add a small indicator line */
+      background-image: linear-gradient(to top, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.rate-slider-range::-webkit-slider-thumb,
+.delay-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  width: 18px;
+  height: 24px;
+  cursor: pointer;
+  margin-left: -6.2px; /* For vertical sliders */
+  border-radius: 5px; /* Remove circular shape to make rectangular */
+    /* Optional: Add a small indicator line */
+    background-image: linear-gradient(to right, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+/* Firefox versions */
+.five-step-selector-range::-moz-range-track,
+.rate-slider-range::-moz-range-track,
+.delay-slider-range::-moz-range-track {
+  background: #35100B;
+  border-radius: 5px;
+  height: 5px;
+  width: 5px;
+}
+
+/* Firefox versions */
+.five-step-selector-range::-moz-range-thumb,
+.rate-slider-range::-moz-range-thumb,
+.delay-slider-range::-moz-range-thumb,
+.lfo-destination-range::-moz-range-thumb {
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  width: 18px;
+  height: 24px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.lfo-destination-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  width: 24px; /* Make it wider than the track */
+  height: 26px; /* Make it taller */
+  cursor: pointer;
+  border-radius: 5px; /* Rectangular shape with rounded corners */
+  
+  /* Center it on the track */
+  margin-left: -6.8px; 
+  
+  /* Add a subtle shadow for depth */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  
+  /* Optional: Add a small indicator line */
+  background-image: linear-gradient(to right, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Firefox version */
+.lfo-destination-range::-moz-range-thumb {
+  appearance: none;
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  width: 24px;
+  height: 26px;
+  cursor: pointer;
+  border-radius: 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  background-image: linear-gradient(to right, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.slider-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
+  text-align: center;
+  margin-top: 10px;
+  width: 100%;
+  position: absolute;
+  bottom: -24px;
+  right: 8px;
+}
+
+/* Position the slider containers correctly to make room for labels */
+.slider-tick-container {
+  position: relative;
+
+}
+.five-step-ticks {
+  display: flex;
+  justify-content: space-between;
+  width: 102.2px; /* Match the width of the slider */
+  margin-top: 7px;
+  padding: 0;
+  position: relative;
+}
+
+/* Individual tick container - space them out evenly */
+.five-step-ticks .tick-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px; /* Each tick container gets equal width */
+  position: relative;
+}
+
+/* Make the ticks thinner and taller */
+.five-step-ticks .tick {
+  width: 1.7px;
+  height: 8px;
+  background-color: #35100B;
+  margin-bottom: 4px;
+}
+
+/* Adjust the labels */
+.five-step-ticks .tick-label {
+  position: relative;
+  font-size: 8px;
+  color: #35100B;
+  text-align: center;
+  white-space: nowrap;
+  margin-top: 2px;
+  width: 102.2px;
+  right: 2.8px;
+}
+/* Wave shape class for the SVG icons - replace your CSS wave shape implementations */
+.wave-shape {
+  height: 14px;
+  width: 18px;
+  position: relative;
+  display: inline-block;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%)
+}
+
+.wave-shape img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+.destination-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
+  text-align: center;
+  width: 100%;
+  position: absolute;
+  bottom: -22px;
+  margin-left: 9px;
+}
+/* Container for bottom row controls */
+.lfo-bottom-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-top: 20px;
+  padding: 0 5px;
+}
+
+/* Depth Knob with double border */
+.depth-knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 10px;
+  margin-left: 10px;
+}
+
+.depth-knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #f2eed3;
+  position: relative;
+  cursor: grab;
+  box-sizing: border-box;
+  
+  /* Double border effect */
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #f2eed3, 0 0 0 6px #35100B;
+  
+  /* Center point marker */
+  transform-origin: center center;
+}
+
+/* Special tick style for depth knob - starts from center */
+.depth-knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 5px;
+  top: 50%;
+  left: 50%;
+  width: 23px; /* Longer line from center to edge */
+  height: 3px;
+  background-color: #35100B;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
+}
+
+.depth-knob-container label {
+  margin-top: 8px;
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
+}
+
+/* Select button styling - make it square and match panel color */
+.select-button-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 10px; /* Add some spacing */
+}
+
+.select-button {
+  position: relative;
+  width: 41px; /* Match the knob width for consistency */
+  height: 41px; /* Perfect square */
+  background-color: #f2eed3; /* Match the synth panel color */
+  border: 2.5px solid #35100B;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  margin-top: -5px;
+  margin-bottom: 5px; /* Add space for label below */
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.select-button:hover {
+  background-color: #E8E3C4; /* Slightly darker on hover */
+}
+
+.select-button.active {
+  background-color: #D6D2B4;
+  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+}
+
+/* LED styling */
+.select-led {
+  position: absolute;
+  top: 24.5px;
+  width: 7.5px;
+  height: 7.5px;
+  background-color: #955b56; /* Dark red (off state) */
+  border-radius: 50px;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.select-button.active .select-led {
+  background-color: #c52a18; /* Bright red (on state) */
+  box-shadow: 0 0 4px #ff0000;
+}
+
+/* Add label under select button */
+.select-button-container label {
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
+  text-align: center;
+}
+/* Styles for the additional buttons */
+.reverse-button-container,
+.keytrack-button-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: -5px;
+  margin-bottom: 1.5px;
+}
+
+.reverse-button,
+.keytrack-button {
+  position: relative;
+  width: 41px;
+  height: 21px;
+  background-color: #f2eed3;
+  border: 2.5px solid #35100B;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 5px;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.reverse-button:hover,
+.keytrack-button:hover {
+  background-color: #E8E3C4;
+}
+
+.reverse-button.active,
+.keytrack-button.active {
+  background-color: #D6D2B4;
+  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+}
+
+.reverse-button .select-led,
+.keytrack-button .select-led {
+  position: absolute;
+  top: 11px;
+  width: 5.5px;
+  height: 5.5px;
+  background-color: #955b56;
+  border-radius: 50px;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.reverse-button.active .select-led,
+.keytrack-button.active .select-led {
+  background-color: #c52a18;
+  box-shadow: 0 0 4px #ff0000;
+}
+/* Update Master Module Styling */
+.module-title.master {
+  color: #35100B;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 5px;
+  background-color: #cb7c73; /* Same color as LFO/SAMPLER */
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+  margin-top: -15px; /* Pull it up slightly to connect with top edge */
+}
+
+/* Make master module match LFO/SAMPLER module styling */
+.module.master-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 100px;
+  max-width: 100px;
+  align-items: center;
+  padding-top: 15px; /* Remove top padding */
+  overflow: hidden; /* Ensure the header connects to edges */
+  box-sizing: border-box; /* Include padding in width */
+}
+
+.vertical-switch {
+  width: 20px;
+  height: 40px;
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  border-radius: 10px;
+  position: relative;
+  cursor: grab;
+  margin-bottom: 5px;
+}
+
+.vertical-switch::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 16px;
+  background: #35100B;
+  border: 1px solid #35100B;
+  border-radius: 10px;
+  left: 2px;
+  top: 2px;
+  transition: top 0.1s;
+}
+
+.vertical-switch.active::after {
+  top: 19px;
+}
+
+/* Switch container styling */
+.switch-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.switch-label {
+  font-size: 10px;
+  margin-bottom: 0px;
+  color: #35100B;
+  text-align: center;
+}
+
+/* Master Volume Knob */
+.master-module .knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #f2eed3;
+  position: relative;
+  cursor: grab;
+  box-sizing: border-box;
+  
+  /* Double border effect - EXACT match to other knobs */
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #f2eed3, 0 0 0 6px #35100B;
+  
+  /* Center point marker */
+  transform-origin: center center;
+  margin: 10px 0;
+}
+
+/* Style knob indicator line */
+.master-module .knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 5px;
+  top: 50%;
+  left: 50%;
+  width: 23px; /* Longer line from center to edge */
+  height: 3px;
+  background-color: #35100B;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
+}
+
+/* Knob label style */
+.master-module label {
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  color: #35100B;
+  text-align: center;
+}
+
+/* Control sections */
+.mono-controls,
+.legato-controls {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: opacity 0.3s;
+}
     </style>
 </head>
 <body>
@@ -976,133 +1486,286 @@ input[type="range"]::-moz-focus-outer {
     <div class="container">
         
         <div class="synth-panel">
-            
-        <!-- Modified SAMPLER Module with Two Columns and Sample Selector -->
-<div class="module sampler-module">
-    <div class="module-title">SAMPLER</div>
+         
+<!-- LFO Module -->
+<div class="module LFO-Module">
+  <div class="lfo">LFO</div>
+  
+  <div class="lfo-controls-container">
+<!-- Left side: Vertical sliders -->
+<div class="lfo-sliders-container">
+  <!-- Rate Slider -->
+  <div class="slider-tick-container">
+    <input type="range" class="rate-slider-range" min="0" max="1" step="0.01" value="0.5">
+    <div class="slider-label">Rate</div>
+  </div>
+
+  <!-- Delay Slider (renamed to "Fade In") -->
+  <div class="slider-tick-container">
+    <input type="range" class="delay-slider-range" min="0" max="1" step="0.01" value="0.5">
+    <div class="slider-label">Fade</div>
+  </div>
+</div>
     
-    <!-- Two-column layout container -->
-    <div class="sampler-columns">
-      <!-- Left Column -->
-      <div class="sampler-column">
-        <div class="file-section">
-          <div class="custom-file-input">
-            <input type="file" id="audio-file" accept="audio/*">
-            <label for="audio-file">Load Sample</label>
-          </div>
-        </div>
-        <div class="switch-container lofi-button-container">
-            <div class="lofi-button" id="emu-mode-switch">
-              <span>Lo-Fi</span>
-              <div class="led-indicator" id="emu-led"></div>
-            </div>
-          </div>
-        <div class="knob" id="sample-volume-knob"></div>
-        <label for="sample-volume-knob" style="text-align: center;">Volume</label>
-        <div class="knob" id="sample-pitch-knob"></div>
-        <label for="sample-pitch-knob" style="text-align: center;">Pitch</label>
-      <!-- Add this knob to the right column of your sampler module -->
-<div class="knob" id="sample-fade-knob"></div>
-<label for="sample-fade-knob" style="text-align: center;">Fade</label>
+<!-- Replace the button switches with a vertical 9-position slider -->
+<div class="lfo-destination-container">
+  <!-- Vertical slider with 9 notches -->
+  <input type="range" class="lfo-destination-range" min="0" max="8" step="1" value="0" orient="vertical">
+  
+  <!-- Tick marks with labels -->
+  <div class="lfo-destination-ticks">
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Pitch</span>
     </div>
-      
-      <!-- Right Column -->
-      <div class="sampler-column">
-        <!-- Sample selector dropdown -->
-        <div class="sample-selector-container">
-          <button id="sample-selector-btn">Presets ▼</button>
-          <div id="sample-dropdown" class="sample-dropdown">
-            <div class="dropdown-item" data-sample="Dirty Bass.wav">Dirty Bass</div>
-            <div class="dropdown-item" data-sample="Keys - Piano.wav">Piano</div>
-            <div class="dropdown-item" data-sample="Noise.wav">Noise</div>
-            <div class="dropdown-item" data-sample="Saw.wav">Saw</div>
-            <div class="dropdown-item" data-sample="Mallet.wav">Mallet</div>
-          </div>
-        </div>
-        <div class="switch-container rec-button-container">
-            <div class="rec-button" id="mic-record-button">
-              <span>Rec</span>
-              <div class="led-indicator" id="rec-led"></div>
-            </div>
-          </div>
-        <div class="knob" id="sample-start-knob"></div>
-        <label for="sample-start-knob" style="text-align: center;">Start</label>
-        <div class="knob" id="sample-end-knob"></div>
-        <label for="sample-end-knob" style="text-align: center;">End</label>
-        <div class="knob" id="sample-crossfade-knob"></div>
-        <label for="sample-crossfade-knob" style="text-align: center;">Crossfade</label>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Filter</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Variant</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Amp</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Looper</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">FX</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">FM</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">PWM</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Quant</span>
+    </div>
+  </div>
+  <div class="destination-label">Destination</div>
+</div>
+</div>
+<div class="lfo-bottom-controls">
+  <div class="depth-knob-container">
+    <div class="depth-knob" id="lfo-depth-knob"></div>
+    <label for="lfo-depth-knob">Depth</label>
+  </div>
+  <div class="select-button-container">
+    <div class="select-button" id="lfo-select-button">
+      <div class="select-led"></div>
+    </div>
+    <label for="lfo-select-button">Select</label>
+  </div>
+</div>
+<!-- Bottom: Five-step selector slider with waveform icons -->
+<div class="lfo-selector-container">
+  <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+  <div class="five-step-ticks">
+    <div class="tick-container">
+      <div class="tick"></div>
+      <div class="wave-shape">
+        <img src="SHAPES/wave-sine.svg" alt="Sine" width="18" height="14">
+      </div>
+    </div>
+    <div class="tick-container">
+      <div class="tick"></div>
+      <div class="wave-shape">
+        <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="18" height="14">
+      </div>
+    </div>
+    <div class="tick-container">
+      <div class="tick"></div>
+      <div class="wave-shape">
+        <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="18" height="14">
+      </div>
+    </div>
+    <div class="tick-container">
+      <div class="tick"></div>
+      <div class="wave-shape">
+        <img src="SHAPES/square-wave.svg" alt="Square" width="18" height="14">
+      </div>
+    </div>
+    <div class="tick-container">
+      <div class="tick"></div>
+      <div class="wave-shape">
+        <img src="SHAPES/mod-random.svg" alt="Random" width="18" height="14">
       </div>
     </div>
   </div>
+</div>
+
+</div>
+
+
+<!-- Updated SAMPLER Module with matching styling -->
+<div class="module sampler-module">
+  <div class="module-title sampler">SAMPLER</div>
+  
+  <!-- Two-column layout container -->
+  <div class="sampler-columns">
+    <!-- Left Column -->
+    <div class="sampler-column">
+      <div class="file-section">
+        <div class="custom-file-input">
+          <input type="file" id="audio-file" accept="audio/*">
+          <label for="audio-file">Load Sample</label>
+        </div>
+      </div>
+      
+      <div class="switch-container lofi-button-container">
+        <div class="lofi-button" id="emu-mode-switch">
+          <div class="select-led"></div>
+        </div>
+        <label for="emu-mode-switch">Lo-Fi</label>
+      </div>
+      <div class="switch-container reverse-button-container">
+        <div class="reverse-button" id="reverse-button">
+          <div class="select-led"></div>
+        </div>
+        <label for="reverse-button">Reverse</label>
+      </div>
+      <div class="knob-container">
+        <div class="knob" id="sample-volume-knob"></div>
+        <label for="sample-volume-knob">Volume</label>
+      </div>
+      
+      <div class="knob-container">
+        <div class="knob" id="sample-pitch-knob"></div>
+        <label for="sample-pitch-knob">Pitch</label>
+      </div>
+      
+      <div class="knob-container">
+        <div class="knob" id="sample-fade-knob"></div>
+        <label for="sample-fade-knob">Fade</label>
+      </div>
+    </div>
+    
+    <!-- Right Column -->
+    <div class="sampler-column">
+      <!-- Sample selector dropdown -->
+      <div class="sample-selector-container">
+        <button id="sample-selector-btn">Presets ▼</button>
+        <div id="sample-dropdown" class="sample-dropdown">
+          <div class="dropdown-item" data-sample="Dirty Bass.wav">Dirty Bass</div>
+          <div class="dropdown-item" data-sample="Keys - Piano.wav">Piano</div>
+          <div class="dropdown-item" data-sample="Noise.wav">Noise</div>
+          <div class="dropdown-item" data-sample="Saw.wav">Saw</div>
+          <div class="dropdown-item" data-sample="Mallet.wav">Mallet</div>
+        </div>
+      </div>
+      
+      <div class="switch-container rec-button-container">
+        <div class="rec-button" id="mic-record-button">
+          <div class="select-led"></div>
+        </div>
+        <label for="mic-record-button">Rec</label>
+      </div>
+      <div class="switch-container keytrack-button-container">
+        <div class="keytrack-button active" id="keytrack-button">
+          <div class="select-led" style="background-color: #c52a18; box-shadow: 0 0 4px #ff0000;"></div>
+        </div>
+        <label for="keytrack-button">Key-Track</label>
+      </div>
+      <div class="knob-container">
+        <div class="knob" id="sample-start-knob"></div>
+        <label for="sample-start-knob">Start</label>
+      </div>
+      
+      <div class="knob-container">
+        <div class="knob" id="sample-end-knob"></div>
+        <label for="sample-end-knob">End</label>
+      </div>
+      
+      <div class="knob-container">
+        <div class="knob" id="sample-crossfade-knob"></div>
+        <label for="sample-crossfade-knob">Crossfade</label>
+      </div>
+    </div>
+  </div>
+</div>
             <!-- ADSR Module -->
             <div class="module" style="grid-column: span 2;">
-                <div class="module-title">ADSR Envelope</div>
-                
-                <div class="adsr-graph" id="adsr-visualization">
-                    <div class="adsr-line"></div>
-                </div>
+              <div class="module-title adsr">ADSR Envelope</div>
+              
+              <div class="adsr-graph" id="adsr-visualization">
+                <div class="adsr-line"></div>
+              </div>
             
-                <div class="slider-group">
-                    <div class="slider-attack">
-                        <span id="attack-value">0</span>
-                        <input type="range" id="attack" min="0" max="5" step="0.001" value="0">
-                    </div>
-                    <div class="slider-decay">
-                        <span id="decay-value">0.1</span>
-                        <input type="range" id="decay" min="0" max="5" step="0.01" value="0.1">
-                    </div>
-                    <div class="slider-sustain">
-                        <span id="sustain-value">0.7</span>
-                        <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
-                    </div>
-                    <div class="slider-release">
-                        <span id="release-value">0.01</span>
-                        <input type="range" id="release" min="0" max="5" step="0.001" value="0.001">
-                    </div>
+              <div class="slider-group">
+                <div class="slider-attack">
+                  <span id="attack-value">0</span>
+                  <input type="range" id="attack" min="0" max="5" step="0.001" value="0">
                 </div>
-                <div class="slider-labels">
-                    <label>A</label>
-                    <label>D</label>
-                    <label>S</label>
-                    <label>R</label>
+                <div class="slider-decay">
+                  <span id="decay-value">0.1</span>
+                  <input type="range" id="decay" min="0" max="5" step="0.01" value="0.1">
                 </div>
+                <div class="slider-sustain">
+                  <span id="sustain-value">0.7</span>
+                  <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
+                </div>
+                <div class="slider-release">
+                  <span id="release-value">0.01</span>
+                  <input type="range" id="release" min="0" max="5" step="0.001" value="0.001">
+                </div>
+              </div>
+              
+              <div class="slider-labels">
+                <label>A</label>
+                <label>D</label>
+                <label>S</label>
+                <label>R</label>
+              </div>
             </div>
             
 
-<div class="module">
-    <div class="module-title">MASTER</div>
-    
-    <!-- Voice Mode Switch -->
-    <div class="switch-container">
-        <label class="switch-label">POLY/MONO</label>
-        <div class="vertical-switch" id="voice-mode-switch"></div>
-    </div>
-    
-    <!-- Mono controls -->
-    <div class="mono-controls">
-        <!-- Trigger Mode Switch -->
-        <div class="switch-container">
-            <label class="switch-label">MULTI/LEGATO</label>
-            <div class="vertical-switch" id="trigger-mode-switch"></div>
-        </div>
-        
-        <!-- Portamento controls -->
-        <div class="legato-controls">
-            <div class="switch-container">
-                <label class="switch-label">PORTA ON/OFF</label>
-                <div class="vertical-switch" id="portamento-switch"></div>
+            <div class="module master-module">
+              <div class="module-title master">MASTER</div>
+              
+              <!-- Voice Mode Switch -->
+              <div class="switch-container">
+                <div class="vertical-switch" id="voice-mode-switch"></div>
+                <label class="switch-label">Poly / Mono</label>
+              </div>
+              
+              <!-- Mono controls -->
+              <div class="mono-controls">
+                <!-- Trigger Mode Switch -->
+                <div class="switch-container">
+                  <div class="vertical-switch" id="trigger-mode-switch"></div>
+                  <label class="switch-label">Multi / Legato</label>
+                </div>
+                
+                <!-- Portamento controls -->
+                <div class="legato-controls">
+                  <div class="switch-container">
+                    <div class="vertical-switch" id="portamento-switch"></div>
+                    <label class="switch-label">Portamento</label>
+                  </div>
+                  
+                  <!-- Glide Time Knob -->
+                  <div class="knob-container">
+                    <div class="knob" id="glide-time-knob"></div>
+                    <label for="glide-time-knob">Glide</label>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Master Volume -->
+              <div class="knob-container">
+                <div class="knob" id="master-volume-knob"></div>
+                <label for="master-volume-knob">Volume</label>
+              </div>
             </div>
-            
-            <!-- Glide Time Knob -->
-            <div class="knob" id="glide-time-knob"></div>
-            <label for="glide-time-knob">GLIDE</label>
-        </div>
-    </div>
-    
-    <!-- Master Volume -->
-    <div class="knob" id="master-volume-knob"></div>
-    <label for="master-volume-knob">Volume</label>
-</div>
     
    
       
@@ -1227,16 +1890,16 @@ function createiOSStartupOverlay() {
   const message = document.createElement('p');
   message.textContent = 'Tap anywhere to enable audio';
   message.style.marginBottom = '30px';
-  message.style.color = '#3f2101';
+  message.style.color = '#35100B';
   
   const button = document.createElement('button');
   button.textContent = 'Start Synth';
   button.style.padding = '15px 30px';
   button.style.fontSize = '18px';
   button.style.backgroundColor = '#e6e6e6';
-  button.style.border = '1px solid #3f2101';
+  button.style.border = '1px solid #35100B';
   button.style.borderRadius = '8px';
-  button.style.color = '#3f2101';
+  button.style.color = '#35100B';
   button.style.cursor = 'pointer';
   
   overlay.appendChild(heading);
@@ -1336,8 +1999,8 @@ function createIOSChromeAudioUnlocker() {
       <h2 style="color: #8b4513;">THULE Sampler</h2>
       <p style="margin: 20px 0;">Tap the button below to enable audio</p>
       <button id="ios-chrome-audio-unlock" style="padding: 16px 32px; font-size: 18px; 
-              background: #e6e6e6; border: 1px solid #3f2101; border-radius: 8px; 
-              color: #3f2101; cursor: pointer;">START SYNTHESIZER</button>
+              background: #e6e6e6; border: 1px solid #35100B; border-radius: 8px; 
+              color: #35100B; cursor: pointer;">START SYNTHESIZER</button>
     </div>
   `;
   
@@ -2896,15 +3559,17 @@ function getBlackKeyIndex(position) {
 
         // ADSR visualization
         function updateADSRVisualization() {
-            const attack = parseFloat(D('attack').value);
-            const decay = parseFloat(D('decay').value);
-            const sustain = parseFloat(D('sustain').value);
-            const release = parseFloat(D('release').value);
-            
-            const graph = D('adsr-visualization');
-            const totalTime = attack + decay + 2 + release; // 2 seconds for sustain
-            const width = graph.offsetWidth;
-            const height = graph.offsetHeight;
+          const attack = parseFloat(D('attack').value);
+    const decay = parseFloat(D('decay').value);
+    const sustain = parseFloat(D('sustain').value);
+    const release = parseFloat(D('release').value);
+    
+    const graph = D('adsr-visualization');
+    const totalTime = attack + decay + 2 + release; // 2 seconds for sustain
+    
+    // Get actual display dimensions
+    const width = graph.offsetWidth;
+    const height = graph.offsetHeight;
             
             // Calculate points for ADSR envelope
             const attackX = (attack / totalTime) * width;
@@ -2912,30 +3577,38 @@ function getBlackKeyIndex(position) {
             const releaseStartX = decayX + ((2 / totalTime) * width); // 2 seconds sustain
             const releaseEndX = width;
             
-            // Create SVG path for visualization
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
+    // Create canvas at exact display size
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    
+    // Make sure lines are drawn with proper alignment
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(0.5, 0.5);
+    ctx.strokeStyle = '#f2eed3';
+    ctx.lineWidth = 2.5; // Make the line thickness 3px
+  
+  // Set line join style for smoother corners
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+    // Clear canvas
+    ctx.clearRect(-1, -1, width + 1, height + 1);
+
             
-            // Clear canvas
-            ctx.clearRect(0, 0, width, height);
-            ctx.strokeStyle = '#8b4513';
-            ctx.lineWidth = 2;
-            
-            // Draw ADSR path
-            ctx.beginPath();
-            ctx.moveTo(0, height); // Start at bottom left
-            ctx.lineTo(attackX, 0); // Attack to peak
-            ctx.lineTo(decayX, height - (sustain * height)); // Decay to sustain level
-            ctx.lineTo(releaseStartX, height - (sustain * height)); // Sustain
-            ctx.lineTo(releaseEndX, height); // Release
-            ctx.stroke();
-            
-            // Update visualization
-            graph.innerHTML = '';
-            graph.appendChild(canvas);
-        }
+    // Draw ADSR path
+    ctx.beginPath();
+    ctx.moveTo(0, height - 1); // Start at bottom left
+    ctx.lineTo(attackX, 1); // Attack to peak
+    ctx.lineTo(decayX, height - (sustain * height)); // Decay to sustain level
+    ctx.lineTo(releaseStartX, height - (sustain * height)); // Sustain
+    ctx.lineTo(releaseEndX, height - 1); // Release
+    ctx.stroke();
+    
+    // Update visualization
+    graph.innerHTML = '';
+    graph.appendChild(canvas);
+}
     
         // Update the voice monitoring display
         // Update the voice display function to handle releasing state
@@ -3609,7 +4282,7 @@ function initializePrecisionSlider(slider) {
     let lastY;
     let isDragging = false;
     const range = parseFloat(slider.max) - parseFloat(slider.min);
-    const totalHeight = 120; // Height of slider in pixels
+    const totalHeight = 230; // Height of slider in pixels
     
     function handleMouseMove(e) {
         if (!isDragging) return;
@@ -5045,6 +5718,180 @@ function fixSwitchesTouchMode() {
     });
   });
 }
+document.addEventListener('DOMContentLoaded', () => {
+  // -------------------------------
+  //  Button Switches (dummy toggle)
+  // -------------------------------
+  document.querySelectorAll('.frame-for-button-switches > div').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      // Toggle a simple "active" style when clicked
+      if (btn.classList.contains('active')) {
+        btn.classList.remove('active');
+        btn.style.boxShadow = '';
+      } else {
+        btn.classList.add('active');
+        // Simple visual: darker shadow to show it's “in”
+        btn.style.boxShadow = 'inset 0 0 5px rgba(0,0,0,0.5)';
+      }
+    });
+  });
+
+  // ---------------------------------------------------------
+  //  Five-Step Selector Slider (snap to 5 notches)
+  // ---------------------------------------------------------
+  const fiveStepThumb = document.querySelector('.five-Step-Selector-Slider-Thumb');
+  if (fiveStepThumb) {
+    let isDragging5Step = false;
+    let startX = 0;
+    let originalLeft = 0;
+
+    // For example, clamp from 0 to 80px total movement
+    // and snap to 5 notches => 0, 20, 40, 60, 80
+    const minLeft = 0;
+    const maxLeft = 80;
+    const steps = 4; // 5 total positions => 4 intervals
+    const stepSize = (maxLeft - minLeft) / steps;
+
+    fiveStepThumb.addEventListener('mousedown', (e) => {
+      isDragging5Step = true;
+      startX = e.clientX;
+      originalLeft = parseInt(window.getComputedStyle(fiveStepThumb).left, 10) || 0;
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging5Step) return;
+      const delta = e.clientX - startX;
+      let newLeft = originalLeft + delta;
+
+      // Clamp the thumb’s position
+      if (newLeft < minLeft) newLeft = minLeft;
+      if (newLeft > maxLeft) newLeft = maxLeft;
+
+      // Snap to nearest step
+      const stepIndex = Math.round(newLeft / stepSize);
+      const snappedLeft = stepIndex * stepSize;
+
+      fiveStepThumb.style.left = snappedLeft + 'px';
+
+      // Example: store or log a “value” from 0..4
+      const currentValue = stepIndex; 
+      // console.log('Five-step slider value:', currentValue);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDragging5Step = false;
+    });
+  }
+
+  // ---------------------------------------
+  //  Rate Slider (dummy vertical drag)
+  // ---------------------------------------
+  const rateThumb = document.querySelector('.Rate-Slider-Thumb');
+  const rateTrack = document.querySelector('.Rate-Slider-Track');
+  if (rateThumb && rateTrack) {
+    let isDraggingRate = false;
+    let startY = 0;
+    let originalTop = 0;
+
+    // Suppose the track allows 0..80 px
+    const minTop = 0;
+    const maxTop = 80;
+
+    rateThumb.addEventListener('mousedown', (e) => {
+      isDraggingRate = true;
+      startY = e.clientY;
+      originalTop = parseInt(window.getComputedStyle(rateThumb).top, 10) || 0;
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDraggingRate) return;
+      const delta = e.clientY - startY;
+      let newTop = originalTop + delta;
+
+      // Clamp the thumb’s position
+      if (newTop < minTop) newTop = minTop;
+      if (newTop > maxTop) newTop = maxTop;
+
+      rateThumb.style.top = newTop + 'px';
+
+      // Example: convert thumb position to 0..1
+      const normalizedRateValue = (newTop - minTop) / (maxTop - minTop);
+      // console.log('LFO Rate value:', normalizedRateValue.toFixed(2));
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDraggingRate = false;
+    });
+  }
+
+  // ----------------------------------------
+  //  Delay Slider (dummy vertical drag)
+  // ----------------------------------------
+  const delayThumb = document.querySelector('.Delay-Slider-Thumb');
+  const delayTrack = document.querySelector('.Delay-Slider-Track');
+  if (delayThumb && delayTrack) {
+    let isDraggingDelay = false;
+    let startY = 0;
+    let originalTop = 0;
+
+    // Suppose the track allows 0..80 px
+    const minTop = 0;
+    const maxTop = 80;
+
+    delayThumb.addEventListener('mousedown', (e) => {
+      isDraggingDelay = true;
+      startY = e.clientY;
+      originalTop = parseInt(window.getComputedStyle(delayThumb).top, 10) || 0;
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDraggingDelay) return;
+      const delta = e.clientY - startY;
+      let newTop = originalTop + delta;
+
+      // Clamp the thumb’s position
+      if (newTop < minTop) newTop = minTop;
+      if (newTop > maxTop) newTop = maxTop;
+
+      delayThumb.style.top = newTop + 'px';
+
+      // Example: convert thumb position to 0..1
+      const normalizedDelayValue = (newTop - minTop) / (maxTop - minTop);
+      // console.log('LFO Delay value:', normalizedDelayValue.toFixed(2));
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDraggingDelay = false;
+    });
+  }
+
+  // Optional: add touch events for mobile (touchstart/touchmove/touchend)
+});
+document.addEventListener('DOMContentLoaded', () => {
+  const fiveStep = document.querySelector('.five-step-selector-range');
+  if (fiveStep) {
+    fiveStep.addEventListener('input', () => {
+      console.log('Five-step value:', fiveStep.value);
+    });
+  }
+
+  const rateSlider = document.querySelector('.rate-slider-range');
+  if (rateSlider) {
+    rateSlider.addEventListener('input', () => {
+      console.log('LFO Rate:', rateSlider.value);
+    });
+  }
+
+  const delaySlider = document.querySelector('.delay-slider-range');
+  if (delaySlider) {
+    delaySlider.addEventListener('input', () => {
+      console.log('LFO Delay:', delaySlider.value);
+    });
+  }
+});
 // CLEAN UP - Delete redundant and outdated event listeners
 // Keep only this consolidated event listener for initialization
 document.addEventListener('DOMContentLoaded', function() {
@@ -5086,6 +5933,59 @@ document.addEventListener('DOMContentLoaded', function() {
   };
   document.body.addEventListener('touchstart', resumeAudioContext, { passive: true });
   document.body.addEventListener('mousedown', resumeAudioContext, { passive: true });
+});
+document.addEventListener('DOMContentLoaded', function() {
+  const selectButton = document.getElementById('lfo-select-button');
+  if (selectButton) {
+    selectButton.addEventListener('click', function() {
+      this.classList.toggle('active');
+    });
+  }
+  
+  // Initialize the depth knob
+  const depthKnob = document.getElementById('lfo-depth-knob');
+  if (depthKnob) {
+    initializeKnob(depthKnob, (value) => {
+      const tooltip = createTooltipForKnob('lfo-depth-knob', value);
+      tooltip.textContent = `Depth: ${Math.round(value * 100)}%`;
+      tooltip.style.opacity = '1';
+      console.log('LFO Depth:', value.toFixed(2));
+    });
+  }
+});
+// Add this to your existing JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize the Reverse button
+  const reverseButton = document.getElementById('reverse-button');
+  if (reverseButton) {
+    reverseButton.addEventListener('click', function() {
+      this.classList.toggle('active');
+      const led = this.querySelector('.select-led');
+      if (this.classList.contains('active')) {
+        led.style.backgroundColor = '#c52a18';
+        led.style.boxShadow = '0 0 4px #ff0000';
+      } else {
+        led.style.backgroundColor = '#955b56';
+        led.style.boxShadow = 'none';
+      }
+    });
+  }
+  
+  // Initialize the Key-Track button (default: active)
+  const keytrackButton = document.getElementById('keytrack-button');
+  if (keytrackButton) {
+    keytrackButton.addEventListener('click', function() {
+      this.classList.toggle('active');
+      const led = this.querySelector('.select-led');
+      if (this.classList.contains('active')) {
+        led.style.backgroundColor = '#c52a18';
+        led.style.boxShadow = '0 0 4px #ff0000';
+      } else {
+        led.style.backgroundColor = '#955b56';
+        led.style.boxShadow = 'none';
+      }
+    });
+  }
 });
     </script>
 </body>
