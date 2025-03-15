@@ -120,12 +120,12 @@
   justify-content: space-between;
   width: 100%;
   margin-top: 10px; /* Reduced from 20px */
-  gap: 5px; /* Add small gap between columns */
+  gap: 0px; /* Add small gap between columns */
 }
 
 /* Make columns narrower with less space */
 .sampler-column {
-  width: 47%; /* Slightly narrower */
+  width: 1007%; /* Slightly narrower */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -137,7 +137,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin: 3px 0; /* Reduced from 10px */
+  margin: 9px 0; /* Reduced from 10px */
 }
 
 /* Update knobs to match LFO knobs */
@@ -177,62 +177,65 @@
 .switch-container label,
 .lofi-button-container label,
 .rec-button-container label {
-  margin-top: 0px;
+  margin-top: -3.5px;
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
   color: #35100B;
   text-align: center;
 }
 
-/* Improved styling for Load Sample button and Presets dropdown */
+/* Updated CSS for the Load Sample button */
 .custom-file-input {
   position: relative;
   width: 100%;
-  margin-bottom: 0px;
-}
-
-/* Important: Remove the existing border from the container */
-.custom-file-input {
-  border: none;
-  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .custom-file-input input[type="file"] {
   position: absolute;
-  font-size: 100px;
-  opacity: 0;
-  right: 0;
   top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
   cursor: pointer;
+  z-index: 2;
 }
 
-/* Style the file input label to match other buttons */
-.custom-file-input label {
+#load-sample-btn {
+  background-color: #f2eed3;
+  border: 2.5px solid #35100B;
+  border-radius: 5px;
+  padding: 8px;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  line-height: 0.7;
+  color: #35100B;
+  height: 21px; /* Match height of other buttons */
+  width: 45.57px;
+  box-sizing: border-box;
+  transition: background-color 0.2s, box-shadow 0.2s;
+  text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #f2eed3;
-  border: 2.5px solid #35100B; /* Match the border of LoFi/Rec buttons */
-  border-radius: 10px;        /* Match border-radius of other buttons */
-  padding: 8px;
-  font-size: 12px;
-  font-family: "Nunito", sans-serif;
-  color: #35100B;
-  text-align: center;
-  cursor: pointer;
-  height: 41px; /* Match height of other buttons */
-  width: 100%;
-  box-sizing: border-box;
-  transition: background-color 0.2s, box-shadow 0.2s; /* Add transition for hover effects */
+  margin-bottom: 5px;
+  margin-top: 5px;
+  position: relative;
+  z-index: 1;
 }
 
-/* Add hover effect to match other buttons */
-.custom-file-input label:hover {
+#load-sample-btn:hover {
   background-color: #E8E3C4;
 }
 
-/* Add pressed effect */
-.custom-file-input label:active {
+.custom-file-input input[type="file"]:active + #load-sample-btn {
   background-color: #D6D2B4;
   box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
 }
@@ -240,15 +243,17 @@
 #sample-selector-btn {
   background-color: #f2eed3;
   border: 2.5px solid #35100B;
-  border-radius: 10px;
+  border-radius: 5px;
   padding: 8px;
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
-  font-weight: 600; /* Match the weight of other labels */
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  line-height: 0.9;
   color: #35100B;
   cursor: pointer;
-  height: 41px; /* Match height of other buttons */
-  width: 100%;
+  height: 21px; /* Match height of other buttons */
+  width: 45.57px;
   box-sizing: border-box;
   transition: background-color 0.2s, box-shadow 0.2s;
   text-align: center;
@@ -575,20 +580,8 @@
             color: white;
         }
         
-        /* File section styling */
-        .file-section {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 15px 0;
-        }
-        
-        input[type="file"] {
-            background-color: #f2eed3;
-            border: 1px solid #35100B;
-            border-radius: 3px;
-            padding: 5px;
-        }
+
+
         
         
 
@@ -780,14 +773,7 @@ margin-top: -6.5px;
 
 /* Slider group containing all sliders */
 
-/* Add to your existing CSS */
-.file-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    margin: 5px 0;
-}
+
 
 
 /* Add vertical switch styling */
@@ -1614,10 +1600,10 @@ margin-top: -6.5px;
   <div class="sampler-columns">
     <!-- Left Column -->
     <div class="sampler-column">
-      <div class="file-section">
+      <div class="sample-selector-container">
         <div class="custom-file-input">
           <input type="file" id="audio-file" accept="audio/*">
-          <label for="audio-file">Load Sample</label>
+          <button id="load-sample-btn">Load Sample</button>
         </div>
       </div>
       
