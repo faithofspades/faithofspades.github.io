@@ -189,21 +189,21 @@
 /* Updated CSS for the Load Sample button */
 .custom-file-input {
   position: relative;
-  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
 }
 
 .custom-file-input input[type="file"] {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  top: -18px;
+  width: 41px;
+  height: 140%;
   opacity: 0;
   cursor: pointer;
   z-index: 2;
+
 }
 
 #load-sample-btn {
@@ -229,13 +229,17 @@
   margin-top: 5px;
   position: relative;
   z-index: 1;
+  cursor: pointer;
 }
 
-#load-sample-btn:hover {
+#load-sample-btn:hover,
+.custom-file-input:hover #load-sample-btn {
   background-color: #E8E3C4;
 }
 
-.custom-file-input input[type="file"]:active + #load-sample-btn {
+/* Active state */
+.custom-file-input input[type="file"]:active + #load-sample-btn,
+#load-sample-btn:active {
   background-color: #D6D2B4;
   box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
 }
@@ -285,9 +289,9 @@
   display: none;
   position: absolute;
   z-index: 10;
-  width: 100%;
+  width: 81%;
   top: 100%; /* Position below button */
-  left: 0;
+  left: 6px;
   border: 1px solid #35100B;
   background-color: #f2eed3;
   border-radius: 5px;
@@ -300,8 +304,12 @@
 .dropdown-item {
   padding: 8px;
   border-radius: 5px;
+  text-align: center;
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  line-height: 0.9;
   color: #35100B;
   cursor: pointer;
 }
@@ -1603,7 +1611,7 @@ margin-top: -6.5px;
       <div class="sample-selector-container">
         <div class="custom-file-input">
           <input type="file" id="audio-file" accept="audio/*">
-          <button id="load-sample-btn">Load Sample</button>
+          <button id="load-sample-btn">Load</button>
         </div>
       </div>
       
