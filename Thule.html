@@ -189,57 +189,73 @@
 /* Updated CSS for the Load Sample button */
 .custom-file-input {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
+  width: 45.57px; /* Match button width exactly */
+  height: 21px; /* Match button height exactly */
+  margin: 5px 0; /* Keep consistent margins */
+  display: inline-block;
+  cursor: pointer; /* Apply cursor to the container */
 }
 
+/* Hide the default input but maintain its functionality */
 .custom-file-input input[type="file"] {
   position: absolute;
-  top: -18px;
-  width: 41px;
-  height: 140%;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
   opacity: 0;
-  cursor: pointer;
-  z-index: 2;
-
+  cursor: pointer !important; /* Force pointer cursor */
+  z-index: 3; /* Ensure it's above everything */
+  margin: 0; /* Reset any margins */
+  padding: 0; /* Reset any padding */
+  -webkit-appearance: none; /* Remove default styling */
+  appearance: none;
+  /* Don't add pointer-events: none here as it would disable the functionality */
 }
 
+
 #load-sample-btn {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   background-color: #f2eed3;
   border: 2.5px solid #35100B;
   border-radius: 5px;
-  padding: 8px;
+  padding: 0;
   font-family: "Nunito", sans-serif;
   font-size: 10px;
   font-variant-caps: all-small-caps;
   font-weight: 750;
   line-height: 0.7;
   color: #35100B;
-  height: 21px; /* Match height of other buttons */
-  width: 45.57px;
   box-sizing: border-box;
-  transition: background-color 0.2s, box-shadow 0.2s;
-  text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 5px;
-  margin-top: 5px;
-  position: relative;
-  z-index: 1;
-  cursor: pointer;
+  pointer-events: none; /* This lets clicks pass through to the input */
+  z-index: 2;
+  cursor: pointer; /* Also add cursor style here */
 }
 
-#load-sample-btn:hover,
+/* Force cursor style with both CSS properties and !important for maximum compatibility */
+.custom-file-input,
+.custom-file-input * {
+  cursor: pointer !important;
+}
+
+/* Make sure hovering anywhere in the container shows pointer */
+.custom-file-input:hover {
+  cursor: pointer !important;
+}
+
+/* Style hover and active states using the container as target */
 .custom-file-input:hover #load-sample-btn {
   background-color: #E8E3C4;
 }
 
-/* Active state */
-.custom-file-input input[type="file"]:active + #load-sample-btn,
-#load-sample-btn:active {
+.custom-file-input:active #load-sample-btn {
   background-color: #D6D2B4;
   box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
 }
