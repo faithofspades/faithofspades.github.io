@@ -218,7 +218,9 @@
   width: 100%;
   margin: 5px 0;
 }
-
+.sample-selector-container label {
+  color: #f2eed3;
+}
 .hidden-file-input {
   width: 0.1px;
   height: 0.1px;
@@ -229,7 +231,7 @@
 }
 
 .custom-file-button {
-  background-color: #f2eed3;
+  background-color: #4E658B;
   border: 2.5px solid #35100B;
   border-radius: 5px;
   padding: 8px;
@@ -250,17 +252,17 @@
 }
 
 .custom-file-button:hover {
-  background-color: #E8E3C4;
+  background-color: #597097;
   cursor: pointer;
 }
 
 .custom-file-button:active {
-  background-color: #D6D2B4;
+  background-color: #3b5174;
   box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
 }
 
 #sample-selector-btn {
-  background-color: #f2eed3;
+  background-color: #4E658B;
   border: 2.5px solid #35100B;
   border-radius: 5px;
   padding: 8px;
@@ -284,14 +286,18 @@
 }
 
 #sample-selector-btn:hover {
-  background-color: #E8E3C4;
+  background-color: #597097;
 }
 
 #sample-selector-btn:active {
-  background-color: #D6D2B4;
+  background-color: #3b5174;
   box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
 }
+#sample-selector-btn label {
 
+  color: #f2eed3;
+
+}
 /* Fix dropdown styling */
 .sample-dropdown {
   display: none;
@@ -301,7 +307,7 @@
   top: 100%; /* Position below button */
   left: 6px;
   border: 1px solid #35100B;
-  background-color: #f2eed3;
+  background-color: #4E658B;
   border-radius: 5px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   margin-top: 2px;
@@ -318,12 +324,12 @@
   font-variant-caps: all-small-caps;
   font-weight: 750;
   line-height: 0.9;
-  color: #35100B;
+  color: #f2eed3;
   cursor: pointer;
 }
 
 .dropdown-item:hover {
-  background-color: #E8E3C4;
+  background-color: #5a739a;
 }
 
 /* Update Lo-Fi and Rec buttons to match Select button in LFO */
@@ -332,7 +338,7 @@
   position: relative;
   width: 41px;
   height: 21px;
-  background-color: #f2eed3;
+  background-color: #6B8F53; /* Default background color */
   border: 2.5px solid #35100B;
   border-radius: 5px;
   display: flex;
@@ -341,45 +347,85 @@
   cursor: pointer;
   user-select: none;
   margin-bottom: 5px;
-  transition: background-color 0.2s, box-shadow 0.2s;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+  color: #35100B;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
 }
 
 .lofi-button:hover,
 .rec-button:hover {
-  background-color: #E8E3C4;
+  background-color: #729759;
 }
 
+/* Active/ON state - solid color with glow effect */
 .lofi-button.active,
 .rec-button.recording {
-  background-color: #D6D2B4;
-  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+  background-color: #7da263; /* Solid color when active */
+  color: #f2eed3; /* White text when active */
+  box-shadow: 0 0 15px #9ec681; /* Glow effect */
+  transform: scale(0.98); /* Slight pressed effect */
 }
 
-/* LED styling to match LFO module */
+/* Remove the LED elements */
 .lofi-button .select-led,
 .rec-button .select-led {
+  display: none;
+}
+.rec-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rec-button .icon {
   position: absolute;
-  top: 10.0px;
-  width: 5.5px;
-  height: 5.5px;
-  background-color: #955b56;
-  border-radius: 50px;
-  transition: background-color 0.2s, box-shadow 0.2s;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+  pointer-events: none;
 }
 
-.lofi-button.active .select-led,
-.rec-button.recording .select-led {
-  background-color: #c52a18;
-  box-shadow: 0 0 4px #ff0000;
+/* Icon color changes with button state */
+.rec-button .icon {
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
 }
 
-/* Adjust special button containers (Lo-Fi, Rec) */
-.lofi-button-container,
-.rec-button-container {
-  margin: 0;
-  padding: 0;
+.rec-button.active .icon,
+.rec-button.recording .icon {
+  filter: invert(24%) sepia(84%) saturate(7343%) hue-rotate(357deg) brightness(98%) contrast(116%);
+}
+.lofi-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
+.lofi-button .icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* Icon color changes with button state */
+.lofi-button .icon {
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.lofi-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+#sample-selector-btn {
+
+  color: #f2eed3; /* Changed from #35100B to #f2eed3 */
+
+}
 /* Normalize title styles */
 .module-title.sampler {
   margin-bottom: 0;
@@ -1319,21 +1365,12 @@ margin-top: -6.5px;
   text-align: center;
 }
 /* Styles for the additional buttons */
-.reverse-button-container,
-.keytrack-button-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-top: -5px;
-  margin-bottom: 1.5px;
-}
-
 .reverse-button,
 .keytrack-button {
   position: relative;
   width: 41px;
   height: 21px;
-  background-color: #f2eed3;
+  background-color: #BA5446;
   border: 2.5px solid #35100B;
   border-radius: 5px;
   display: flex;
@@ -1342,35 +1379,77 @@ margin-top: -6.5px;
   cursor: pointer;
   user-select: none;
   margin-bottom: 5px;
-  transition: background-color 0.2s, box-shadow 0.2s;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+  color: #35100B;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
 }
 
 .reverse-button:hover,
 .keytrack-button:hover {
-  background-color: #E8E3C4;
+  background-color: #b85f53;
 }
 
 .reverse-button.active,
 .keytrack-button.active {
-  background-color: #D6D2B4;
-  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+  background-color: #d15f50;
+  color: #f2eed3;
+  box-shadow: 0 0 15px rgba(218, 92, 75, 0.7); /* Glow effect */
+  transform: scale(0.98); /* Slight pressed effect */
 }
 
+/* Hide LEDs in these buttons too */
 .reverse-button .select-led,
 .keytrack-button .select-led {
-  position: absolute;
-  top: 11px;
-  width: 5.5px;
-  height: 5.5px;
-  background-color: #955b56;
-  border-radius: 50px;
-  transition: background-color 0.2s, box-shadow 0.2s;
+  display: none;
+}
+.reverse-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.reverse-button.active .select-led,
-.keytrack-button.active .select-led {
-  background-color: #c52a18;
-  box-shadow: 0 0 4px #ff0000;
+.reverse-button .icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* Icon color changes with button state */
+.reverse-button .icon {
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.reverse-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+.keytrack-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.keytrack-button .icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* Icon color changes with button state */
+.keytrack-button .icon {
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.keytrack-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
 }
 /* Update Master Module Styling */
 .module-title.master {
@@ -1708,15 +1787,15 @@ margin-top: -6.5px;
   </div>
 </div>
       
-      <div class="switch-container lofi-button-container">
-        <div class="lofi-button" id="emu-mode-switch">
-          <div class="select-led"></div>
-        </div>
-        <label for="emu-mode-switch">Lo-Fi</label>
-      </div>
+<div class="switch-container lofi-button-container">
+  <div class="lofi-button" id="emu-mode-switch">
+    <img src="control icons/lo-fi.svg" alt="Lo-Fi" class="icon">
+  </div>
+  <label for="emu-mode-switch">Lo-Fi</label>
+</div>
       <div class="switch-container reverse-button-container">
         <div class="reverse-button" id="reverse-button">
-          <div class="select-led"></div>
+          <img src="control icons/reverse.svg" alt="Reverse" class="icon">
         </div>
         <label for="reverse-button">Reverse</label>
       </div>
@@ -1740,7 +1819,7 @@ margin-top: -6.5px;
     <div class="sampler-column">
       <!-- Sample selector dropdown -->
       <div class="sample-selector-container">
-        <button id="sample-selector-btn">Presets ▼</button>
+        <button id="sample-selector-btn">Presets</button>
         <div id="sample-dropdown" class="sample-dropdown">
           <div class="dropdown-item" data-sample="Dirty Bass.wav">Dirty Bass</div>
           <div class="dropdown-item" data-sample="Keys - Piano.wav">Piano</div>
@@ -1752,12 +1831,14 @@ margin-top: -6.5px;
       
       <div class="switch-container rec-button-container">
         <div class="rec-button" id="mic-record-button">
-          <div class="select-led"></div>
+          <img src="control icons/record.svg" alt="Record" class="icon">
         </div>
         <label for="mic-record-button">Rec</label>
       </div>
       <div class="switch-container keytrack-button-container">
         <div class="keytrack-button active" id="keytrack-button">
+          <img src="control icons/keyboard.svg" alt="Keyboard" class="icon">
+
           <div class="select-led" style="background-color: #c52a18; box-shadow: 0 0 4px #ff0000;"></div>
         </div>
         <label for="keytrack-button">Key-Track</label>
