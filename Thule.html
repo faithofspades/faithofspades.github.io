@@ -89,7 +89,7 @@
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color: #cb7c73; /* Same color as LFO */
+  background-color: #BA5446; /* Same color as LFO */
   padding: 5px 0;
   border-radius: 10px;
   border: 0px solid #35100B;
@@ -145,29 +145,52 @@
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  background-color: #f2eed3;
+  background-color: #BA5446;
   position: relative;
   cursor: grab;
   box-sizing: border-box;
   
   /* Double border effect - EXACT match to LFO depth knob */
   border: 0.5px solid #35100B;
-  box-shadow: 0 0 0 4.2px #f2eed3, 0 0 0 6px #35100B;
+  box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
   
   /* Center point marker */
   transform-origin: center center;
+}
+
+.sampler-module #sample-start-knob{
+  border: 0.5px solid #000000;
+  background-color: #4E658B;
+  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+}
+
+.sampler-module #sample-end-knob{
+  border: 0.5px solid #000000;
+  background-color: #4E658B;
+  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+}
+
+.sampler-module #sample-crossfade-knob{
+  border: 0.5px solid #000000;
+  background-color: #6B8F53;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+}
+.sampler-module #sample-fade-knob{
+  border: 0.5px solid #000000;
+  background-color: #6B8F53;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
 }
 
 /* Style knob indicator lines to match LFO */
 .sampler-module .knob::after {
   content: '';
   position: absolute;
-  border-radius: 5px;
+  border-radius: 1px;
   top: 50%;
   left: 50%;
-  width: 23px; /* Longer line from center to edge */
+  width: 23.6px; /* Longer line from center to edge */
   height: 3px;
-  background-color: #35100B;
+  background-color: #f2eed3;
   transform-origin: left center;
   transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
 }
@@ -695,7 +718,7 @@ margin-top: -6.5px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color: #cb7c73; /* Same color as LFO/SAMPLER */
+  background-color: #BA5446; /* Same color as LFO/SAMPLER */
   padding: 5px 0;
   border-radius: 10px;
   border: 0px solid #35100B;
@@ -732,20 +755,27 @@ margin-top: -6.5px;
 .slider-group input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  width: 230px;
+  width: 241px;
   height: 5px; /* Thinner track like LFO */
   background: transparent;
   transform: rotate(270deg);
   position: absolute;
-  top: 130px;
+  top: 135px;
 }
 
 /* Values above sliders */
 #attack-value, #decay-value, #sustain-value, #release-value {
   font-family: "Nunito", sans-serif;
   font-size: 10px;
+  font-weight: 750;
+  font-variant-caps: all-small-caps;
   color: #35100B;
-  margin-bottom: 5px;
+  width: 25px; /* Fixed width */
+  text-align: center;
+  display: block;
+  margin: 0 auto 5px auto;
+  height: 12px; /* Fixed height */
+  overflow: hidden; /* Prevent overflow */
 }
 
 /* Labels below sliders */
@@ -753,7 +783,7 @@ margin-top: -6.5px;
   display: flex;
   justify-content: space-between;
   width: 90%;
-  margin-top: 235px;
+  margin-top: 247px;
 }
 
 .slider-labels label {
@@ -834,7 +864,7 @@ margin-top: -6.5px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color:  #cb7c73;
+  background-color:  #BA5446;
   padding: 5px 0;
   border-radius: 10px;
   border: 0px solid #35100B;
@@ -953,6 +983,11 @@ margin-top: -6.5px;
   margin-left: 5px;
   font-size: 10px;
   white-space: nowrap;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  margin-bottom: 1.6px;
   color: #35100B;
 }
 .lfo-selector-container {
@@ -960,7 +995,7 @@ margin-top: -6.5px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-top: 5px;
+  margin-top: 7px;
 }
 
 /* Horizontal five-step selector */
@@ -1085,14 +1120,16 @@ margin-top: -6.5px;
 }
 .slider-label {
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
   color: #35100B;
   text-align: center;
   margin-top: 10px;
   width: 100%;
   position: absolute;
   bottom: -24px;
-  right: 8px;
+  right: 5px;
 }
 
 /* Position the slider containers correctly to make room for labels */
@@ -1153,13 +1190,15 @@ margin-top: -6.5px;
 }
 .destination-label {
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
   color: #35100B;
   text-align: center;
   width: 100%;
   position: absolute;
   bottom: -22px;
-  margin-left: 9px;
+  margin-left: -4px;
 }
 /* Container for bottom row controls */
 .lfo-bottom-controls {
@@ -1214,7 +1253,9 @@ margin-top: -6.5px;
 .depth-knob-container label {
   margin-top: 8px;
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
   color: #35100B;
 }
 
@@ -1271,7 +1312,9 @@ margin-top: -6.5px;
 /* Add label under select button */
 .select-button-container label {
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
   color: #35100B;
   text-align: center;
 }
@@ -1339,7 +1382,7 @@ margin-top: -6.5px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color: #cb7c73; /* Same color as LFO/SAMPLER */
+  background-color: #4E658B; /* Same color as LFO/SAMPLER */
   padding: 5px 0;
   border: 0px solid #35100B;
   width: 150%;
@@ -1395,6 +1438,7 @@ margin-top: -6.5px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  padding-top: 4px;
   margin-top: -5px;
   margin-bottom: 1.5px;
 }
@@ -3595,12 +3639,14 @@ function getBlackKeyIndex(position) {
 
         // Add interface updating functions
         function updateSliderValues() {
-            D('attack-value').textContent = D('attack').value;
-            D('decay-value').textContent = D('decay').value;
-            D('sustain-value').textContent = D('sustain').value;
-            D('release-value').textContent = D('release').value;
-            updateADSRVisualization();
-        }
+  // Always format to 2 decimal places for consistent width
+  D('attack-value').textContent = parseFloat(D('attack').value).toFixed(3);
+  D('decay-value').textContent = parseFloat(D('decay').value).toFixed(2);
+  D('sustain-value').textContent = parseFloat(D('sustain').value).toFixed(2);
+  D('release-value').textContent = parseFloat(D('release').value).toFixed(3);
+  
+  updateADSRVisualization();
+}
 
         // ADSR visualization
         function updateADSRVisualization() {
