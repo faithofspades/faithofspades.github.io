@@ -719,18 +719,18 @@ body {
 .slider-group input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  background: #f2eed3;
-  border: 2px solid #35100B;
-  width: 24px;
-  height: 18px;
+  background: #35100B;
+  width: 18px;
+  height: 26px;
   cursor: pointer;
+  bottom: 10px;
   border-radius: 5px;
   /* Add indicator line like LFO sliders */
-  background-image: linear-gradient(to top, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+  background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
   background-size: 2px 100% ;
   background-repeat: no-repeat;
   background-position: center;
-margin-top: -6.5px;
+margin-top: -10.6px;
 }
 
 /* ADSR slider tracks */
@@ -860,33 +860,7 @@ margin-top: -6.5px;
     text-align: center;
 }
 
-/* Update vertical switch styling */
-.vertical-switch {
-    width: 20px;
-    height: 40px;
-    background: #f2eed3;
-    border: 1px solid #35100B;
-    border-radius: 10px;
-    position: relative;
-    cursor: grab;
-}
 
-.vertical-switch::after {
-    content: '';
-    position: absolute;
-    width: 16px;
-    height: 18px;
-    background: #d4c6a8;
-    border: 1px solid #35100B;
-    border-radius: 8px;
-    left: 1px;
-    top: 1px;
-    transition: top 0.1s;
-}
-
-.vertical-switch.active::after {
-    top: 19px;
-}
 
 /* Mono controls container */
 .mono-controls {
@@ -1074,15 +1048,14 @@ margin-top: -6.5px;
 .five-step-selector-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  background: #f2eed3;
-  border: 2px solid #35100B;
+  background: #35100B;
   width: 18px;
   height: 24px;
   cursor: pointer;
   margin-top: -6.7px; /* For horizontal slider */
   border-radius: 5px;
       /* Optional: Add a small indicator line */
-      background-image: linear-gradient(to top, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+      background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
   background-size: 2px 100%;
   background-repeat: no-repeat;
   background-position: center;
@@ -1090,15 +1063,15 @@ margin-top: -6.5px;
 .rate-slider-range::-webkit-slider-thumb,
 .delay-slider-range::-webkit-slider-thumb {
   -webkit-appearance: none;
-  background: #f2eed3;
-  border: 2px solid #35100B;
-  width: 18px;
-  height: 24px;
+
+  background: #35100B;
+  width: 26px;
+  height: 18px;
   cursor: pointer;
-  margin-left: -6.2px; /* For vertical sliders */
+  margin-left: -10.6px; /* For vertical sliders */
   border-radius: 5px; /* Remove circular shape to make rectangular */
     /* Optional: Add a small indicator line */
-    background-image: linear-gradient(to right, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+    background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
   background-size: 100% 2px;
   background-repeat: no-repeat;
   background-position: center;
@@ -1129,8 +1102,7 @@ margin-top: -6.5px;
 .lfo-destination-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  background: #f2eed3;
-  border: 2px solid #35100B;
+  background: #35100B;
   width: 24px; /* Make it wider than the track */
   height: 26px; /* Make it taller */
   cursor: pointer;
@@ -1143,7 +1115,7 @@ margin-top: -6.5px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   
   /* Optional: Add a small indicator line */
-  background-image: linear-gradient(to right, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
+  background-image: linear-gradient(to right, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
   background-size: 100% 2px;
   background-repeat: no-repeat;
   background-position: center;
@@ -1269,14 +1241,14 @@ margin-top: -6.5px;
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  background-color: #f2eed3;
+  background-color: #E5AB5F;
   position: relative;
   cursor: grab;
   box-sizing: border-box;
   
   /* Double border effect */
   border: 0.5px solid #35100B;
-  box-shadow: 0 0 0 4.2px #f2eed3, 0 0 0 6px #35100B;
+  box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;
   
   /* Center point marker */
   transform-origin: center center;
@@ -1317,7 +1289,7 @@ margin-top: -6.5px;
   position: relative;
   width: 41px; /* Match the knob width for consistency */
   height: 41px; /* Perfect square */
-  background-color: #f2eed3; /* Match the synth panel color */
+  background-color: #CF814D; /* Match the synth panel color */
   border: 2.5px solid #35100B;
   border-radius: 10px;
   display: flex;
@@ -1331,28 +1303,36 @@ margin-top: -6.5px;
 }
 
 .select-button:hover {
-  background-color: #E8E3C4; /* Slightly darker on hover */
+  background-color: #d69061; /* Slightly darker on hover */
 }
 
 .select-button.active {
-  background-color: #D6D2B4;
-  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+  background-color: #dc8953;
+  box-shadow: 0 0 8px #dc8953; /* Glow effect */
+  transform: scale(0.98); /* Slight pressed effect */
 }
 
-/* LED styling */
-.select-led {
+/* Add icon styling */
+.select-button .icon {
   position: absolute;
-  top: 24.5px;
-  width: 7.5px;
-  height: 7.5px;
-  background-color: #955b56; /* Dark red (off state) */
-  border-radius: 50px;
-  transition: background-color 0.2s, box-shadow 0.2s;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+  pointer-events: none;
 }
 
-.select-button.active .select-led {
-  background-color: #c52a18; /* Bright red (on state) */
-  box-shadow: 0 0 4px #ff0000;
+/* Icon color changes with button state */
+.select-button .icon {
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.select-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+
+/* Remove the LED */
+.select-button .select-led {
+  display: none;
 }
 
 /* Add label under select button */
@@ -1461,7 +1441,7 @@ margin-top: -6.5px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color: #4E658B; /* Same color as LFO/SAMPLER */
+  background-color: #BA5446; /* Same color as LFO/SAMPLER */
   padding: 5px 0;
   border: 0px solid #35100B;
   width: 150%;
@@ -1487,14 +1467,13 @@ margin-top: -6.5px;
 .vertical-switch {
   width: 20px;
   height: 40px;
-  background: #f2eed3;
+  background: #E5AB5F;
   border: 2px solid #35100B;
   border-radius: 5px;
   position: relative;
   cursor: grab;
   margin-bottom: 5px;
 }
-
 
 .vertical-switch::after {
   content: '';
@@ -1507,6 +1486,14 @@ margin-top: -6.5px;
   left: 0px;
   top: 0px;
   transition: top 0.1s;
+  
+  /* Add the on.svg overlay as a background image */
+  background-image: url("control icons/on.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px; /* Adjust size to fit inside the handle */
+  
+  /* Filter to make the icon white */
 }
 
 .vertical-switch.active::after {
@@ -1526,7 +1513,7 @@ margin-top: -6.5px;
   position: relative;
   width: 41px;
   height: 21px;
-  background-color: #f2eed3;
+  background-color: #CF814D;
   border: 2.5px solid #35100B;
   border-radius: 5px;
   display: flex;
@@ -1534,32 +1521,49 @@ margin-top: -6.5px;
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  margin-bottom: 4px;
-  transition: background-color 0.2s, box-shadow 0.2s;
+  margin-bottom: 5px;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
 }
 
 .porta-button:hover {
-  background-color: #E8E3C4;
+  background-color: #d69061;
 }
 
 .porta-button.active {
-  background-color: #D6D2B4;
-  box-shadow: inset 0px 2px 5px rgba(0, 0, 0, 0.244);
+  background-color: #dc8953;
+  color: #f2eed3;
+  box-shadow: 0 0 8px #dc8953; /* Glow effect */
+  transform: scale(0.98); /* Slight pressed effect */
 }
 
-.porta-button .select-led {
+/* Add icon styling */
+.porta-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.porta-button .icon {
   position: absolute;
-  top: 11px;
-  width: 5.5px;
-  height: 5.5px;
-  background-color: #955b56;
-  border-radius: 50px;
-  transition: background-color 0.2s, box-shadow 0.2s;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+  pointer-events: none;
 }
 
-.porta-button.active .select-led {
-  background-color: #c52a18;
-  box-shadow: 0 0 4px #ff0000;
+/* Icon color changes with button state */
+.porta-button .icon {
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.porta-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+
+/* Remove the LED */
+.porta-button .select-led {
+  display: none;
 }
 
 /* Switch container styling */
@@ -1595,14 +1599,14 @@ margin-top: -6.5px;
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  background-color: #f2eed3;
+  background-color: #BA5446;
   position: relative;
   cursor: grab;
   box-sizing: border-box;
   
   /* Double border effect - EXACT match to other knobs */
   border: 0.5px solid #35100B;
-  box-shadow: 0 0 0 4.2px #f2eed3, 0 0 0 6px #35100B;
+  box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
   
   /* Center point marker */
   transform-origin: center center;
@@ -1613,12 +1617,12 @@ margin-top: -6.5px;
 .master-module .knob::after {
   content: '';
   position: absolute;
-  border-radius: 5px;
+  border-radius: 1px;
   top: 50%;
   left: 50%;
-  width: 23px; /* Longer line from center to edge */
+  width: 23.6px; /* Longer line from center to edge */
   height: 3px;
-  background-color: #35100B;
+  background-color: #f2eed3;
   transform-origin: left center;
   transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
 }
@@ -1726,6 +1730,7 @@ margin-top: -6.5px;
   </div>
   <div class="select-button-container">
     <div class="select-button" id="lfo-select-button">
+      <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
       <div class="select-led"></div>
     </div>
     <label for="lfo-select-button">Select</label>
@@ -1917,12 +1922,12 @@ margin-top: -6.5px;
                 <div class="legato-controls">
                   <div class="switch-container porta-button-container">
                     <div class="porta-button" id="portamento-switch">
-                      <div class="select-led"></div>
+                      <img src="control icons/portamento.svg" alt="Portamento" class="icon">
                     </div>
                     <label for="portamento-switch">PORTA</label>
                   </div>
                   
-                  <!-- Glide Time Knob -->
+                  <!-- Glide Time Knob (unchanged) -->
                   <div class="knob-container">
                     <div class="knob" id="glide-time-knob"></div>
                     <label for="glide-time-knob">Glide</label>
