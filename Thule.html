@@ -1646,6 +1646,198 @@ margin-top: -10.6px;
   align-items: center;
   transition: opacity 0.3s;
 }
+/* MODULATION Module styling */
+.modulation-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 169px;
+  max-width: 169px;
+  align-items: center;
+  padding-top: 15px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.module-title.modulation {
+  color: #f2eed3;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 10px;
+  background-color: #4E658B; /* Distinct color for MODULATION module */
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+  margin-top: -15px;
+}
+
+/* Canvas container styling */
+.mod-canvas-container {
+  position: relative;
+  width: 120px;
+  height: 100px;
+  background-color: #35100B;
+  border: 2px solid #35100B;
+  border-radius: 5px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+#mod-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  z-index: 2;
+}
+
+.mod-grid-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: linear-gradient(to right, rgba(242, 238, 211, 0.1) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(242, 238, 211, 0.1) 1px, transparent 1px);
+  background-size: 10px 10px;
+  z-index: 1;
+}
+
+/* Three-way mode selector styling */
+.mod-selector-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.mod-mode-selector {
+  display: flex;
+  flex-direction: column;
+  background-color: #E5AB5F;
+  border: 2px solid #35100B;
+  border-radius: 5px;
+  overflow: hidden;
+  width: 45px;
+}
+
+.mode-option {
+  padding: 6px;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  cursor: pointer;
+  border-bottom: 1px solid #35100B;
+  background-color: #f2eed3;
+}
+
+.mode-option:last-child {
+  border-bottom: none;
+}
+
+.mode-option.active {
+  background-color: #35100B;
+  color: #f2eed3;
+}
+
+/* Controls container */
+.mod-controls-container {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+/* Knob styling (using existing knob styles) */
+.modulation-module .knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #4E658B;
+  position: relative;
+  cursor: grab;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+  transform-origin: center center;
+}
+
+.modulation-module .knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+
+/* Destination slider styling */
+.mod-destination-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 5px;
+}
+
+.mod-destination-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 90%;
+  height: 5px;
+  background: transparent;
+  margin: 0 0 5px 0;
+}
+
+.mod-destination-range::-webkit-slider-runnable-track {
+  background: #35100B;
+  border-radius: 5px;
+  height: 5px;
+  border: none;
+}
+
+.mod-destination-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #35100B;
+  width: 18px;
+  height: 24px;
+  cursor: pointer;
+  margin-top: -9.5px;
+  border-radius: 5px;
+  background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.mod-destination-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 90%;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+}
     </style>
 </head>
 <body>
@@ -1774,7 +1966,50 @@ margin-top: -10.6px;
 </div>
 
 </div>
-
+<!-- New MODULATION Module -->
+<div class="module modulation-module">
+  <div class="module-title modulation">MODULATION</div>
+  
+  <div class="mod-canvas-container">
+    <canvas id="mod-canvas" width="120" height="100"></canvas>
+    <div class="mod-grid-overlay"></div>
+  </div>
+  
+  <div class="mod-selector-container">
+    <!-- Three-way vertical selector -->
+    <div class="mod-mode-selector">
+      <div class="mode-option" data-mode="env">ENV</div>
+      <div class="mode-option active" data-mode="lfo">LFO</div>
+      <div class="mode-option" data-mode="trig">TRIG</div>
+    </div>
+  </div>
+  
+  <div class="mod-controls-container">
+    <!-- Rate Knob -->
+    <div class="knob-container">
+      <div class="knob" id="mod-rate-knob"></div>
+      <label for="mod-rate-knob">Rate</label>
+    </div>
+    
+    <!-- Select Button -->
+    <div class="select-button-container">
+      <div class="select-button" id="mod-select-button">
+        <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
+      </div>
+      <label for="mod-select-button">Select</label>
+    </div>
+  </div>
+  
+  <!-- Horizontal destination slider with labels -->
+  <div class="mod-destination-container">
+    <input type="range" class="mod-destination-range" min="0" max="8" step="1" value="0">
+    <div class="mod-destination-labels">
+      <span>Pitch</span>
+      <span>Filter</span>
+      <span>Amp</span>
+    </div>
+  </div>
+</div>
 
 <!-- Updated SAMPLER Module with matching styling -->
 <div class="module sampler-module">
@@ -6139,11 +6374,11 @@ document.addEventListener('DOMContentLoaded', function() {
       this.classList.toggle('active');
       const led = this.querySelector('.select-led');
       if (this.classList.contains('active')) {
-        led.style.backgroundColor = '#c52a18';
-        led.style.boxShadow = '0 0 4px #ff0000';
+
+    
       } else {
-        led.style.backgroundColor = '#955b56';
-        led.style.boxShadow = 'none';
+
+
       }
     });
   }
@@ -6163,6 +6398,800 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
   }
+});
+// Complete replacement for the global drag handler
+document.addEventListener('DOMContentLoaded', function() {
+  const canvas = document.getElementById('mod-canvas');
+  if (!canvas) return;
+  
+  // Global handlers for tracking mouse outside canvas
+  let isDraggingOutside = false;
+  let dragType = null; // 'point' or 'curve' 
+  let dragPointIndex = -1;
+  
+  // Only attach document-level handlers once
+  document.addEventListener('mousemove', handleGlobalMouseMove);
+  document.addEventListener('mouseup', handleGlobalMouseUp);
+  
+  function handleGlobalMouseMove(e) {
+    if (!isDraggingOutside) return;
+    
+    // Convert global coordinates to canvas coordinates
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Call appropriate handler based on drag type
+    if (dragType === 'point' && typeof canvas.__handlePointDrag === 'function') {
+      canvas.__handlePointDrag(x, y);
+    } 
+    else if (dragType === 'curve' && typeof canvas.__handleCurveDrag === 'function') {
+      canvas.__handleCurveDrag(x, y);
+    }
+    
+    // Redraw
+    if (typeof canvas.__drawWaveform === 'function') {
+      canvas.__drawWaveform();
+    }
+  }
+  
+  function handleGlobalMouseUp() {
+    if (!isDraggingOutside) return;
+    
+    // Reset drag state
+    isDraggingOutside = false;
+    dragType = null;
+    dragPointIndex = -1;
+    
+    // Reset canvas internal state too
+    if (typeof canvas.__resetDragState === 'function') {
+      canvas.__resetDragState();
+    }
+  }
+  
+  // Watch canvas mouseleave events to activate global tracking
+  canvas.addEventListener('mouseleave', function(e) {
+    // Check if we were dragging something
+    const state = canvas.__currentScript || {};
+    
+    if (state.isDraggingPoint && state.selectedPointIndex >= 0) {
+      isDraggingOutside = true;
+      dragType = 'point';
+      dragPointIndex = state.selectedPointIndex;
+    }
+    else if (state.isDraggingCurve && state.activeCurveIndex >= 0) {
+      isDraggingOutside = true;
+      dragType = 'curve';
+      dragPointIndex = state.activeCurveIndex;
+    }
+  });
+  
+  // Make sure we update the script reference when needed
+  const originalMouseDown = canvas.addEventListener('mousedown', function() {
+    setTimeout(updateScriptRef, 0);
+  });
+  
+  const originalMouseMove = canvas.addEventListener('mousemove', function() {
+    setTimeout(updateScriptRef, 0);
+  });
+  
+  const originalMouseUp = canvas.addEventListener('mouseup', function() {
+    isDraggingOutside = false;
+    dragType = null;
+    dragPointIndex = -1;
+    setTimeout(updateScriptRef, 0);
+  });
+  
+  function updateScriptRef() {
+    if (typeof canvas.__updateScriptReference === 'function') {
+      canvas.__updateScriptReference();
+    }
+  }
+});
+
+// Modify your main modulation canvas code
+document.addEventListener('DOMContentLoaded', function() {
+  const canvas = document.getElementById('mod-canvas');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  // Shared state variables
+  const points = [];
+  let selectedPointIndex = -1;
+  let isDraggingPoint = false;
+  let isDraggingCurve = false;
+  let activeCurveIndex = -1;
+  let lastTapTime = 0;
+  
+  // Store references to points and handlers on the canvas element for global access
+  canvas.__points = points;
+  canvas.__currentScript = {
+    points,
+    isDraggingPoint,
+    isDraggingCurve,
+    selectedPointIndex,
+    activeCurveIndex
+  };
+  
+  canvas.__handlePointDrag = handlePointDrag;
+  canvas.__handleCurveDrag = handleCurveDrag;
+  canvas.__drawWaveform = drawWaveform;
+  canvas.__resetDragState = function() {
+    isDraggingPoint = false;
+    isDraggingCurve = false;
+  };
+  
+  // Update the current script reference when states change
+  function updateScriptReference() {
+    canvas.__currentScript = {
+      points,
+      isDraggingPoint,
+      isDraggingCurve,
+      selectedPointIndex,
+      activeCurveIndex
+    };
+  }
+  canvas.__updateScriptReference = updateScriptReference;
+  // Set initial waveform (sine wave)
+  initializeDefaultWave();
+  
+  // Main drawing function
+  function drawWaveform() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (points.length < 2) return;
+    
+    // Draw grid background
+    drawGrid();
+    
+    // Draw the line segments
+    ctx.strokeStyle = '#f2eed3';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    
+    // Connect all points with curves or lines
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      const endPoint = points[i + 1];
+      
+      if (startPoint.noCurve) {
+        // Draw straight line if curve is disabled
+        ctx.lineTo(endPoint.x, endPoint.y);
+      } else {
+        // Calculate default control point if none exists
+        if (!startPoint.curveX || !startPoint.curveY) {
+          const midX = (startPoint.x + endPoint.x) / 2;
+          const midY = (startPoint.y + endPoint.y) / 2;
+          startPoint.curveX = midX;
+          startPoint.curveY = midY;
+        }
+        
+        // Ensure the curve stays inside the canvas bounds
+        const clampedSegment = ensureCurveInsideBounds(
+          startPoint.x, startPoint.y,
+          startPoint.curveX, startPoint.curveY,
+          endPoint.x, endPoint.y
+        );
+        
+        ctx.quadraticCurveTo(
+          clampedSegment.cpX, clampedSegment.cpY, 
+          endPoint.x, endPoint.y
+        );
+      }
+    }
+    
+    ctx.stroke();
+    
+    // Draw the main points
+    points.forEach((point, index) => {
+      ctx.fillStyle = index === selectedPointIndex ? '#ffcc00' : '#f2eed3';
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    
+    // Draw the curve control points
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      if (startPoint.noCurve) continue;
+      
+      const endPoint = points[i + 1];
+      
+      // Draw curve control point
+      const isActive = i === activeCurveIndex;
+      ctx.fillStyle = isActive ? '#ffcc00' : '#f2eed3';
+      ctx.beginPath();
+      ctx.arc(startPoint.curveX, startPoint.curveY, 3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Draw guide lines for active curve control point
+      if (isActive) {
+        ctx.strokeStyle = 'rgba(242, 238, 211, 0.4)';
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(startPoint.x, startPoint.y);
+        ctx.lineTo(startPoint.curveX, startPoint.curveY);
+        ctx.lineTo(endPoint.x, endPoint.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    
+    // Draw help text
+    drawInfoText();
+  }
+  
+  // Grid background
+  function drawGrid() {
+    const gridSize = 10;
+    ctx.strokeStyle = 'rgba(242, 238, 211, 0.1)';
+    ctx.lineWidth = 0.5;
+    
+    for (let x = 0; x <= canvas.width; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    
+    for (let y = 0; y <= canvas.height; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+  }
+  
+  // Keep curves within bounds
+  function ensureCurveInsideBounds(x1, y1, cpX, cpY, x2, y2) {
+    const padding = 1;
+    const minY = padding;
+    const maxY = canvas.height - padding;
+    
+    // Check multiple points along the curve
+    const steps = 10;
+    let maxOutOfBounds = 0;
+    let direction = 0;
+    
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const y = Math.pow(1-t, 2) * y1 + 2 * (1-t) * t * cpY + Math.pow(t, 2) * y2;
+      
+      if (y < minY && (minY - y) > maxOutOfBounds) {
+        maxOutOfBounds = minY - y;
+        direction = 1; // Move control point down
+      } 
+      else if (y > maxY && (y - maxY) > maxOutOfBounds) {
+        maxOutOfBounds = y - maxY;
+        direction = -1; // Move control point up
+      }
+    }
+    
+    // If curve goes out of bounds, adjust control point
+    if (maxOutOfBounds > 0) {
+      const correctionFactor = 2;
+      cpY += direction * maxOutOfBounds * correctionFactor;
+      
+      // Verify the correction
+      let maxViolation = 0;
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const y = Math.pow(1-t, 2) * y1 + 2 * (1-t) * t * cpY + Math.pow(t, 2) * y2;
+        
+        if (y < minY) maxViolation = Math.max(maxViolation, minY - y);
+        else if (y > maxY) maxViolation = Math.max(maxViolation, y - maxY);
+      }
+      
+      // If still violating, try stronger correction
+      if (maxViolation > 0.5) {
+        cpY += direction * maxViolation * correctionFactor;
+      }
+    }
+    
+    return { cpX, cpY };
+  }
+  
+  // Constrain control points to segment's horizontal bounds
+  function constrainControlPoint(startPoint, endPoint, curveX, curveY) {
+    const minX = Math.min(startPoint.x, endPoint.x);
+    const maxX = Math.max(startPoint.x, endPoint.x);
+    const constrainedX = Math.max(minX, Math.min(maxX, curveX));
+    return { x: constrainedX, y: curveY };
+  }
+  
+  // Constrain point Y position within canvas bounds
+  function constrainPointY(y) {
+    const padding = 1;
+    return Math.max(padding, Math.min(canvas.height - padding, y));
+  }
+  
+// Dynamically update control points when segment endpoints move
+function updateControlPointsForSegment(segmentIndex) {
+  if (segmentIndex < 0 || segmentIndex >= points.length - 1) return;
+  
+  const startPoint = points[segmentIndex];
+  const endPoint = points[segmentIndex + 1];
+  
+  if (startPoint.noCurve) return;
+  
+  // If control point doesn't exist, create one at midpoint
+  if (startPoint.curveX === undefined || startPoint.curveY === undefined) {
+    startPoint.curveX = (startPoint.x + endPoint.x) / 2;
+    startPoint.curveY = (startPoint.y + endPoint.y) / 2;
+    return;
+  }
+  
+  // Store original Y position
+  const originalY = startPoint.curveY;
+  
+  // Calculate horizontal constraints - CRITICAL FIX
+  const minX = Math.min(startPoint.x, endPoint.x);
+  const maxX = Math.max(startPoint.x, endPoint.x);
+  
+  // CRITICAL FIX: Check if the current control point is out of horizontal bounds
+  if (startPoint.curveX < minX || startPoint.curveX > maxX) {
+    // If out of bounds, maintain relative horizontal position
+    const segmentWidth = endPoint.x - startPoint.x;
+    if (segmentWidth !== 0) {
+      // Try to maintain the same relative position
+      const xRatio = segmentWidth > 0 ? 
+        (startPoint.curveX - startPoint.x) / segmentWidth : 
+        0.5; // Default to middle if segment collapsed
+        
+      // Keep ratio within 0-1 range
+      const clampedRatio = Math.max(0, Math.min(1, xRatio));
+      startPoint.curveX = startPoint.x + (segmentWidth * clampedRatio);
+    } else {
+      // If segment has zero width, place control point at start point
+      startPoint.curveX = startPoint.x;
+    }
+  }
+  
+  // Always ensure the control point stays within the segment bounds
+  startPoint.curveX = Math.max(minX, Math.min(maxX, startPoint.curveX));
+  
+  // Preserve original Y position
+  startPoint.curveY = originalY;
+  
+  // Ensure the curve stays within the canvas bounds
+  const clampedCurve = ensureCurveInsideBounds(
+    startPoint.x, startPoint.y,
+    startPoint.curveX, startPoint.curveY,
+    endPoint.x, endPoint.y
+  );
+  
+  // Apply any needed vertical adjustment to keep curve in bounds
+  startPoint.curveY = clampedCurve.cpY;
+}
+  
+  // Default sine wave initialization
+  function initializeDefaultWave() {
+    points.length = 0;
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    const center = height / 2;
+    const amplitude = height / 3;
+    
+    // Create 5 points along a sine wave
+    for (let i = 0; i < 5; i++) {
+      const x = (i / 4) * width;
+      const y = center - Math.sin((i / 4) * Math.PI * 2) * amplitude;
+      
+      if (i > 0) {
+        const prevX = ((i-1) / 4) * width;
+        const midX = (prevX + x) / 2;
+        const curveY = center - Math.sin((((i - 0.5) / 4)) * Math.PI * 2) * amplitude;
+        
+        points[i-1].curveX = midX;
+        points[i-1].curveY = curveY;
+        points[i-1].noCurve = false;
+      }
+      
+      points.push({ x, y, noCurve: false });
+    }
+    
+    drawWaveform();
+  }
+  
+  // Helper functions for finding closest elements
+  function findClosestPoint(x, y) {
+    let closestIndex = -1;
+    let minDistance = 10; // Minimum distance to select
+    
+    points.forEach((point, index) => {
+      const distance = Math.sqrt(Math.pow(point.x - x, 2) + Math.pow(point.y - y, 2));
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = index;
+      }
+    });
+    
+    return closestIndex;
+  }
+  
+  function findClosestCurvePoint(x, y) {
+    let closestIndex = -1;
+    let minDistance = 10;
+    
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      if (startPoint.noCurve) continue;
+      
+      if (startPoint.curveX !== undefined && startPoint.curveY !== undefined) {
+        const distance = Math.sqrt(Math.pow(startPoint.curveX - x, 2) + Math.pow(startPoint.curveY - y, 2));
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestIndex = i;
+        }
+      }
+    }
+    
+    return closestIndex;
+  }
+  
+  function findClosestLineSegment(x, y) {
+    let closestIndex = -1;
+    let minDistance = 10;
+    
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      const endPoint = points[i + 1];
+      
+      // Calculate distance to line segment
+      const A = x - startPoint.x;
+      const B = y - startPoint.y;
+      const C = endPoint.x - startPoint.x;
+      const D = endPoint.y - startPoint.y;
+      
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      let param = -1;
+      
+      if (lenSq !== 0) param = dot / lenSq;
+      
+      let xx, yy;
+      
+      if (param < 0) {
+        xx = startPoint.x;
+        yy = startPoint.y;
+      } else if (param > 1) {
+        xx = endPoint.x;
+        yy = endPoint.y;
+      } else {
+        xx = startPoint.x + param * C;
+        yy = startPoint.y + param * D;
+      }
+      
+      const distance = Math.sqrt(Math.pow(x - xx, 2) + Math.pow(y - yy, 2));
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = i;
+      }
+    }
+    
+    return closestIndex;
+  }
+  
+  // Add/remove points functions
+  function findInsertPosition(x) {
+    for (let i = 0; i < points.length; i++) {
+      if (x < points[i].x) return i;
+    }
+    return points.length;
+  }
+  
+  function addPoint(x, y) {
+    const insertIndex = findInsertPosition(x);
+    
+    const minDistance = 0.1; 
+    if ((insertIndex > 0 && x - points[insertIndex-1].x < minDistance) ||
+        (insertIndex < points.length && points[insertIndex].x - x < minDistance)) {
+      return -1;
+    }
+    
+    y = constrainPointY(y);
+    
+    points.splice(insertIndex, 0, { x, y, noCurve: false });
+    
+    // Update curve control points
+    if (insertIndex > 0) {
+      const prevPoint = points[insertIndex - 1];
+      const midX = (prevPoint.x + x) / 2;
+      const midY = (prevPoint.y + y) / 2;
+      prevPoint.curveX = midX;
+      prevPoint.curveY = midY;
+    }
+    
+    if (insertIndex < points.length - 1) {
+      const nextPoint = points[insertIndex + 1];
+      const midX = (x + nextPoint.x) / 2;
+      const midY = (y + nextPoint.y) / 2;
+      points[insertIndex].curveX = midX;
+      points[insertIndex].curveY = midY;
+    }
+    
+    return insertIndex;
+  }
+  
+  function toggleCurveOnSegment(segmentIndex) {
+    if (segmentIndex < 0 || segmentIndex >= points.length - 1) return;
+    
+    const startPoint = points[segmentIndex];
+    
+    if (startPoint.noCurve) {
+      // Enable curve
+      startPoint.noCurve = false;
+      
+      const endPoint = points[segmentIndex + 1];
+      const midX = (startPoint.x + endPoint.x) / 2;
+      const midY = (startPoint.y + endPoint.y) / 2;
+      startPoint.curveX = midX;
+      startPoint.curveY = midY;
+    } else {
+      // Disable curve
+      startPoint.noCurve = true;
+    }
+  }
+  
+  function deletePoint(index) {
+    if (index <= 0 || index >= points.length - 1 || points.length <= 2) {
+      return false;
+    }
+    
+    points.splice(index, 1);
+    selectedPointIndex = -1;
+    return true;
+  }
+  
+  // Handle interaction for points and curves
+  function handlePointDrag(x, y) {
+    if (selectedPointIndex < 0) return;
+    
+    const oldX = points[selectedPointIndex].x;
+    const oldY = points[selectedPointIndex].y;
+    
+    points[selectedPointIndex].y = constrainPointY(y);
+    
+    // Restrict horizontal movement for interior points
+    if (selectedPointIndex > 0 && selectedPointIndex < points.length - 1) {
+      const minX = points[selectedPointIndex - 1].x + 0.1;
+      const maxX = points[selectedPointIndex + 1].x - 0.1;
+      points[selectedPointIndex].x = Math.max(minX, Math.min(maxX, x));
+    }
+    // Keep first and last points at edges
+    else if (selectedPointIndex === 0) {
+      points[selectedPointIndex].x = 0; 
+    }
+    else if (selectedPointIndex === points.length - 1) {
+      points[selectedPointIndex].x = canvas.width;
+    }
+    
+    // If point has moved, update adjacent control points
+    if (oldX !== points[selectedPointIndex].x || oldY !== points[selectedPointIndex].y) {
+      if (selectedPointIndex > 0) {
+        updateControlPointsForSegment(selectedPointIndex - 1);
+      }
+      
+      if (selectedPointIndex < points.length - 1) {
+        updateControlPointsForSegment(selectedPointIndex);
+      }
+    }
+  }
+  
+  function handleCurveDrag(x, y) {
+    if (activeCurveIndex < 0) return;
+    
+    const startPoint = points[activeCurveIndex];
+    const endPoint = points[activeCurveIndex + 1];
+    
+    const constrained = constrainControlPoint(startPoint, endPoint, x, y);
+    startPoint.curveX = constrained.x;
+    startPoint.curveY = constrained.y;
+    
+    const clampedCurve = ensureCurveInsideBounds(
+      startPoint.x, startPoint.y,
+      startPoint.curveX, startPoint.curveY,
+      endPoint.x, endPoint.y
+    );
+    
+    startPoint.curveY = clampedCurve.cpY;
+  }
+  
+  // Show help text 
+  function drawInfoText() {
+    ctx.fillStyle = "rgba(242, 238, 211, 0.6)";
+    ctx.font = "8px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("", canvas.width/2, canvas.height - 5);
+  }
+
+  // Handle double click detection
+  function handleDoubleInteraction(x, y) {
+    // Check for point deletion
+    const pointIndex = findClosestPoint(x, y);
+    if (pointIndex >= 0 && pointIndex > 0 && pointIndex < points.length - 1) {
+      deletePoint(pointIndex);
+      drawWaveform();
+      return true;
+    }
+    
+    // Check for curve toggling
+    const curveIndex = findClosestCurvePoint(x, y);
+    if (curveIndex >= 0) {
+      points[curveIndex].noCurve = true;
+      drawWaveform();
+      return true;
+    }
+    
+    // Check for line segment curve toggling
+    const lineIndex = findClosestLineSegment(x, y);
+    if (lineIndex >= 0) {
+      toggleCurveOnSegment(lineIndex);
+      drawWaveform();
+      return true;
+    }
+    
+    // Add new point
+    const newIndex = addPoint(x, y);
+    if (newIndex >= 0) {
+      selectedPointIndex = newIndex;
+      isDraggingPoint = true;
+      drawWaveform();
+      return true;
+    }
+    
+    return false;
+  }
+  
+  // MOUSE EVENT HANDLERS
+  canvas.addEventListener('mousedown', function(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Handle double-click
+    if (e.detail === 2) {
+      handleDoubleInteraction(x, y);
+      return;
+    }
+    
+    // Handle single click - check for curve control point first
+    const curveIndex = findClosestCurvePoint(x, y);
+    if (curveIndex >= 0) {
+      isDraggingCurve = true;
+      activeCurveIndex = curveIndex;
+      drawWaveform();
+      return;
+    }
+    
+    // Then check for main points
+    const pointIndex = findClosestPoint(x, y);
+    if (pointIndex >= 0) {
+      selectedPointIndex = pointIndex;
+      isDraggingPoint = true;
+      drawWaveform();
+      return;
+    }
+    // After updating state, sync with the reference
+    updateScriptReference();
+  });
+  
+  canvas.addEventListener('mousemove', function(e) {
+    if (!isDraggingPoint && !isDraggingCurve) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    if (isDraggingPoint) {
+      handlePointDrag(x, y);
+    } else if (isDraggingCurve) {
+      handleCurveDrag(x, y);
+    }
+    
+    drawWaveform();
+  });
+  
+  canvas.addEventListener('mouseup', function() {
+    isDraggingPoint = false;
+    isDraggingCurve = false;
+    updateScriptReference();
+  });
+  
+  canvas.addEventListener('mouseleave', function() {
+    // Don't reset dragging flags here - allow document handler to work
+    // Just update the reference
+    updateScriptReference();
+  });
+
+  // TOUCH EVENT HANDLERS
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault(); // Prevent default to avoid scrolling
+    if (e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    
+    // Check if this is a double-tap
+    const now = Date.now();
+    const timeSinceLastTap = now - lastTapTime;
+    const isDoubleTap = (timeSinceLastTap < 300);
+    lastTapTime = now;
+    
+    if (isDoubleTap) {
+      handleDoubleInteraction(x, y);
+      return;
+    }
+    
+    // Single tap/touch - check for curve control point first
+    const curveIndex = findClosestCurvePoint(x, y);
+    if (curveIndex >= 0) {
+      isDraggingCurve = true;
+      activeCurveIndex = curveIndex;
+      drawWaveform();
+      return;
+    }
+    
+    // Then check for main points
+    const pointIndex = findClosestPoint(x, y);
+    if (pointIndex >= 0) {
+      selectedPointIndex = pointIndex;
+      isDraggingPoint = true;
+      drawWaveform();
+      return;
+    }
+  }, { passive: false });
+  
+  canvas.addEventListener('touchmove', function(e) {
+    if ((!isDraggingPoint && !isDraggingCurve) || e.touches.length !== 1) return;
+    
+    e.preventDefault(); // Prevent scrolling
+    
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    
+    if (isDraggingPoint) {
+      handlePointDrag(x, y);
+    } else if (isDraggingCurve) {
+      handleCurveDrag(x, y);
+    }
+    
+    drawWaveform();
+  }, { passive: false });
+  
+  canvas.addEventListener('touchend', function() {
+    isDraggingPoint = false;
+    isDraggingCurve = false;
+  });
+  
+  canvas.addEventListener('touchcancel', function() {
+    isDraggingPoint = false;
+    isDraggingCurve = false;
+  });
+  
+  // Key event for deleting points
+  document.addEventListener('keydown', function(e) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPointIndex > 0 && selectedPointIndex < points.length - 1) {
+      deletePoint(selectedPointIndex);
+      drawWaveform();
+    }
+  });
+  
+  // Handle mode options
+  document.querySelectorAll('.mode-option').forEach(option => {
+    option.addEventListener('click', function() {
+      document.querySelectorAll('.mode-option').forEach(o => o.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+  
+  // Initialize on load
+  drawWaveform();
 });
     </script>
 </body>
