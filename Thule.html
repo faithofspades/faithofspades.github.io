@@ -1689,6 +1689,7 @@ margin-top: -10.6px;
   border-radius: 5px;
   margin-bottom: 10px;
   overflow: hidden;
+  margin-top: 7px;
 }
 
 #mod-canvas {
@@ -2194,6 +2195,7 @@ margin-top: -10.6px;
     </div>
 
     <script>
+      
         const D = x => document.getElementById(x);
         const TR2 = 2 ** (1.0 / 12.0);
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -6399,7 +6401,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
-// Complete replacement for the global drag handler
+  // Complete replacement for the global drag handler
 document.addEventListener('DOMContentLoaded', function() {
   const canvas = document.getElementById('mod-canvas');
   if (!canvas) return;
@@ -6414,26 +6416,73 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('mouseup', handleGlobalMouseUp);
   
   function handleGlobalMouseMove(e) {
-    if (!isDraggingOutside) return;
+  if (!isDraggingOutside) return;
+  
+  // Convert global coordinates to canvas coordinates
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  // CRITICAL FIX: Special handling for curve points - most important part for left boundary fix
+  if (dragType === 'curve' && dragPointIndex >= 0) {
+    const state = canvas.__currentScript || {};
+    const points = state.points || [];
     
-    // Convert global coordinates to canvas coordinates
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    // Call appropriate handler based on drag type
-    if (dragType === 'point' && typeof canvas.__handlePointDrag === 'function') {
-      canvas.__handlePointDrag(x, y);
-    } 
-    else if (dragType === 'curve' && typeof canvas.__handleCurveDrag === 'function') {
-      canvas.__handleCurveDrag(x, y);
-    }
-    
-    // Redraw
-    if (typeof canvas.__drawWaveform === 'function') {
-      canvas.__drawWaveform();
+    if (points && points.length > dragPointIndex + 1) {
+      const startPoint = points[dragPointIndex];
+      const endPoint = points[dragPointIndex + 1];
+      
+      if (startPoint && endPoint) {
+        // Calculate segment bounds
+        const minX = Math.min(startPoint.x, endPoint.x);
+        const maxX = Math.max(startPoint.x, endPoint.x);
+        
+        // NEW APPROACH: For leftmost segment, allow control point to go further left
+        let constrainedX;
+        
+        // Allow negative movement for first segment
+        if (x < 0 && startPoint.x === 0) {
+          // Allow control point to move up to half segment width to the left of minX
+          const segmentWidth = maxX - minX;
+          const extraLeftAllowance = segmentWidth * 0.5; // Adjust this factor as needed
+          constrainedX = Math.max(minX - extraLeftAllowance, x);
+        } 
+        // For other segments or positive x, use normal constraints
+        else if (x < 0) {
+          constrainedX = minX;
+        } 
+        else {
+          // Normal constraint within segment bounds
+          constrainedX = Math.max(minX, Math.min(maxX, x));
+        }
+        
+        // Apply the constrained position - Y remains unconstrained for deep curves
+        if (typeof canvas.__handleCurveDrag === 'function') {
+          canvas.__handleCurveDrag(constrainedX, y);
+        }
+      } else {
+        // Fallback handling
+        if (typeof canvas.__handleCurveDrag === 'function') {
+          canvas.__handleCurveDrag(x, y);
+        }
+      }
+    } else {
+      // Fallback handling
+      if (typeof canvas.__handleCurveDrag === 'function') {
+        canvas.__handleCurveDrag(x, y);
+      }
     }
   }
+  // Normal handling for point dragging
+  else if (dragType === 'point' && typeof canvas.__handlePointDrag === 'function') {
+    canvas.__handlePointDrag(x, y);
+  }
+  
+  // Redraw
+  if (typeof canvas.__drawWaveform === 'function') {
+    canvas.__drawWaveform();
+  }
+}
   
   function handleGlobalMouseUp() {
     if (!isDraggingOutside) return;
@@ -6692,12 +6741,37 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // Constrain control points to segment's horizontal bounds
-  function constrainControlPoint(startPoint, endPoint, curveX, curveY) {
-    const minX = Math.min(startPoint.x, endPoint.x);
-    const maxX = Math.max(startPoint.x, endPoint.x);
-    const constrainedX = Math.max(minX, Math.min(maxX, curveX));
+// Update the constrainControlPoint function - keeping it simple
+function constrainControlPoint(startPoint, endPoint, curveX, curveY) {
+  // First calculate normal segment bounds
+  const minX = Math.min(startPoint.x, endPoint.x);
+  const maxX = Math.max(startPoint.x, endPoint.x);
+  
+  // Get the critical X value that ensures monotonicity (always moving forward in time)
+  // For a quadratic Bezier curve to move monotonically forward, the control point's X value
+  // must be greater than this critical value
+  const criticalX = startPoint.x - (endPoint.x - startPoint.x) / 2;
+  
+  // Use the larger of minX and criticalX to ensure no backward movement
+  const effectiveMinX = Math.max(minX, criticalX);
+  
+  // If this is the leftmost segment, use a small positive value to prevent glitches
+  if (startPoint.x === 0) {
+    // Never let the control point go below the effective minimum X
+    const constrainedX = Math.max(effectiveMinX, Math.min(maxX, curveX));
+    
+    // Special case: If we're at boundary, use 0.001 to prevent dragging issues
+    if (constrainedX <= 0) {
+      return { x: 0.001, y: curveY };
+    }
+    
     return { x: constrainedX, y: curveY };
   }
+  
+  // For all other segments, use the monotonicity constraint
+  const constrainedX = Math.max(effectiveMinX, Math.min(maxX, curveX));
+  return { x: constrainedX, y: curveY };
+}
   
   // Constrain point Y position within canvas bounds
   function constrainPointY(y) {
@@ -7193,6 +7267,7 @@ function updateControlPointsForSegment(segmentIndex) {
   // Initialize on load
   drawWaveform();
 });
+
     </script>
 </body>
 </html>

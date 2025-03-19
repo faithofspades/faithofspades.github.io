@@ -1,0 +1,807 @@
+<script>
+// Global drag handler for handling mouse outside canvas
+document.addEventListener('DOMContentLoaded', function() {
+  const canvas = document.getElementById('mod-canvas');
+  if (!canvas) return;
+  
+  // Global handlers for tracking mouse outside canvas
+  let isDraggingOutside = false;
+  let dragType = null; // 'point' or 'curve' 
+  let dragPointIndex = -1;
+  
+  // Only attach document-level handlers once
+  document.addEventListener('mousemove', handleGlobalMouseMove);
+  document.addEventListener('mouseup', handleGlobalMouseUp);
+  
+  function handleGlobalMouseMove(e) {
+    // Critical fix: Always process movements when dragging is active
+    // This is what fixes the left edge issue
+    if (!isDraggingOutside) return;
+    
+    // Convert global coordinates to canvas coordinates
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // For curve points, only constrain X, not Y (allows for deep curves)
+    if (dragType === 'curve' && dragPointIndex >= 0) {
+      const state = canvas.__currentScript || {};
+      const points = state.points || [];
+      
+      if (points && points.length > dragPointIndex + 1) {
+        const startPoint = points[dragPointIndex];
+        const endPoint = points[dragPointIndex + 1];
+        
+        if (startPoint && endPoint) {
+          // Calculate horizontal constraints only
+          const minX = Math.min(startPoint.x, endPoint.x);
+          const maxX = Math.max(startPoint.x, endPoint.x);
+          
+          // Constrain X within segment bounds, but allow Y to be free
+          // This is critical for the left boundary and to allow deep curves
+          const constrainedX = Math.max(minX, Math.min(maxX, x));
+          
+          // Special handling for left edge case
+          if (x < 0) {
+            // For left edge, use minX to keep control point at leftmost bound
+            if (typeof canvas.__handleCurveDrag === 'function') {
+              canvas.__handleCurveDrag(minX, y);
+            }
+          } else {
+            // Normal handling - constrain X but free Y
+            if (typeof canvas.__handleCurveDrag === 'function') {
+              canvas.__handleCurveDrag(constrainedX, y);
+            }
+          }
+        } else {
+          // Fallback for safety
+          if (typeof canvas.__handleCurveDrag === 'function') {
+            canvas.__handleCurveDrag(x, y);
+          }
+        }
+      } else {
+        // Fallback for safety
+        if (typeof canvas.__handleCurveDrag === 'function') {
+          canvas.__handleCurveDrag(x, y);
+        }
+      }
+    }
+    // Normal handling for point dragging
+    else if (dragType === 'point' && typeof canvas.__handlePointDrag === 'function') {
+      canvas.__handlePointDrag(x, y);
+    }
+    
+    // Redraw
+    if (typeof canvas.__drawWaveform === 'function') {
+      canvas.__drawWaveform();
+    }
+  }
+  
+  function handleGlobalMouseUp() {
+    if (!isDraggingOutside) return;
+    
+    // Reset drag state
+    isDraggingOutside = false;
+    dragType = null;
+    dragPointIndex = -1;
+    
+    // Reset canvas internal state too
+    if (typeof canvas.__resetDragState === 'function') {
+      canvas.__resetDragState();
+    }
+  }
+  
+  // Watch canvas mouseleave events to activate global tracking
+  canvas.addEventListener('mouseleave', function(e) {
+    // Check if we were dragging something
+    const state = canvas.__currentScript || {};
+    
+    if (state.isDraggingPoint && state.selectedPointIndex >= 0) {
+      isDraggingOutside = true;
+      dragType = 'point';
+      dragPointIndex = state.selectedPointIndex;
+    }
+    else if (state.isDraggingCurve && state.activeCurveIndex >= 0) {
+      isDraggingOutside = true;
+      dragType = 'curve';
+      dragPointIndex = state.activeCurveIndex;
+    }
+  });
+  
+  // Update script references when needed
+  canvas.addEventListener('mousedown', function() {
+    setTimeout(updateScriptRef, 0);
+  });
+  
+  canvas.addEventListener('mousemove', function() {
+    setTimeout(updateScriptRef, 0);
+  });
+  
+  canvas.addEventListener('mouseup', function() {
+    isDraggingOutside = false;
+    dragType = null;
+    dragPointIndex = -1;
+    setTimeout(updateScriptRef, 0);
+  });
+  
+  function updateScriptRef() {
+    if (typeof canvas.__updateScriptReference === 'function') {
+      canvas.__updateScriptReference();
+    }
+  }
+});
+
+// Main modulation canvas code
+document.addEventListener('DOMContentLoaded', function() {
+  const canvas = document.getElementById('mod-canvas');
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  
+  // Shared state variables
+  const points = [];
+  let selectedPointIndex = -1;
+  let isDraggingPoint = false;
+  let isDraggingCurve = false;
+  let activeCurveIndex = -1;
+  let lastTapTime = 0;
+  
+  // Store references for global access
+  canvas.__points = points;
+  canvas.__currentScript = {
+    points,
+    isDraggingPoint,
+    isDraggingCurve,
+    selectedPointIndex,
+    activeCurveIndex
+  };
+  
+  canvas.__handlePointDrag = handlePointDrag;
+  canvas.__handleCurveDrag = handleCurveDrag;
+  canvas.__drawWaveform = drawWaveform;
+  canvas.__resetDragState = function() {
+    isDraggingPoint = false;
+    isDraggingCurve = false;
+  };
+  
+  function updateScriptReference() {
+    canvas.__currentScript = {
+      points,
+      isDraggingPoint,
+      isDraggingCurve,
+      selectedPointIndex,
+      activeCurveIndex
+    };
+  }
+  canvas.__updateScriptReference = updateScriptReference;
+  
+  // Set initial waveform
+  initializeDefaultWave();
+  
+  // Main drawing function
+  function drawWaveform() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (points.length < 2) return;
+    
+    // Draw grid background
+    drawGrid();
+    
+    // Draw curve/line connecting points
+    ctx.strokeStyle = '#f2eed3';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    
+    // Connect all points with curves or lines
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      const endPoint = points[i + 1];
+      
+      if (startPoint.noCurve) {
+        // Draw straight line
+        ctx.lineTo(endPoint.x, endPoint.y);
+      } else {
+        // Create default control point if none exists
+        if (startPoint.curveX === undefined || startPoint.curveY === undefined) {
+          const midX = (startPoint.x + endPoint.x) / 2;
+          const midY = (startPoint.y + endPoint.y) / 2;
+          startPoint.curveX = midX;
+          startPoint.curveY = midY;
+        }
+        
+        // Draw curved line using quadratic bezier
+        ctx.quadraticCurveTo(
+          startPoint.curveX, startPoint.curveY, 
+          endPoint.x, endPoint.y
+        );
+      }
+    }
+    ctx.stroke();
+    
+    // Draw the main points
+    points.forEach((point, index) => {
+      ctx.fillStyle = index === selectedPointIndex ? '#ffcc00' : '#f2eed3';
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    
+    // Draw curve control points
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      if (startPoint.noCurve) continue;
+      
+      const endPoint = points[i + 1];
+      
+      // Draw curve control point
+      const isActive = i === activeCurveIndex;
+      ctx.fillStyle = isActive ? '#ffcc00' : '#f2eed3';
+      ctx.beginPath();
+      ctx.arc(startPoint.curveX, startPoint.curveY, 3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Draw guide lines for active curve control point
+      if (isActive) {
+        ctx.strokeStyle = 'rgba(242, 238, 211, 0.4)';
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(startPoint.x, startPoint.y);
+        ctx.lineTo(startPoint.curveX, startPoint.curveY);
+        ctx.lineTo(endPoint.x, endPoint.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    
+    // Draw help text
+    drawInfoText();
+  }
+  
+  // Grid background
+  function drawGrid() {
+    const gridSize = 10;
+    ctx.strokeStyle = 'rgba(242, 238, 211, 0.1)';
+    ctx.lineWidth = 0.5;
+    
+    for (let x = 0; x <= canvas.width; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    
+    for (let y = 0; y <= canvas.height; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+  }
+  
+  // Constrain point Y position within canvas bounds
+  function constrainPointY(y) {
+    const padding = 1;
+    return Math.max(padding, Math.min(canvas.height - padding, y));
+  }
+  
+  // Constrain control point X only (horizontal bounds)
+  function constrainControlPointX(startPoint, endPoint, x) {
+    const minX = Math.min(startPoint.x, endPoint.x);
+    const maxX = Math.max(startPoint.x, endPoint.x);
+    return Math.max(minX, Math.min(maxX, x));
+  }
+  
+  // Update control points when segment endpoints move
+  // This is critical for preserving curve shapes during edits
+  function updateControlPointsForSegment(segmentIndex) {
+    if (segmentIndex < 0 || segmentIndex >= points.length - 1) return;
+    
+    const startPoint = points[segmentIndex];
+    const endPoint = points[segmentIndex + 1];
+    
+    if (startPoint.noCurve) return;
+    
+    // If control point doesn't exist, create default one
+    if (startPoint.curveX === undefined || startPoint.curveY === undefined) {
+      startPoint.curveX = (startPoint.x + endPoint.x) / 2;
+      startPoint.curveY = (startPoint.y + endPoint.y) / 2;
+      return;
+    }
+    
+    // Track previous positions for relative positioning
+    if (!startPoint._lastX) {
+      // Initialize tracking data if not present
+      startPoint._lastX = startPoint.x;
+      startPoint._lastY = startPoint.y;
+      endPoint._lastX = endPoint.x;
+      endPoint._lastY = endPoint.y;
+      return;
+    }
+    
+    // Calculate the relative position of control point in the segment
+    const oldStartX = startPoint._lastX;
+    const oldEndX = endPoint._lastX;
+    const oldWidth = oldEndX - oldStartX;
+    
+    let relativePos = 0.5; // Default to middle
+    if (oldWidth !== 0) {
+      // Calculate position ratio in original segment
+      relativePos = (startPoint.curveX - oldStartX) / oldWidth;
+    }
+    
+    // Calculate if there was vertical offset from the baseline
+    const oldBaselineY = startPoint._lastY + relativePos * (endPoint._lastY - startPoint._lastY);
+    const verticalOffset = startPoint.curveY - oldBaselineY;
+    
+    // Calculate new horizontal position maintaining relative position
+    const newWidth = endPoint.x - startPoint.x;
+    const newX = startPoint.x + (relativePos * newWidth);
+    
+    // Calculate new vertical position maintaining offset from baseline
+    const newBaselineY = startPoint.y + relativePos * (endPoint.y - startPoint.y);
+    const newY = newBaselineY + verticalOffset;
+    
+    // Update control point position
+    startPoint.curveX = constrainControlPointX(startPoint, endPoint, newX);
+    startPoint.curveY = newY; // Don't constrain Y to allow deep curves
+    
+    // Update tracking data
+    startPoint._lastX = startPoint.x;
+    startPoint._lastY = startPoint.y;
+    endPoint._lastX = endPoint.x;
+    endPoint._lastY = endPoint.y;
+  }
+  
+  // Initialize default wave
+  function initializeDefaultWave() {
+    points.length = 0;
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    const center = height / 2;
+    const amplitude = height / 3;
+    
+    // Create sine wave with 5 points
+    for (let i = 0; i < 5; i++) {
+      const x = (i / 4) * width;
+      const y = center - Math.sin((i / 4) * Math.PI * 2) * amplitude;
+      
+      if (i > 0) {
+        const prevX = ((i-1) / 4) * width;
+        const midX = (prevX + x) / 2;
+        const curveY = center - Math.sin((((i - 0.5) / 4)) * Math.PI * 2) * amplitude;
+        
+        points[i-1].curveX = midX;
+        points[i-1].curveY = curveY;
+        points[i-1].noCurve = false;
+        
+        // Initialize tracking for relative positioning
+        points[i-1]._lastX = points[i-1].x;
+        points[i-1]._lastY = points[i-1].y;
+      }
+      
+      const point = { x, y, noCurve: false };
+      point._lastX = x;
+      point._lastY = y;
+      points.push(point);
+    }
+    
+    drawWaveform();
+  }
+  
+  // Helper functions for finding closest elements
+  function findClosestPoint(x, y) {
+    let closestIndex = -1;
+    let minDistance = 10; // Minimum distance to select
+    
+    points.forEach((point, index) => {
+      const distance = Math.sqrt(Math.pow(point.x - x, 2) + Math.pow(point.y - y, 2));
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = index;
+      }
+    });
+    
+    return closestIndex;
+  }
+  
+  function findClosestCurvePoint(x, y) {
+    let closestIndex = -1;
+    let minDistance = 10;
+    
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      if (startPoint.noCurve) continue;
+      
+      if (startPoint.curveX !== undefined && startPoint.curveY !== undefined) {
+        const distance = Math.sqrt(Math.pow(startPoint.curveX - x, 2) + Math.pow(startPoint.curveY - y, 2));
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestIndex = i;
+        }
+      }
+    }
+    
+    return closestIndex;
+  }
+  
+  function findClosestLineSegment(x, y) {
+    let closestIndex = -1;
+    let minDistance = 10;
+    
+    for (let i = 0; i < points.length - 1; i++) {
+      const startPoint = points[i];
+      const endPoint = points[i + 1];
+      
+      // Calculate distance to line segment
+      const A = x - startPoint.x;
+      const B = y - startPoint.y;
+      const C = endPoint.x - startPoint.x;
+      const D = endPoint.y - startPoint.y;
+      
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      let param = -1;
+      
+      if (lenSq !== 0) param = dot / lenSq;
+      
+      let xx, yy;
+      
+      if (param < 0) {
+        xx = startPoint.x;
+        yy = startPoint.y;
+      } else if (param > 1) {
+        xx = endPoint.x;
+        yy = endPoint.y;
+      } else {
+        xx = startPoint.x + param * C;
+        yy = startPoint.y + param * D;
+      }
+      
+      const distance = Math.sqrt(Math.pow(x - xx, 2) + Math.pow(y - yy, 2));
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = i;
+      }
+    }
+    
+    return closestIndex;
+  }
+  
+  // Functions for adding/removing points
+  function findInsertPosition(x) {
+    for (let i = 0; i < points.length; i++) {
+      if (x < points[i].x) return i;
+    }
+    return points.length;
+  }
+  
+  function addPoint(x, y) {
+    const insertIndex = findInsertPosition(x);
+    
+    // Minimum distance check to prevent crowding
+    const minDistance = 0.1; 
+    if ((insertIndex > 0 && x - points[insertIndex-1].x < minDistance) ||
+        (insertIndex < points.length && points[insertIndex].x - x < minDistance)) {
+      return -1;
+    }
+    
+    y = constrainPointY(y);
+    
+    // Create new point with tracking data
+    const newPoint = { 
+      x, y, noCurve: false,
+      _lastX: x,
+      _lastY: y
+    };
+    
+    points.splice(insertIndex, 0, newPoint);
+    
+    // Update curve control points for adjacent segments
+    if (insertIndex > 0) {
+      const prevPoint = points[insertIndex - 1];
+      const midX = (prevPoint.x + x) / 2;
+      const midY = (prevPoint.y + y) / 2;
+      prevPoint.curveX = midX;
+      prevPoint.curveY = midY;
+      prevPoint._lastX = prevPoint.x;
+      prevPoint._lastY = prevPoint.y;
+    }
+    
+    if (insertIndex < points.length - 1) {
+      const nextPoint = points[insertIndex + 1];
+      const midX = (x + nextPoint.x) / 2;
+      const midY = (y + nextPoint.y) / 2;
+      newPoint.curveX = midX;
+      newPoint.curveY = midY;
+      nextPoint._lastX = nextPoint.x;
+      nextPoint._lastY = nextPoint.y;
+    }
+    
+    return insertIndex;
+  }
+  
+  function toggleCurveOnSegment(segmentIndex) {
+    if (segmentIndex < 0 || segmentIndex >= points.length - 1) return;
+    
+    const startPoint = points[segmentIndex];
+    
+    if (startPoint.noCurve) {
+      // Enable curve
+      startPoint.noCurve = false;
+      
+      const endPoint = points[segmentIndex + 1];
+      const midX = (startPoint.x + endPoint.x) / 2;
+      const midY = (startPoint.y + endPoint.y) / 2;
+      startPoint.curveX = midX;
+      startPoint.curveY = midY;
+      startPoint._lastX = startPoint.x;
+      startPoint._lastY = startPoint.y;
+      endPoint._lastX = endPoint.x;
+      endPoint._lastY = endPoint.y;
+    } else {
+      // Disable curve
+      startPoint.noCurve = true;
+    }
+  }
+  
+  function deletePoint(index) {
+    if (index <= 0 || index >= points.length - 1 || points.length <= 2) {
+      return false;
+    }
+    
+    points.splice(index, 1);
+    selectedPointIndex = -1;
+    
+    // Update control points for segment before the deleted point
+    if (index > 0 && index <= points.length - 1) {
+      updateControlPointsForSegment(index - 1);
+    }
+    
+    return true;
+  }
+  
+  // Drag handlers for points and curves
+  function handlePointDrag(x, y) {
+    if (selectedPointIndex < 0) return;
+    
+    const oldX = points[selectedPointIndex].x;
+    const oldY = points[selectedPointIndex].y;
+    
+    // Constrain Y within canvas bounds
+    points[selectedPointIndex].y = constrainPointY(y);
+    
+    // Restrict horizontal movement based on point position
+    if (selectedPointIndex > 0 && selectedPointIndex < points.length - 1) {
+      // Interior points must stay between adjacent points
+      const minX = points[selectedPointIndex - 1].x + 0.1;
+      const maxX = points[selectedPointIndex + 1].x - 0.1;
+      points[selectedPointIndex].x = Math.max(minX, Math.min(maxX, x));
+    }
+    // Edge points stay at canvas edges
+    else if (selectedPointIndex === 0) {
+      points[selectedPointIndex].x = 0; 
+    }
+    else if (selectedPointIndex === points.length - 1) {
+      points[selectedPointIndex].x = canvas.width;
+    }
+    
+    // If point has moved, update adjacent control points
+    if (oldX !== points[selectedPointIndex].x || oldY !== points[selectedPointIndex].y) {
+      if (selectedPointIndex > 0) {
+        updateControlPointsForSegment(selectedPointIndex - 1);
+      }
+      
+      if (selectedPointIndex < points.length - 1) {
+        updateControlPointsForSegment(selectedPointIndex);
+      }
+    }
+  }
+  
+  // Critical: This is where we handle drag of curve control points
+  function handleCurveDrag(x, y) {
+    if (activeCurveIndex < 0) return;
+    
+    const startPoint = points[activeCurveIndex];
+    const endPoint = points[activeCurveIndex + 1];
+    
+    // CRITICAL: Only constrain X to segment bounds, allow Y to move freely
+    // This enables the creation of deep curves!
+    startPoint.curveX = constrainControlPointX(startPoint, endPoint, x);
+    startPoint.curveY = y; // No Y constraint - free vertical movement
+    
+    // Update tracking for relative positioning
+    startPoint._lastX = startPoint.x;
+    startPoint._lastY = startPoint.y;
+    endPoint._lastX = endPoint.x;
+    endPoint._lastY = endPoint.y;
+  }
+  
+  function drawInfoText() {
+    ctx.fillStyle = "rgba(242, 238, 211, 0.6)";
+    ctx.font = "8px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("", canvas.width/2, canvas.height - 5);
+  }
+
+  // Double-click/tap interaction
+  function handleDoubleInteraction(x, y) {
+    // Check for point deletion
+    const pointIndex = findClosestPoint(x, y);
+    if (pointIndex >= 0 && pointIndex > 0 && pointIndex < points.length - 1) {
+      deletePoint(pointIndex);
+      drawWaveform();
+      return true;
+    }
+    
+    // Check for curve toggling
+    const curveIndex = findClosestCurvePoint(x, y);
+    if (curveIndex >= 0) {
+      points[curveIndex].noCurve = true;
+      drawWaveform();
+      return true;
+    }
+    
+    // Check for line segment curve toggling
+    const lineIndex = findClosestLineSegment(x, y);
+    if (lineIndex >= 0) {
+      toggleCurveOnSegment(lineIndex);
+      drawWaveform();
+      return true;
+    }
+    
+    // Add new point
+    const newIndex = addPoint(x, y);
+    if (newIndex >= 0) {
+      selectedPointIndex = newIndex;
+      isDraggingPoint = true;
+      drawWaveform();
+      return true;
+    }
+    
+    return false;
+  }
+  
+  // MOUSE EVENT HANDLERS
+  canvas.addEventListener('mousedown', function(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Handle double-click
+    if (e.detail === 2) {
+      handleDoubleInteraction(x, y);
+      return;
+    }
+    
+    // Handle single click - check for curve control point first
+    const curveIndex = findClosestCurvePoint(x, y);
+    if (curveIndex >= 0) {
+      isDraggingCurve = true;
+      activeCurveIndex = curveIndex;
+      drawWaveform();
+      updateScriptReference();
+      return;
+    }
+    
+    // Then check for main points
+    const pointIndex = findClosestPoint(x, y);
+    if (pointIndex >= 0) {
+      selectedPointIndex = pointIndex;
+      isDraggingPoint = true;
+      drawWaveform();
+      updateScriptReference();
+      return;
+    }
+    
+    updateScriptReference();
+  });
+  
+  canvas.addEventListener('mousemove', function(e) {
+    if (!isDraggingPoint && !isDraggingCurve) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    if (isDraggingPoint) {
+      handlePointDrag(x, y);
+    } else if (isDraggingCurve) {
+      handleCurveDrag(x, y);
+    }
+    
+    drawWaveform();
+    updateScriptReference();
+  });
+  
+  canvas.addEventListener('mouseup', function() {
+    isDraggingPoint = false;
+    isDraggingCurve = false;
+    updateScriptReference();
+  });
+  
+  canvas.addEventListener('mouseleave', function(e) {
+    // Just update script reference - the global handler will take care of drag
+    updateScriptReference();
+  });
+
+  // TOUCH EVENT HANDLERS
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault(); // Prevent scrolling
+    if (e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    
+    // Check for double-tap
+    const now = Date.now();
+    const timeSinceLastTap = now - lastTapTime;
+    const isDoubleTap = (timeSinceLastTap < 300);
+    lastTapTime = now;
+    
+    if (isDoubleTap) {
+      handleDoubleInteraction(x, y);
+      return;
+    }
+    
+    // Single tap - check for curve control point first
+    const curveIndex = findClosestCurvePoint(x, y);
+    if (curveIndex >= 0) {
+      isDraggingCurve = true;
+      activeCurveIndex = curveIndex;
+      drawWaveform();
+      updateScriptReference();
+      return;
+    }
+    
+    // Then check for main points
+    const pointIndex = findClosestPoint(x, y);
+    if (pointIndex >= 0) {
+      selectedPointIndex = pointIndex;
+      isDraggingPoint = true;
+      drawWaveform();
+      updateScriptReference();
+      return;
+    }
+  }, { passive: false });
+  
+  canvas.addEventListener('touchmove', function(e) {
+    if ((!isDraggingPoint && !isDraggingCurve) || e.touches.length !== 1) return;
+    
+    e.preventDefault(); // Prevent scrolling
+    
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    
+    if (isDraggingPoint) {
+      handlePointDrag(x, y);
+    } else if (isDraggingCurve) {
+      handleCurveDrag(x, y);
+    }
+    
+    drawWaveform();
+    updateScriptReference();
+  }, { passive: false });
+  canvas.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  isDraggingPoint = false;
+  isDraggingCurve = false;
+  updateScriptReference();
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', function(e) {
+  e.preventDefault();
+  isDraggingPoint = false;
+  isDraggingCurve = false;
+  updateScriptReference();
+}, { passive: false });
+
+
+});
+    </script>
+</body>
+</html>
