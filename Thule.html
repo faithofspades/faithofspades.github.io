@@ -661,6 +661,7 @@ body {
     min-height: 100px;
     background-color: #f2eed3;
     margin: 10px 0;
+
     position: relative;
     overflow: hidden; /* Prevent overflow */
 }
@@ -684,7 +685,7 @@ body {
   width: 90%;
   height: 70px;
   background-color: #35100B;
-  margin: 10px 0 15px 0;
+  margin: 15px 0 15px 0;
   position: relative;
   border: 2px solid #35100B;
   border-radius: 5px;
@@ -829,12 +830,14 @@ margin-top: -10.6px;
   display: flex;
   justify-content: space-between;
   width: 90%;
-  margin-top: 247px;
+  margin-top: 244px;
 }
 
 .slider-labels label {
   font-family: "Nunito", sans-serif;
-  font-size: 12px;
+  font-size: 10px;
+  font-weight: 750;
+  font-variant-caps: all-small-caps;
   color: #35100B;
   text-align: center;
   width: 22%;
@@ -884,7 +887,7 @@ margin-top: -10.6px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color:  #BA5446;
+  background-color:  #4E658B;
   padding: 5px 0;
   border-radius: 10px;
   border: 0px solid #35100B;
@@ -1241,14 +1244,14 @@ margin-top: -10.6px;
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  background-color: #E5AB5F;
+  background-color: #6B8F53;
   position: relative;
   cursor: grab;
   box-sizing: border-box;
   
   /* Double border effect */
   border: 0.5px solid #35100B;
-  box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
   
   /* Center point marker */
   transform-origin: center center;
@@ -1289,7 +1292,7 @@ margin-top: -10.6px;
   position: relative;
   width: 41px; /* Match the knob width for consistency */
   height: 41px; /* Perfect square */
-  background-color: #CF814D; /* Match the synth panel color */
+  background-color: #6B8F53; /* Match the synth panel color */
   border: 2.5px solid #35100B;
   border-radius: 10px;
   display: flex;
@@ -1303,12 +1306,12 @@ margin-top: -10.6px;
 }
 
 .select-button:hover {
-  background-color: #d69061; /* Slightly darker on hover */
+  background-color: #729759; /* Slightly darker on hover */
 }
 
 .select-button.active {
-  background-color: #dc8953;
-  box-shadow: 0 0 8px #dc8953; /* Glow effect */
+  background-color: #7da263;
+  box-shadow: 0 0 8px #9ec681; /* Glow effect */
   transform: scale(0.98); /* Slight pressed effect */
 }
 
@@ -1440,7 +1443,7 @@ margin-top: -10.6px;
   font-weight: 600;
   font-style: normal;
   font-size: 16px;
-  margin-bottom: 5px;
+  margin-bottom: 9px;
   background-color: #BA5446; /* Same color as LFO/SAMPLER */
   padding: 5px 0;
   border: 0px solid #35100B;
@@ -1499,14 +1502,49 @@ margin-top: -10.6px;
 .vertical-switch.active::after {
   top: 19px;
 }
+/* Add this CSS class for the porta button container */
+.porta-button-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 8px;
+  margin-bottom: 8.5px; /* Adjust this to your preference */
+}
 
+/* Ensure the button itself maintains consistent styling */
+.porta-button-wrapper .porta-button {
+  position: relative;
+  width: 41px;
+  height: 21px;
+  background-color: #CF814D;
+  border: 2.5px solid #35100B;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+
+/* Ensure label styling is consistent */
+.porta-button-wrapper label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+
+}
 .porta-button-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   padding-top: 4px;
   margin-top: -5px;
-  margin-bottom: 1.5px;
+
 }
 
 .porta-button {
@@ -1521,7 +1559,7 @@ margin-top: -10.6px;
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  margin-bottom: 5px;
+
   transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
 }
 
@@ -1646,21 +1684,7 @@ margin-top: -10.6px;
   align-items: center;
   transition: opacity 0.3s;
 }
-/* MODULATION Module styling */
-.modulation-module {
-  border: 1px solid #35100B;
-  background-color: #f2eed3;
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  min-width: 169px;
-  max-width: 169px;
-  align-items: center;
-  padding-top: 15px;
-  overflow: hidden;
-  box-sizing: border-box;
-}
+
 
 .module-title.modulation {
   color: #f2eed3;
@@ -1671,7 +1695,7 @@ margin-top: -10.6px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 10px;
-  background-color: #4E658B; /* Distinct color for MODULATION module */
+  background-color: #BA5446; /* Distinct color for MODULATION module */
   padding: 5px 0;
   border-radius: 10px;
   border: 0px solid #35100B;
@@ -1679,18 +1703,7 @@ margin-top: -10.6px;
   margin-top: -15px;
 }
 
-/* Canvas container styling */
-.mod-canvas-container {
-  position: relative;
-  width: 120px;
-  height: 100px;
-  background-color: #35100B;
-  border: 2px solid #35100B;
-  border-radius: 5px;
-  margin-bottom: 10px;
-  overflow: hidden;
-  margin-top: 7px;
-}
+
 
 #mod-canvas {
   position: absolute;
@@ -1713,7 +1726,165 @@ margin-top: -10.6px;
   background-size: 10px 10px;
   z-index: 1;
 }
+.modulation-module {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 165px;
+  max-width: 165px;
+  padding-top: 15px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.mod-mode-selector {
+  display: flex;
+  flex-direction: column;
+  background-color: #E5AB5F;
+  border: 2px solid #35100B;
+  border-radius: 5px;
+  overflow: visible; /* Changed from 'overflow: hidden' to allow glow to extend out */
+  width: 45px;
+  position: relative; /* Add this to establish stacking context */
+  z-index: 1; /* Ensure it sits above other elements */
+}
 
+
+/* Default button styling */
+.mode-option {
+  padding: 6px;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  cursor: pointer;
+  border-bottom: 1px solid #35100B;
+  background-color: #f2eed3;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+
+/* Remove border from last item */
+.mode-option:last-child {
+  border-bottom: none;
+}
+
+/* Individual color styling for each button */
+.mode-option[data-mode="env"] {
+  background-color: #E5AB5F;
+}
+
+.mode-option[data-mode="lfo"] {
+  background-color: #CF814D;
+}
+
+.mode-option[data-mode="trig"] {
+  background-color: #BA5446;
+}
+
+/* Hover states */
+.mode-option[data-mode="env"]:hover {
+  background-color: #e7b068;
+}
+
+.mode-option[data-mode="lfo"]:hover {
+  background-color: #d69061;
+}
+
+.mode-option[data-mode="trig"]:hover {
+  background-color: #b85f53;
+}
+
+/* Enhanced glow effects for active buttons */
+.mode-option[data-mode="env"].active {
+  background-color: #E5AB5F; /* Yellow */
+  color: #f2eed3;
+  box-shadow: 0 0 8px 1px #E5AB5F, 0 0 20px 5px rgba(229, 171, 95, 0.5); /* Multiple shadows for stronger effect */
+  transform: scale(0.98); /* Slight pressed effect */
+  position: relative;
+  z-index: 2; /* Higher than container */
+}
+
+.mode-option[data-mode="lfo"].active {
+  background-color: #dc8953; /* Orange */
+  color: #f2eed3;
+  box-shadow: 0 0 8px 1px #dc8953, 0 0 20px 5px rgba(220, 137, 83, 0.5); /* Multiple shadows */
+  transform: scale(0.98);
+  position: relative;
+  z-index: 2;
+}
+
+.mode-option[data-mode="trig"].active {
+  background-color: #d55d4d; /* Red */
+  color: #f2eed3;
+  box-shadow: 0 0 8px 1px #d55d4d, 0 0 25px 6px rgba(213, 93, 77, 0.6); /* Strongest glow */
+  transform: scale(0.98);
+  position: relative;
+  z-index: 2;
+}
+
+/* Ensure hover states don't have overflow issues */
+.mode-option:hover {
+  overflow: visible;
+}
+/* Canvas container - now at the top of the module */
+.mod-canvas-container {
+  position: relative;
+  width: 120px;
+  height: 100px;
+  background-color: #35100B;
+  border: 2px solid #35100B;
+  border-radius: 5px;
+  margin-bottom: 13px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+/* Two-column layout container below the canvas */
+.mod-columns-container {
+  display: flex;
+  width: 92%;
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+/* Left column styling */
+.mod-left-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 45%;
+}
+
+/* Right column styling */
+.mod-right-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 45%;
+}
+
+/* Adjust spacing between items in left column */
+.mod-left-column .mod-selector-container,
+.mod-left-column .knob-container {
+  margin-bottom: 15px;
+}
+
+/* Ensure mode selector is centered */
+.mod-mode-selector {
+  margin: 0 auto;
+  margin-top: 10px;
+}
+
+/* Make destination container fit properly */
+.mod-destination-container {
+  height: 170px;
+}
 /* Three-way mode selector styling */
 .mod-selector-container {
   display: flex;
@@ -1767,12 +1938,12 @@ margin-top: -10.6px;
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  background-color: #4E658B;
+  background-color: #CF814D;
   position: relative;
   cursor: grab;
   box-sizing: border-box;
   border: 0.5px solid #35100B;
-  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+  box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;
   transform-origin: center center;
 }
 
@@ -1791,53 +1962,155 @@ margin-top: -10.6px;
 
 /* Destination slider styling */
 .mod-destination-container {
-  width: 100%;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  margin-top: 5px;
+  height: 240px; /* Match LFO height */
+  width: 81.95px; /* Match LFO width */
+  margin-top: 10px;
+  position: relative;
 }
 
+/* Vertical destination range slider */
 .mod-destination-range {
   -webkit-appearance: none;
   appearance: none;
-  width: 90%;
-  height: 5px;
+  width: 20px; /* Make the slider wider than standard */
+  height: 100%;
   background: transparent;
-  margin: 0 0 5px 0;
+  writing-mode: vertical-lr;
+  direction: rtl; /* Bottom to top orientation */
+  margin: 15px;
 }
 
+/* Custom track styling */
 .mod-destination-range::-webkit-slider-runnable-track {
+  width: 10px;
+  height: 100%;
   background: #35100B;
-  border-radius: 5px;
-  height: 5px;
-  border: none;
+  border-radius: 8px;
 }
 
+/* Custom thumb styling */
 .mod-destination-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   background: #35100B;
-  width: 18px;
-  height: 24px;
+  width: 24px; /* Make it wider than the track */
+  height: 26px; /* Make it taller */
   cursor: pointer;
-  margin-top: -9.5px;
-  border-radius: 5px;
-  background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
-  background-size: 2px 100%;
+  border-radius: 5px; /* Rectangular shape with rounded corners */
+  
+  /* Center it on the track */
+  margin-left: -6.8px; 
+  
+  /* Add a subtle shadow for depth */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  
+  /* Optional: Add a small indicator line */
+  background-image: linear-gradient(to right, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
+  background-size: 100% 2px;
   background-repeat: no-repeat;
   background-position: center;
 }
 
-.mod-destination-labels {
+/* Ticks container positioned to the right of the slider */
+.mod-destination-ticks {
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
-  width: 90%;
+  height: 100.3%;
+  margin-left: -11px;
+  pointer-events: none; /* Don't block interaction */
+}
+
+/* Individual tick with label container */
+.mod-destination-tick {
+  display: flex;
+  align-items: center;
+  height: calc(100% / 9);
+}
+
+/* Tick mark styling */
+.mod-destination-tick .tick {
+  width: 5px;
+  height: 1.9px;
+  background-color: #35100B;
+}
+
+/* Label styling */
+.mod-destination-tick .tick-label {
+  margin-left: 5px;
+  font-size: 10px;
+  white-space: nowrap;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  margin-bottom: 1.6px;
+  color: #35100B;
+}
+
+/* Destination label */
+.mod-destination-label {
   font-family: "Nunito", sans-serif;
   font-size: 10px;
   font-variant-caps: all-small-caps;
   font-weight: 750;
   color: #35100B;
+  text-align: center;
+  width: 100%;
+  position: absolute;
+  bottom: -22px;
+  margin-left: -4px;
+}
+/* New class for the modulation module select button */
+.mod-select-button-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* No right margin here, unlike the original */
+  margin-bottom: 5px;
+  margin-top: 12px;
+}
+
+/* Ensure the button itself is centered */
+.mod-select-button-container .select-button {
+  position: relative;
+  width: 41px;
+  height: 41px;
+  background-color: #BA5446; /* Match the modulation module color */
+  border: 2.5px solid #35100B;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  margin-top: -5px;
+  margin-bottom: 5px;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.mod-select-button-container .select-button:hover {
+  background-color: #b85f53; /* Slightly darker on hover */
+}
+
+.mod-select-button-container .select-button.active {
+  background-color: #d15f50;
+  box-shadow: 0 0 15px rgba(218, 92, 75, 0.7); /* Glow effect */
+  transform: scale(0.98); /* Slight pressed effect */
+}
+.mod-select-button-container label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  margin-top: 3px;
+  display: block;
+  width: 100%;
 }
     </style>
 </head>
@@ -1967,47 +2240,92 @@ margin-top: -10.6px;
 </div>
 
 </div>
-<!-- New MODULATION Module -->
+<!-- Updated MODULATION Module with canvas at top and two-column layout below -->
 <div class="module modulation-module">
   <div class="module-title modulation">MODULATION</div>
   
+  <!-- Canvas at the top of the module -->
   <div class="mod-canvas-container">
     <canvas id="mod-canvas" width="120" height="100"></canvas>
     <div class="mod-grid-overlay"></div>
   </div>
   
-  <div class="mod-selector-container">
-    <!-- Three-way vertical selector -->
-    <div class="mod-mode-selector">
-      <div class="mode-option" data-mode="env">ENV</div>
-      <div class="mode-option active" data-mode="lfo">LFO</div>
-      <div class="mode-option" data-mode="trig">TRIG</div>
-    </div>
-  </div>
-  
-  <div class="mod-controls-container">
-    <!-- Rate Knob -->
-    <div class="knob-container">
-      <div class="knob" id="mod-rate-knob"></div>
-      <label for="mod-rate-knob">Rate</label>
+  <!-- Two columns below the canvas -->
+  <div class="mod-columns-container">
+    <!-- Left column: controls stacked vertically -->
+    <div class="mod-left-column">
+      <!-- Three-way vertical selector -->
+      <div class="mod-selector-container">
+        <div class="mod-mode-selector">
+          <div class="mode-option" data-mode="env">ENV</div>
+          <div class="mode-option active" data-mode="lfo">LFO</div>
+          <div class="mode-option" data-mode="trig">TRIG</div>
+        </div>
+      </div>
+      
+      <!-- Rate Knob -->
+      <div class="knob-container">
+        <div class="knob" id="mod-rate-knob"></div>
+        <label for="mod-rate-knob">Rate</label>
+      </div>
+      
+      <!-- Select Button -->
+      <div class="mod-select-button-container">
+        <div class="select-button" id="mod-select-button">
+          <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
+        </div>
+        <label for="mod-select-button">Select</label>
+      </div>
     </div>
     
-    <!-- Select Button -->
-    <div class="select-button-container">
-      <div class="select-button" id="mod-select-button">
-        <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
+    <!-- Right column: destination slider -->
+    <div class="mod-right-column">
+      <!-- Destination slider -->
+      <div class="mod-destination-container">
+        <!-- Vertical slider with 9 notches -->
+        <input type="range" class="mod-destination-range" min="0" max="8" step="1" value="0" orient="vertical">
+        
+        <!-- Tick marks with labels -->
+        <div class="mod-destination-ticks">
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">Pitch</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">Filter</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">Variant</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">Amp</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">Looper</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">FX</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">FM</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">PWM</span>
+          </div>
+          <div class="mod-destination-tick">
+            <div class="tick"></div>
+            <span class="tick-label">Quant</span>
+          </div>
+        </div>
+        <div class="mod-destination-label">Destination</div>
       </div>
-      <label for="mod-select-button">Select</label>
-    </div>
-  </div>
-  
-  <!-- Horizontal destination slider with labels -->
-  <div class="mod-destination-container">
-    <input type="range" class="mod-destination-range" min="0" max="8" step="1" value="0">
-    <div class="mod-destination-labels">
-      <span>Pitch</span>
-      <span>Filter</span>
-      <span>Amp</span>
     </div>
   </div>
 </div>
@@ -2156,7 +2474,7 @@ margin-top: -10.6px;
                 
                 <!-- Portamento controls -->
                 <div class="legato-controls">
-                  <div class="switch-container porta-button-container">
+                  <div class="porta-button-wrapper">
                     <div class="porta-button" id="portamento-switch">
                       <img src="control icons/portamento.svg" alt="Portamento" class="icon">
                     </div>
@@ -7267,7 +7585,43 @@ function updateControlPointsForSegment(segmentIndex) {
   // Initialize on load
   drawWaveform();
 });
-
+// Add this to your JavaScript section
+document.addEventListener('DOMContentLoaded', function() {
+  // Get the modulation select button
+  const modSelectButton = document.getElementById('mod-select-button');
+  
+  if (modSelectButton) {
+    // Add click event listener 
+    modSelectButton.addEventListener('click', function() {
+      // Toggle active class for visual feedback
+      this.classList.toggle('active');
+      
+      // Get current state (active or not)
+      const isActive = this.classList.contains('active');
+      
+      // Log the state change
+      console.log('Modulation Select button:', isActive ? 'ACTIVE' : 'INACTIVE');
+      
+      // Placeholder for actual functionality
+      // This is where you would handle selecting destinations 
+      // or whatever functionality this button should perform
+      if (isActive) {
+        // Enable selection mode - the modulation destination becomes
+        // selectable when this button is active
+        document.querySelector('.mod-destination-container').classList.add('selection-mode');
+      } else {
+        // Disable selection mode
+        document.querySelector('.mod-destination-container').classList.remove('selection-mode');
+      }
+    });
+    
+    // Add touch event for mobile devices
+    modSelectButton.addEventListener('touchstart', function(e) {
+      e.preventDefault(); // Prevent double-triggering
+      this.click(); // Trigger the click event
+    }, { passive: false });
+  }
+});
     </script>
 </body>
 </html>
