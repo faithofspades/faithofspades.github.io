@@ -450,8 +450,8 @@
 }
         /* Sliders and knobs */
         .knob {
-    width: 40px;
-    height: 40px;
+    width: 35px;
+    height: 35px;
     border-radius: 50%;
     background-color: #f2eed3;
     border: 1px solid #35100B;
@@ -887,7 +887,7 @@ margin-top: -10.6px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color:  #4E658B;
+  background-color:  #BA5446;
   padding: 5px 0;
   border-radius: 10px;
   border: 0px solid #35100B;
@@ -917,12 +917,14 @@ margin-top: -10.6px;
 /* Main controls container (sliders + buttons) */
 .lfo-controls-container {
   display: flex;
-  width: 100%;
+  width: 87%;
   justify-content: space-between;
-  margin-bottom: 20px;
   height: 240px; /* Match your original height */
   padding-top: 7%;
-  padding-bottom: 2%;
+  margin-bottom: -25px;
+  margin-right: 30px;
+  padding-top: 0px;
+  margin-top: -29px;
 }
 
 /* Left container for vertical sliders */
@@ -930,11 +932,32 @@ margin-top: -10.6px;
   position: relative;
   display: flex;
   gap: 25px; /* Reduced from 25px to make space for tick marks */
-  height: 100%;
-  margin-left: 4%; /* Reduced from 10% */
+  height: 81%;
+  margin-left: 20px; /* Reduced from 10% */
   margin-right: 15px; /* Add right margin to prevent overlap */
+  top: 10px;
 }
-
+.filter-slider-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  width: 100%;
+  position: absolute;
+  bottom: -20px;
+  left: 50%; /* Center relative to parent */
+  transform: translateX(-50%); /* Perfect centering */
+  right: auto; /* Remove the right offset that was causing misalignment */
+}
+.filter-sliders-container .slider-tick-container {
+  position: relative;
+  width: 15px; /* Set explicit width */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 /* Vertical sliders: Rate and Delay */
 .rate-slider-range,
 .delay-slider-range {
@@ -951,10 +974,10 @@ margin-top: -10.6px;
   display: flex;
   flex-direction: row;
   align-items: center;
-  height: 100%;
+  height: 82%;
   margin-top: 2px;
-  margin-right: 15%;
   position: relative;
+  top: 30px;
 }
 
 /* Vertical destination range slider */
@@ -966,7 +989,8 @@ margin-top: -10.6px;
   background: transparent;
   writing-mode: vertical-lr;
   direction: rtl; /* Bottom to top orientation */
-  margin: 15px;;
+  margin-left: 5px;
+  margin-right: 15px;
 }
 
 /* Custom track styling */
@@ -982,8 +1006,9 @@ margin-top: -10.6px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 100.3%;
+  height: 65%;
   margin-left: -11px;
+  margin-bottom: 56px;
   pointer-events: none; /* Don't block interaction */
 }
 
@@ -1146,11 +1171,10 @@ margin-top: -10.6px;
   font-weight: 750;
   color: #35100B;
   text-align: center;
-  margin-top: 10px;
   width: 100%;
   position: absolute;
-  bottom: -24px;
   right: 5px;
+  top: 148px;
 }
 
 /* Position the slider containers correctly to make room for labels */
@@ -1172,8 +1196,8 @@ margin-top: -10.6px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 20px; /* Each tick container gets equal width */
-  position: relative;
+  width: 20px;
+  position: relative; /* Add position relative to container */
 }
 
 /* Make the ticks thinner and taller */
@@ -1218,8 +1242,10 @@ margin-top: -10.6px;
   text-align: center;
   width: 100%;
   position: absolute;
-  bottom: -22px;
+  bottom: -17px;
   margin-left: -4px;
+  right: 16px;
+
 }
 /* Container for bottom row controls */
 .lfo-bottom-controls {
@@ -1227,7 +1253,7 @@ margin-top: -10.6px;
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  margin-top: 20px;
+  margin-top: 13px;
   padding: 0 5px;
 }
 
@@ -1244,14 +1270,14 @@ margin-top: -10.6px;
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  background-color: #6B8F53;
+  background-color: #4E658B;
   position: relative;
   cursor: grab;
   box-sizing: border-box;
   
   /* Double border effect */
   border: 0.5px solid #35100B;
-  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
   
   /* Center point marker */
   transform-origin: center center;
@@ -1261,12 +1287,12 @@ margin-top: -10.6px;
 .depth-knob::after {
   content: '';
   position: absolute;
-  border-radius: 5px;
+  border-radius: 1px;
   top: 50%;
   left: 50%;
-  width: 23px; /* Longer line from center to edge */
+  width: 23.6px; /* Longer line from center to edge */
   height: 3px;
-  background-color: #35100B;
+  background-color: #f2eed3;
   transform-origin: left center;
   transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
 }
@@ -1285,7 +1311,7 @@ margin-top: -10.6px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-right: 10px; /* Add some spacing */
+margin-top: 26px;
 }
 
 .select-button {
@@ -1301,8 +1327,10 @@ margin-top: -10.6px;
   cursor: pointer;
   user-select: none;
   margin-top: -5px;
-  margin-bottom: 5px; /* Add space for label below */
+  margin-bottom: 2px; /* Add space for label below */
   transition: background-color 0.2s, box-shadow 0.2s;
+  margin-right: -10px;
+  right: 5px;
 }
 
 .select-button:hover {
@@ -1476,17 +1504,18 @@ margin-top: -10.6px;
   position: relative;
   cursor: grab;
   margin-bottom: 5px;
+  
 }
 
 .vertical-switch::after {
   content: '';
   position: absolute;
   width: 19px;
-  height: 20px;
+  height: 19.5px;
   background: #35100B;
   border: 1px solid #35100B;
   border-radius: 0px;
-  left: 0px;
+  left: -0.5px;
   top: 0px;
   transition: top 0.1s;
   
@@ -1508,7 +1537,7 @@ margin-top: -10.6px;
   flex-direction: column;
   align-items: center;
   margin-top: 8px;
-  margin-bottom: 8.5px; /* Adjust this to your preference */
+  margin-bottom: 12.0px; /* Adjust this to your preference */
 }
 
 /* Ensure the button itself maintains consistent styling */
@@ -1624,7 +1653,7 @@ margin-top: -10.6px;
 
 /* New class for labels above the switch */
 .switch-label-top {
-  margin-bottom: 5px;
+  margin-bottom: 3.5px;
 }
 
 /* New class for labels below the switch */
@@ -1734,8 +1763,8 @@ margin-top: -10.6px;
   background-color: #f2eed3;
   border-radius: 10px;
   padding: 10px;
-  min-width: 165px;
-  max-width: 165px;
+  min-width: 145px;
+  max-width: 145px;
   padding-top: 15px;
   overflow: hidden;
   box-sizing: border-box;
@@ -1850,6 +1879,7 @@ margin-top: -10.6px;
   width: 92%;
   justify-content: space-between;
   margin-top: 5px;
+  height: 191px;
 }
 
 /* Left column styling */
@@ -1858,7 +1888,14 @@ margin-top: -10.6px;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  width: 45%;
+  width: 65%;
+  border: 1px solid #35100B;
+  border-radius: 10px;
+  padding-right: 5px;
+    padding-left: 5px;
+    margin-right: 5px;
+    margin-left: -5px;
+    right: 2px;
 }
 
 /* Right column styling */
@@ -2061,7 +2098,7 @@ margin-top: -10.6px;
   text-align: center;
   width: 100%;
   position: absolute;
-  bottom: -22px;
+  bottom: -21px;
   margin-left: -4px;
 }
 /* New class for the modulation module select button */
@@ -2112,9 +2149,1159 @@ margin-top: -10.6px;
   display: block;
   width: 100%;
 }
-    </style>
-</head>
-<body>
+.oscillator-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 139px;
+  max-width: 139px;
+  align-items: center;
+  padding-top: 15px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.module-title.oscillator {
+  color: #f2eed3;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 10px;
+  background-color: #BA5446; /* Green color for OSCILLATOR */
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+  margin-top: -15px;
+}
+
+/* Oscillator selector containers */
+.osc-selector-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 17px;
+  margin-bottom: 9.5px;
+}
+
+/* Add label for selectors */
+.selector-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  margin-top: 3px;
+}
+
+/* Octave labels */
+.octave-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 16px; /* Reduced from 16px to match other labels */
+  font-variant-caps: all-small-caps;
+  font-weight: 625; /* Match other labels */
+  color: #35100B;
+  text-align: center;
+  display: inline-block; /* Use inline-block instead of absolute */
+  margin-top: 4px; /* Add spacing between tick and label */
+  position: relative; /* Use relative positioning */
+  width: auto; /* Let the text determine width */
+}
+
+/* Two-column layout */
+.osc-columns-container {
+  display: flex;
+  width: 105%;
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+.osc-left-column, .osc-right-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 45%;
+}
+
+/* Oscillator knobs - using colors that match the module theme */
+.oscillator-module .knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #6B8F53;
+  position: relative;
+  cursor: grab;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+  transform-origin: center center;
+}
+
+.oscillator-module .knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+
+/* Space knobs properly */
+.oscillator-module .knob-container {
+  margin-bottom: 9px;
+}
+
+/* Fix spacing for switch */
+.oscillator-module .switch-container {
+  margin-bottom: 15px;
+  margin-top: 5px;
+}
+/* Oscillator-specific switch container styling */
+.osc-switch-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 8px 0 -6.5px 0; /* Custom margins for oscillator switch */
+}
+
+/* Oscillator-specific switch labels */
+.osc-switch-label {
+  position: relative;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Oscillator-specific top label positioning */
+.osc-switch-label-top {
+  margin-bottom: 4px; /* Custom spacing above switch */
+  bottom: 10px;
+}
+
+/* Oscillator-specific bottom label positioning */
+.osc-switch-label-bottom {
+  margin-top: 4px; /* Custom spacing below switch */
+  bottom: 15.5px;
+}
+
+/* Oscillator-specific vertical switch */
+.osc-vertical-switch {
+  width: 20px;
+  height: 40px;
+  background: #6B8F53;
+  border: 2px solid #35100B;
+  border-radius: 5px;
+  position: relative;
+  cursor: grab;
+  margin-bottom: 3px; /* Custom bottom margin */
+  bottom: 11px;
+}
+
+/* Switch handle styling */
+.osc-vertical-switch::after {
+  content: '';
+  position: absolute;
+  width: 19px;
+  height: 19.4px;
+  background: #35100B;
+  border: 1px solid #35100B;
+  border-radius: 0px;
+  left: -0.5px;
+  top: 0px;
+  transition: top 0.1s;
+  
+  /* Add the on.svg overlay as a background image */
+  background-image: url("control icons/on.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+}
+
+.osc-vertical-switch.active::after {
+  top: 19px;
+}
+.osc-vertical-switch {
+  position: relative; /* Ensure it's a positioning context */
+}
+
+/* Top horizontal line from switch */
+.osc-vertical-switch::before {
+  content: '';
+  position: absolute;
+  top: 25%; /* Position in upper half */
+  right: -13.9px; /* Extend 12px to the right */
+  width: 13px;
+  height: 2px;
+  background-color: #35100B;
+}
+
+/* Bottom horizontal line from switch */
+
+
+/* Connection line container */
+.osc-switch-container {
+  position: relative; /* Make it a positioning context */
+}
+
+/* Vertical connector line where the two horizontal lines meet */
+.osc-switch-container::before {
+  content: '';
+  position: absolute;
+  top: calc(25% - 1px); /* Align with top line */
+  right: -12px; /* Position at the end of the horizontal lines */
+  width: 2px;
+  height: calc(23% + 2px); /* Connect between top and bottom lines */
+  background-color: #35100B;
+}
+
+/* Final horizontal line to FM knob */
+.osc-switch-container::after {
+  content: '';
+  position: absolute;
+  top: 34%; /* Center vertically */
+  right: -42px; /* Extend to the FM knob */
+  width: 30px; /* Length of line to reach FM knob */
+  height: 2px;
+  background-color: #35100B;
+}
+/* Add this rule to make the horizontal line move with the switch handle */
+.osc-vertical-switch::before {
+  content: '';
+  position: absolute;
+  top: 25%; /* Position in upper half when inactive */
+  right: -13.7px;
+  width: 13px;
+  height: 2px;
+  background-color: #35100B;
+}
+
+/* Add this new rule to move the horizontal line when the switch is active */
+.osc-vertical-switch.active::before {
+  top: 75%; /* Move to lower half when active, matching the handle position */
+}
+/* Updated oscillator knob colors */
+/* Default knob style (keeping the same structure) */
+.oscillator-module .knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  position: relative;
+  cursor: grab;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  transform-origin: center center;
+}
+
+/* Red knobs: Pitch and Gain */
+.oscillator-module #pitch-knob, 
+.oscillator-module #gain-knob {
+  background-color: #BA5446;
+  box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+}
+
+/* Blue knobs: PWM and Quantize */
+.oscillator-module #pwm-knob,
+.oscillator-module #quantize-knob {
+  background-color: #4E658B;
+  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+}
+
+/* Green knob: FM */
+.oscillator-module #fm-knob {
+  background-color: #6B8F53;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+}
+/* FILTER Module styling */
+.filter-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 169px;
+  max-width: 169px;
+  align-items: center;
+  padding-top: 15px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.module-title.filter {
+  color: #f2eed3;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 10px;
+  background-color: #BA5446; /* Blue color for FILTER */
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+  margin-top: -15px;
+}
+
+/* Main controls container (sliders + type selector) */
+.filter-controls-container {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  margin-bottom: 40px;
+  height: 200px;
+  padding-top: 7%;
+  padding-bottom: 2%;
+}
+
+/* Left container for vertical sliders */
+.filter-sliders-container {
+  position: relative;
+  display: flex;
+  gap: 25px;
+  height: 102%;
+  margin-left: 4%;
+  margin-right: 15px;
+}
+
+/* Vertical sliders: Freq and Res */
+.freq-slider-range,
+.res-slider-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 5px;
+  height: 100%;
+  background: transparent;
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
+/* Filter type container */
+.filter-type-container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 100%;
+  margin-top: 2px;
+  position: relative;
+}
+
+/* Vertical filter type slider */
+.filter-type-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 100%;
+  background: transparent;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  margin: 15px;
+}
+
+/* Custom track styling */
+.filter-type-range::-webkit-slider-runnable-track {
+  width: 10px;
+  height: 100%;
+  background: #35100B;
+  border-radius: 8px;
+}
+
+/* Ticks container positioned to the right of the slider */
+.filter-type-ticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100.3%;
+  margin-left: -11px;
+  pointer-events: none;
+}
+
+/* Shared slider track styling */
+.freq-slider-range::-webkit-slider-runnable-track,
+.res-slider-range::-webkit-slider-runnable-track {
+  background: #35100B;
+  border-radius: 5px;
+  width: 5px;
+  border: none;
+}
+
+/* Shared slider thumb styling */
+.freq-slider-range::-webkit-slider-thumb,
+.res-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: #35100B;
+  width: 26px;
+  height: 18px;
+  cursor: pointer;
+  margin-left: -10.6px;
+  border-radius: 5px;
+  background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Filter type thumb styling */
+.filter-type-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #35100B;
+  width: 24px;
+  height: 26px;
+  cursor: pointer;
+  border-radius: 5px;
+  margin-left: -6.8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  background-image: linear-gradient(to right, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Slider label styling */
+.slider-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  margin-top: 10px;
+  width: 100%;
+  position: absolute;
+  bottom: -24px;
+  right: 5px;
+}
+
+/* Filter type label */
+.filter-type-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  width: 100%;
+  position: absolute;
+  bottom: -22px;
+  margin-left: -4px;
+}
+
+/* Horizontal sliders container */
+.filter-horizontal-sliders {
+  display: flex;
+  flex-direction: column;
+  width: 85%;
+  margin-bottom: 15px;
+}
+
+/* Horizontal slider container */
+.horizontal-slider-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 10px;
+}
+
+/* Horizontal slider styling */
+.drive-slider-range,
+.variant-slider-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+/* Horizontal slider track */
+.drive-slider-range::-webkit-slider-runnable-track,
+.variant-slider-range::-webkit-slider-runnable-track {
+  background: #35100B;
+  border-radius: 5px;
+  height: 5px;
+  border: none;
+}
+
+/* Horizontal slider thumb */
+.drive-slider-range::-webkit-slider-thumb,
+.variant-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #35100B;
+  width: 18px;
+  height: 24px;
+  cursor: pointer;
+  margin-top: -9.5px;
+  border-radius: 5px;
+  background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Horizontal slider ticks */
+.horizontal-slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 5px;
+}
+
+.horizontal-slider-ticks .tick {
+  width: 1.7px;
+  height: 8px;
+  background-color: #35100B;
+}
+
+/* Horizontal slider label */
+.horizontal-slider-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  margin-top: 5px;
+}
+
+/* Bottom knobs container */
+.filter-bottom-controls {
+  display: flex;
+  justify-content: space-around;
+  width: 90%;
+  margin-top: 3px;
+}
+
+/* Knob container styling */
+.filter-knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Filter knobs */
+.filter-module .knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #CF814D; /* Blue color matching filter module */
+  position: relative;
+  cursor: grab;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;
+  transform-origin: center center;
+}
+.filter-module #keytrack-knob {
+  background-color: #BA5446; /* Red color */
+  box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+}
+/* Knob indicator styling */
+.filter-module .knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+
+/* Knob label styling */
+.filter-knob-container label {
+  margin-top: -3.5px;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+}
+/* Bottom knobs container */
+.mod-bottom-controls {
+  display: flex;
+  justify-content: space-around;
+  width: 92%;
+padding-left: 6px;
+  margin-left: 5px;
+  margin-top: 7px;
+
+}
+
+/* Depth knob (regular styling) */
+#mod-depth-knob {
+  background-color: #BA5446; /* Blue color */
+  box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+  right: 3px;
+}
+
+/* Shape knob container with ticks */
+.shape-knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  width: 55px;
+  left: 5px;
+
+}
+
+/* Ticks container positioned around the knob */
+.shape-knob-ticks {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Don't block interactions */
+  bottom: 9px;
+  right: 0.5px;
+}
+
+/* Individual tick styling */
+.shape-tick {
+  position: absolute;
+  width: 1px;
+  height: 4px;
+  background-color: #35100B;
+  left: 50%;
+  top: 50%;
+  transform-origin: center bottom;
+}
+
+/* Discrete shape knob with 5 positions */
+.shape-knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #6B8F53; /* Green color */
+  position: relative;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+  z-index: 1;
+  top: 10px;
+}
+
+/* Shape knob indicator line */
+.shape-indicator {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 45%;
+  width: 3px;
+  background-color: #f2eed3;
+  transform: translateX(-50%);
+}
+
+/* Label styling */
+.shape-knob-container label {
+  margin-top: 26px;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+}
+/* Add this to your CSS */
+.shape-knob-ticks .wave-shape {
+  position: absolute;
+  height: 14px;
+  width: 18px;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+  pointer-events: none;
+}
+.mod-left-column {
+  position: relative;
+}
+
+.mod-left-column::before {
+  content: "⮝MOD⮝";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #f2eed3;
+  padding: 0 8px;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  z-index: 1;
+}
+/* Make the shape ticks larger to accommodate the icons */
+.shape-tick {
+  position: absolute;
+  width: 2px;
+  height: 5px;
+  background-color: #35100B;
+  left: 50%;
+  top: 50%;
+  transform-origin: center bottom;
+}
+
+/* Update positioning for the shape knob container */
+.shape-knob-container {
+  margin-top: 5px;
+  padding-top: 10px;
+}
+
+/* When active, make the wave shapes visible */
+.shape-knob.active + .shape-knob-ticks .wave-shape img {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+/* Shape knob container styling */
+.shape-knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  margin-top: 5px;
+}
+
+/* Container for the shape notches */
+.shape-knob-notches {
+  position: absolute;
+  width: 150%;
+  height: 18px;
+  top: -22px;
+  left: -25%;
+  pointer-events: none;
+}
+
+/* Individual shape notch */
+.shape-notch {
+  position: absolute;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+/* Make the shape knob look like other knobs */
+#mod-shape-knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #E5AB5F; /* Green color */
+  position: relative;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;
+  transform-origin: center center;
+}
+
+/* Add indicator line */
+#mod-shape-knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+/* Shape knob container */
+.shape-knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  margin-top: 5px;
+  margin-bottom: 20px; /* Add space for label */
+}
+
+/* Container for the wave shape icons */
+.shape-notches {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Individual shape icon styling */
+.shape-icon {
+  position: absolute;
+  width: 18px;
+  height: 14px;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+  pointer-events: none;
+}
+
+/* Shape knob styling (same as other knobs) */
+#mod-shape-knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #6B8F53; /* Green color */
+  position: relative;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+  transform-origin: center center;
+}
+
+/* Indicator line */
+#mod-shape-knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+/* Shape knob container */
+.shape-knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  margin-top: 5px;
+  margin-bottom: 28px;
+  bottom: 6px;
+}
+
+/* Markers container */
+.shape-markers {
+  position: absolute;
+  width: 100%;
+  height: 85%;
+  right: 7px;
+  top: 5px;
+  pointer-events: none;
+}
+
+/* Individual shape marker */
+.shape-marker {
+  position: absolute;
+  width: 18px;
+  height: 14px;
+  top: 50%;
+  left: 50%;
+  transform-origin: center;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+  pointer-events: none;
+}
+
+/* Shape knob styling */
+#mod-shape-knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #E5AB5F;
+  position: relative;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;
+  transform-origin: center center;
+}
+
+/* Indicator line */
+#mod-shape-knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+
+/* Label styling */
+.shape-knob-container label {
+  margin-top: 8px;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+/* Shape knob styling */
+.shape-knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: #6B8F53; /* Green color */
+  position: relative;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+  transform-origin: center center;
+}
+
+/* Shape knob indicator line */
+.shape-knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+.mod-horizontal-line {
+  position: relative;
+  width: 140%;
+  height: 1px; /* Keep original height */
+  min-height: 1px; /* Add min-height to prevent collapse */
+  background-color: #35100B;
+  margin: 10px auto 15px auto;
+  opacity: 1;
+  display: block;
+
+  overflow: visible; /* Ensure it's not being cut off */
+  right: 15.3px;
+  bottom: 205px;
+}
+.mod-vertical-line {
+  position: relative;
+  width: 1px; /* Thin vertical line */
+  min-height: 190px;
+  min-width: 1px; /* Add min-width to prevent collapse */
+  background-color: #35100B;
+  opacity: 1;
+  display: block;
+
+  overflow: visible; /* Ensure it's not being cut off */
+  bottom: 195px;
+  left: 30px; /* Position to the right of the mod-rate-knob */
+}
+.slider-horizontal-line {
+  position: absolute;
+  width: 170%;
+  height: 1px;
+  min-height: 1px;
+  background-color: #35100B;
+  top: -8px;
+  right: 10px;
+  left: -13.9px;
+  opacity: 1;
+  display: block;
+  z-index: 1;
+}
+.lfo-section-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  width: 100%;
+  position: absolute;
+  top: -23px;
+  left: 1px;
+  z-index: 2;
+}
+/* Styling for macro knob columns */
+.macro-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Styling for bottom row of macros */
+.bottom-macro-row {
+  display: flex;
+  gap: 15px;
+  margin-top: 15px;
+  width: 100%;
+  justify-content: space-around;
+}
+
+/* Adjust mod-bottom-controls to support the new layout */
+.mod-bottom-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-around;
+  width: 96%;
+  margin-top: 7px;
+
+}
+
+/* Ensure all knobs have the proper indicator line */
+.knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
+/* Styling for the button container */
+.matrix-buttons-container {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin: 10px auto 5px auto;
+  margin-top: 15px;
+    margin-bottom: 0px;
+}
+
+/* Styling for the individual buttons */
+.matrix-button {
+  width: 21px;
+  height: 21px;
+  background-color: #f2eed3;
+  border: 2.5px solid #35100B;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.matrix-button:hover {
+  background-color: #e8e3c4;
+}
+
+.matrix-button.active {
+  background-color: #BA5446;
+  box-shadow: 0 0 8px rgba(186, 84, 70, 0.5);
+}
+/* Base colors for the six buttons */
+.matrix-button:nth-child(1),
+.matrix-button:nth-child(2) {
+  background-color: #6B8F53; /* Green color */
+}
+
+.matrix-button:nth-child(3) {
+  background-color: #4E658B; /* Blue color */
+}
+
+.matrix-button:nth-child(4) {
+  background-color: #E5AB5F; /* Yellow color */
+}
+
+.matrix-button:nth-child(5) {
+  background-color: #BA5446; /* Red color */
+}
+
+.matrix-button:nth-child(6) {
+  background-color: #CF814D; /* Orange color */
+}
+
+/* Hover states - slightly brighter versions of each color */
+.matrix-button:nth-child(1):hover,
+.matrix-button:nth-child(2):hover {
+  background-color: #7da263; /* Brighter green */
+}
+
+.matrix-button:nth-child(3):hover {
+  background-color: #5a739a; /* Brighter blue */
+}
+
+.matrix-button:nth-child(4):hover {
+  background-color: #e7b068; /* Brighter yellow */
+}
+
+.matrix-button:nth-child(5):hover {
+  background-color: #c65f53; /* Brighter red */
+}
+
+.matrix-button:nth-child(6):hover {
+  background-color: #d69061; /* Brighter orange */
+}
+
+/* Active state with glow effect */
+.matrix-button:nth-child(1).active,
+.matrix-button:nth-child(2).active {
+  background-color: #7da263; /* Same as hover green */
+  box-shadow: 0 0 8px rgba(107, 143, 83, 0.8); /* Green glow */
+}
+
+.matrix-button:nth-child(3).active {
+  background-color: #5a739a; /* Same as hover blue */
+  box-shadow: 0 0 8px rgba(78, 101, 139, 0.8); /* Blue glow */
+}
+
+.matrix-button:nth-child(4).active {
+  background-color: #e7b068; /* Same as hover yellow */
+  box-shadow: 0 0 8px rgba(229, 171, 95, 0.8); /* Yellow glow */
+}
+
+.matrix-button:nth-child(5).active {
+  background-color: #c65f53; /* Same as hover red */
+  box-shadow: 0 0 8px rgba(186, 84, 70, 0.8); /* Red glow */
+}
+
+.matrix-button:nth-child(6).active {
+  background-color: #d69061; /* Same as hover orange */
+  box-shadow: 0 0 8px rgba(207, 129, 77, 0.8); /* Orange glow */
+}
+/* Add this CSS to style the text in the matrix buttons */
+.matrix-button {
+  width: 21px;
+  height: 21px;
+  background-color: #f2eed3;
+  border: 2.5px solid #35100B;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;           /* Add flex display to center text */
+  justify-content: center; /* Center horizontally */
+  align-items: center;     /* Center vertically */
+  font-family: "Nunito", sans-serif;
+  font-size: 8px;          /* Small font size for the small buttons */
+  font-weight: 700;        /* Bold text for better visibility */
+  color: #35100B;          /* Dark text color by default */
+}
+
+/* Make text white when button is active */
+.matrix-button.active {
+  background-color: #BA5446;
+  box-shadow: 0 0 8px rgba(186, 84, 70, 0.5);
+  color: #f2eed3;          /* Light text color when active */
+}
     </style>
 </head>
 <body>
@@ -2123,35 +3310,98 @@ margin-top: -10.6px;
         <div class="synth-panel">
          
 <!-- LFO Module -->
-<div class="module LFO-Module">
-  <div class="lfo">LFO</div>
-  
-  <div class="lfo-controls-container">
-<!-- Left side: Vertical sliders -->
-<div class="lfo-sliders-container">
-  <!-- Rate Slider -->
-  <div class="slider-tick-container">
-    <input type="range" class="rate-slider-range" min="0" max="1" step="0.01" value="0.5">
-    <div class="slider-label">Rate</div>
+<div class="module LFO-Module" style="min-width: 205px; max-width: 205px;">
+  <div class="lfo">MATRIX</div>
+  <div class="matrix-buttons-container" style="position: relative; z-index: 10;">
+    <div class="matrix-button">MOD</div>
+    <div class="matrix-button">LFO</div>
+    <div class="matrix-button">1</div>
+    <div class="matrix-button">2</div>
+    <div class="matrix-button">3</div>
+    <div class="matrix-button">4</div>
   </div>
+  <div class="lfo-controls-container" style="z-index: 5;">
 
-  <!-- Delay Slider (renamed to "Fade In") -->
-  <div class="slider-tick-container">
-    <input type="range" class="delay-slider-range" min="0" max="1" step="0.01" value="0.5">
-    <div class="slider-label">Fade</div>
-  </div>
-</div>
     
 <!-- Replace the button switches with a vertical 9-position slider -->
 <div class="lfo-destination-container">
   <!-- Vertical slider with 9 notches -->
-  <input type="range" class="lfo-destination-range" min="0" max="8" step="1" value="0" orient="vertical">
+  <input type="range" class="lfo-destination-range" min="0" max="12" step="1" value="0" orient="vertical">
   
   <!-- Tick marks with labels -->
   <div class="lfo-destination-ticks">
     <div class="tick-with-label">
       <div class="tick"></div>
-      <span class="tick-label">Pitch</span>
+      <span class="tick-label">Sampler Pitch</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 1 Pitch</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 2 Pitch</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Sampler Gain</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 1 Gain</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 2 Gain</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 1 PWM</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 2 PWM</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 1 Quant</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 2 Quant</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 1 FM</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Osc 2 FM</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Overload</span>
+    </div>
+  </div>
+  <div class="destination-label">Destination</div>
+</div>
+<div class="lfo-destination-container">
+  <!-- Vertical slider with 9 notches -->
+  <input type="range" class="lfo-destination-range" min="0" max="12" step="1" value="0" orient="vertical">
+  
+  <!-- Tick marks with labels -->
+  <div class="lfo-destination-ticks">
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Lo-Fi</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Speed</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Jump</span>
     </div>
     <div class="tick-with-label">
       <div class="tick"></div>
@@ -2159,87 +3409,96 @@ margin-top: -10.6px;
     </div>
     <div class="tick-with-label">
       <div class="tick"></div>
+      <span class="tick-label">Stutter</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Pitch</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Delay Time</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Warp</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Feedback</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
+      <span class="tick-label">Cutoff</span>
+    </div>
+    <div class="tick-with-label">
+      <div class="tick"></div>
       <span class="tick-label">Variant</span>
     </div>
     <div class="tick-with-label">
       <div class="tick"></div>
-      <span class="tick-label">Amp</span>
+      <span class="tick-label">Resonance</span>
     </div>
     <div class="tick-with-label">
       <div class="tick"></div>
-      <span class="tick-label">Looper</span>
+      <span class="tick-label">Lo-Fi Amt</span>
     </div>
-    <div class="tick-with-label">
-      <div class="tick"></div>
-      <span class="tick-label">FX</span>
-    </div>
-    <div class="tick-with-label">
-      <div class="tick"></div>
-      <span class="tick-label">FM</span>
-    </div>
-    <div class="tick-with-label">
-      <div class="tick"></div>
-      <span class="tick-label">PWM</span>
-    </div>
-    <div class="tick-with-label">
-      <div class="tick"></div>
-      <span class="tick-label">Quant</span>
-    </div>
+    
   </div>
   <div class="destination-label">Destination</div>
-</div>
-</div>
-<div class="lfo-bottom-controls">
-  <div class="depth-knob-container">
-    <div class="depth-knob" id="lfo-depth-knob"></div>
-    <label for="lfo-depth-knob">Depth</label>
-  </div>
-  <div class="select-button-container">
-    <div class="select-button" id="lfo-select-button">
-      <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
-      <div class="select-led"></div>
-    </div>
-    <label for="lfo-select-button">Select</label>
-  </div>
-</div>
-<!-- Bottom: Five-step selector slider with waveform icons -->
-<div class="lfo-selector-container">
-  <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
-  <div class="five-step-ticks">
-    <div class="tick-container">
-      <div class="tick"></div>
-      <div class="wave-shape">
-        <img src="SHAPES/wave-sine.svg" alt="Sine" width="18" height="14">
-      </div>
-    </div>
-    <div class="tick-container">
-      <div class="tick"></div>
-      <div class="wave-shape">
-        <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="18" height="14">
-      </div>
-    </div>
-    <div class="tick-container">
-      <div class="tick"></div>
-      <div class="wave-shape">
-        <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="18" height="14">
-      </div>
-    </div>
-    <div class="tick-container">
-      <div class="tick"></div>
-      <div class="wave-shape">
-        <img src="SHAPES/square-wave.svg" alt="Square" width="18" height="14">
-      </div>
-    </div>
-    <div class="tick-container">
-      <div class="tick"></div>
-      <div class="wave-shape">
-        <img src="SHAPES/mod-random.svg" alt="Random" width="18" height="14">
-      </div>
-    </div>
-  </div>
-</div>
 
 </div>
+</div>
+<!-- New 3-column layout for knobs -->
+<div class="matrix-knobs-container" style="display: flex; justify-content: space-between; margin-top: 18px; width: 94%;">
+  <!-- Column 1 -->
+  <div class="matrix-knob-column" style="flex-direction: column; align-items: center;">
+    <div class="select-button-container">
+      <div class="select-button" id="lfo-select-button">
+        <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
+        <div class="select-led"></div>
+      </div>
+      <label for="lfo-select-button">Select</label>
+    </div>
+    <div class="knob-container" style="margin-top: 15px;">
+      <div class="knob" id="matrix-depth-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+      <label for="matrix-depth-knob">Depth</label>
+    </div>
+
+    
+
+  </div>
+  
+  <!-- Column 2 -->
+    <div class="matrix-knob-column" style="flex-direction: column; align-items: center;">
+      <div class="knob-container" style="margin-top: 15px;">
+        <div class="knob" id="macro1-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <label for="macro1-knob">Macro 1</label>
+      </div>
+      <div class="knob-container" style="margin-top: 15px;">
+        <div class="knob" id="macro3-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <label for="macro3-knob">Macro 3</label>
+      </div>
+    
+
+  </div>
+  
+  <!-- Column 3 -->
+  <div class="matrix-knob-column" style="flex-direction: column; align-items: center;">
+  <div class="knob-container" style="margin-top: 15px;">
+    <div class="knob" id="macro2-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+    <label for="macro2-knob">Macro 2</label>
+  </div>
+
+  <div class="knob-container" style="margin-top: 15px;">
+    <div class="knob" id="macro4-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+    <label for="macro4-knob">Macro 4</label>
+  </div> 
+
+</div>
+</div>
+</div>
+
 <!-- Updated MODULATION Module with canvas at top and two-column layout below -->
 <div class="module modulation-module">
   <div class="module-title modulation">MODULATION</div>
@@ -2264,69 +3523,72 @@ margin-top: -10.6px;
       </div>
       
       <!-- Rate Knob -->
-      <div class="knob-container">
+      <div class="knob-container" style="
+    margin-top: 17px;"> 
         <div class="knob" id="mod-rate-knob"></div>
         <label for="mod-rate-knob">Rate</label>
       </div>
+
       
-      <!-- Select Button -->
-      <div class="mod-select-button-container">
-        <div class="select-button" id="mod-select-button">
-          <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
-        </div>
-        <label for="mod-select-button">Select</label>
-      </div>
+      
     </div>
     
     <!-- Right column: destination slider -->
     <div class="mod-right-column">
-      <!-- Destination slider -->
-      <div class="mod-destination-container">
-        <!-- Vertical slider with 9 notches -->
-        <input type="range" class="mod-destination-range" min="0" max="8" step="1" value="0" orient="vertical">
+      <!-- Left side: Vertical sliders -->
+      <div class="lfo-sliders-container">
+
+
         
-        <!-- Tick marks with labels -->
-        <div class="mod-destination-ticks">
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">Pitch</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">Filter</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">Variant</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">Amp</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">Looper</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">FX</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">FM</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">PWM</span>
-          </div>
-          <div class="mod-destination-tick">
-            <div class="tick"></div>
-            <span class="tick-label">Quant</span>
-          </div>
+        <!-- Rate Slider -->
+        <div class="slider-tick-container">
+          <input type="range" class="rate-slider-range" min="0" max="1" step="0.01" value="0.5">
+          <div class="slider-label">Rate</div>
         </div>
-        <div class="mod-destination-label">Destination</div>
-      </div>
+
+  <!-- Delay Slider (renamed to "Fade In") -->
+  <div class="slider-tick-container">
+    <input type="range" class="delay-slider-range" min="0" max="1" step="0.01" value="0.5">
+    <div class="slider-label">Fade</div>
+  </div>
+</div>
     </div>
+  </div>
+  <div class="mod-bottom-controls">
+    <div class="knob-container">
+      <div class="knob" id="mod-depth-knob"></div>
+      <label for="mod-depth-knob">Depth</label>
+    </div>
+<!-- Update this line in the mod-bottom-controls section -->
+<div class="shape-knob-container">
+  <!-- Fixed position shape markers at exact angles -->
+  <div class="shape-markers">
+    <!-- -150 degrees -->
+    <div class="shape-marker" style="transform: rotate(-150deg) translateY(-30px) rotate(150deg);">
+      <img src="SHAPES/wave-sine.svg" alt="Sine" width="13" height="9">
+    </div>
+    <!-- -75 degrees -->
+    <div class="shape-marker" style="transform: rotate(-75deg) translateY(-30px) rotate(75deg);">
+      <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="13" height="9">
+    </div>
+    <!-- 0 degrees -->
+    <div class="shape-marker" style="transform: rotate(0deg) translateY(-30px) rotate(0deg);">
+      <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="13" height="9">
+    </div>
+    <!-- 75 degrees -->
+    <div class="shape-marker" style="transform: rotate(75deg) translateY(-30px) rotate(-75deg);">
+      <img src="SHAPES/square-wave.svg" alt="Square" width="13" height="9">
+    </div>
+    <!-- 150 degrees -->
+    <div class="shape-marker" style="transform: rotate(150deg) translateY(-30px) rotate(-150deg);">
+      <img src="SHAPES/mod-random.svg" alt="Random" width="13" height="9">
+    </div>
+  </div>
+  
+  <!-- The knob itself - UPDATED with shape-knob class -->
+  <div class="shape-knob" id="mod-shape-knob"></div>
+
+</div>
   </div>
 </div>
 
@@ -2416,6 +3678,319 @@ margin-top: -10.6px;
         <div class="knob" id="sample-crossfade-knob"></div>
         <label for="sample-crossfade-knob">Crossfade</label>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- OSCILLATOR 2 Module -->
+<div class="module oscillator-module">
+  <div class="module-title oscillator">OSCILLATOR</div>
+  
+  <!-- Wave Shape Selector (similar to LFO but with pulse instead of random) -->
+  <div class="osc-selector-container">
+    <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+    <div class="five-step-ticks">
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/wave-sine.svg" alt="Sine" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/square-wave.svg" alt="Square" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/pulse.svg" alt="Pulse" width="18" height="14">
+        </div>
+      </div>
+    </div>
+
+  </div>
+  
+  <!-- Octave Selector -->
+  <div class="osc-selector-container">
+    <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+    <div class="five-step-ticks">
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">-2</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">-1</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">0</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">+1</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">+2</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Two columns for controls -->
+  <div class="osc-columns-container">
+    <!-- Left column -->
+    <div class="osc-left-column">
+      <!-- FM Source Switch -->
+      <div class="osc-switch-container">
+        <label class="osc-switch-label osc-switch-label-top">Noise</label>
+        <div class="osc-vertical-switch" id="fm-source-switch"></div>
+        <label class="osc-switch-label osc-switch-label-bottom">Osc 1</label>
+      </div>
+      
+      <!-- PWM Knob -->
+      <div class="knob-container">
+        <div class="knob" id="pwm-knob"></div>
+        <label for="pwm-knob">PWM</label>
+      </div>
+      
+      <!-- Pitch Knob -->
+      <div class="knob-container">
+        <div class="knob" id="pitch-knob"></div>
+        <label for="pitch-knob">Pitch</label>
+      </div>
+    </div>
+    
+    <!-- Right column -->
+    <div class="osc-right-column">
+      <!-- FM Knob -->
+      <div class="knob-container">
+        <div class="knob" id="fm-knob"></div>
+        <label for="fm-knob">FM</label>
+      </div>
+      
+      <!-- Quantize Knob -->
+      <div class="knob-container">
+        <div class="knob" id="quantize-knob"></div>
+        <label for="quantize-knob">Quantize</label>
+      </div>
+      
+      <!-- Gain Knob -->
+      <div class="knob-container">
+        <div class="knob" id="gain-knob"></div>
+        <label for="gain-knob">Gain</label>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- OSCILLATOR Module -->
+<div class="module oscillator-module">
+  <div class="module-title oscillator">OSCILLATOR 2</div>
+  
+  <!-- Wave Shape Selector (similar to LFO but with pulse instead of random) -->
+  <div class="osc-selector-container">
+    <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+    <div class="five-step-ticks">
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/wave-sine.svg" alt="Sine" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/square-wave.svg" alt="Square" width="18" height="14">
+        </div>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <div class="wave-shape">
+          <img src="SHAPES/pulse.svg" alt="Pulse" width="18" height="14">
+        </div>
+      </div>
+    </div>
+
+  </div>
+  
+  <!-- Octave Selector -->
+  <div class="osc-selector-container">
+    <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+    <div class="five-step-ticks">
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">-2</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">-1</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">0</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">+1</span>
+      </div>
+      <div class="tick-container">
+        <div class="tick"></div>
+        <span class="octave-label">+2</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Two columns for controls -->
+  <div class="osc-columns-container">
+    <!-- Left column -->
+    <div class="osc-left-column">
+      <!-- FM Source Switch -->
+      <div class="osc-switch-container">
+        <label class="osc-switch-label osc-switch-label-top">Noise</label>
+        <div class="osc-vertical-switch" id="fm-source-switch"></div>
+        <label class="osc-switch-label osc-switch-label-bottom">Osc 2</label>
+      </div>
+      
+      <!-- PWM Knob -->
+      <div class="knob-container">
+        <div class="knob" id="pwm-knob"></div>
+        <label for="pwm-knob">PWM</label>
+      </div>
+      
+      <!-- Pitch Knob -->
+      <div class="knob-container">
+        <div class="knob" id="pitch-knob"></div>
+        <label for="pitch-knob">Pitch</label>
+      </div>
+    </div>
+    
+    <!-- Right column -->
+    <div class="osc-right-column">
+      <!-- FM Knob -->
+      <div class="knob-container">
+        <div class="knob" id="fm-knob"></div>
+        <label for="fm-knob">FM</label>
+      </div>
+      
+      <!-- Quantize Knob -->
+      <div class="knob-container">
+        <div class="knob" id="quantize-knob"></div>
+        <label for="quantize-knob">Quantize</label>
+      </div>
+      
+      <!-- Gain Knob -->
+      <div class="knob-container">
+        <div class="knob" id="gain-knob"></div>
+        <label for="gain-knob">Gain</label>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- FILTER Module -->
+<div class="module filter-module">
+  <div class="module-title filter">FILTER</div>
+  
+  <div class="filter-controls-container">
+    <!-- Left side: Vertical sliders -->
+    <div class="filter-sliders-container">
+      <!-- Frequency Slider -->
+      <div class="slider-tick-container">
+        <input type="range" class="freq-slider-range" min="0" max="1" step="0.01" value="0.5">
+        <div class="filter-slider-label">Freq</div>
+      </div>
+      
+      <div class="slider-tick-container">
+        <input type="range" class="res-slider-range" min="0" max="1" step="0.01" value="0.5">
+        <div class="filter-slider-label">Res</div>
+      </div>
+    </div>
+    
+    <!-- Right side: Filter Type Selector (vertical) -->
+    <div class="filter-type-container">
+      <!-- Vertical slider with 5 notches -->
+      <input type="range" class="filter-type-range" min="0" max="4" step="1" value="0" orient="vertical">
+      
+      <!-- Tick marks with labels -->
+      <div class="filter-type-ticks">
+        <div class="tick-with-label">
+          <div class="tick"></div>
+          <span class="tick-label">LP 12</span>
+        </div>
+        <div class="tick-with-label">
+          <div class="tick"></div>
+          <span class="tick-label">LP 24</span>
+        </div>
+        <div class="tick-with-label">
+          <div class="tick"></div>
+          <span class="tick-label">Phase</span>
+        </div>
+        <div class="tick-with-label">
+          <div class="tick"></div>
+          <span class="tick-label">Comb</span>
+        </div>
+        <div class="tick-with-label">
+          <div class="tick"></div>
+          <span class="tick-label">Dist</span>
+        </div>
+      </div>
+      <div class="filter-type-label">Type</div>
+    </div>
+  </div>
+  
+  <!-- Horizontal sliders container -->
+  <div class="filter-horizontal-sliders">
+    <!-- Drive slider -->
+    <div class="horizontal-slider-container">
+      <input type="range" class="drive-slider-range" min="0" max="1" step="0.01" value="0">
+
+      <div class="horizontal-slider-label">Drive</div>
+    </div>
+    
+    <!-- Variant slider -->
+    <div class="horizontal-slider-container">
+      <input type="range" class="variant-slider-range" min="0" max="1" step="0.01" value="0">
+
+      <div class="horizontal-slider-label">Variant</div>
+    </div>
+  </div>
+  
+  <!-- Bottom knobs -->
+  <div class="filter-bottom-controls">
+    <div class="filter-knob-container">
+      <div class="knob" id="adsr-knob"></div>
+      <label for="adsr-knob">ADSR</label>
+    </div>
+    <div class="filter-knob-container">
+      <div class="knob" id="keytrack-knob"></div>
+      <label for="keytrack-knob">Key-Track</label>
     </div>
   </div>
 </div>
@@ -7621,6 +9196,207 @@ document.addEventListener('DOMContentLoaded', function() {
       this.click(); // Trigger the click event
     }, { passive: false });
   }
+});
+// Make both oscillator FM source switches interactive
+document.addEventListener('DOMContentLoaded', function() {
+  // Find all oscillator FM source switches
+  const oscSwitches = document.querySelectorAll('.osc-vertical-switch');
+  
+  // Process each switch individually
+  oscSwitches.forEach((switchEl, index) => {
+    // Ensure unique IDs to avoid conflicts
+    if (!switchEl.id) {
+      switchEl.id = `fm-source-switch-${index + 1}`;
+    }
+    
+    // Remove any existing event listeners by cloning
+    const newSwitch = switchEl.cloneNode(true);
+    switchEl.parentNode.replaceChild(newSwitch, switchEl);
+    switchEl = newSwitch;
+    
+    // Track state for each switch
+    let isActive = false;
+    
+    // Simple click handler
+    switchEl.addEventListener('click', function() {
+      // Toggle state
+      isActive = !isActive;
+      this.classList.toggle('active', isActive);
+      
+      // Log which switch was toggled and its new state
+      const switchNum = this.id.includes('2') ? 2 : 1;
+      console.log(`Oscillator ${switchNum} FM Source changed to:`, 
+                  isActive ? 'Osc 2' : 'Noise');
+    });
+    
+    // Ensure touch support works properly
+    switchEl.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
+    
+    switchEl.addEventListener('touchend', function(e) {
+      this.click();
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
+    
+    // Make the cursor style indicate it's clickable
+    switchEl.style.cursor = 'pointer';
+  });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  const shapeKnob = document.getElementById('mod-shape-knob');
+  
+  if (shapeKnob) {
+    let currentPosition = 0; // 0-4 for the 5 positions
+    let isDragging = false;
+    let lastY;
+    let accumulatedDelta = 0; // Track accumulated movement
+    
+    // Position angles for the 5 discrete positions (in degrees)
+    const positions = [0, 72, 144, 216, 288];
+    
+    // Initial position
+    updateKnobPosition();
+    
+    function updateKnobPosition() {
+      shapeKnob.style.transform = `rotate(${positions[currentPosition]}deg)`;
+    }
+    
+    function handleMouseDown(e) {
+      isDragging = true;
+      lastY = e.clientY;
+      accumulatedDelta = 0; // Reset accumulated delta on new drag
+      shapeKnob.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+    
+    function handleMouseMove(e) {
+      if (!isDragging) return;
+      
+      // Calculate vertical movement (up = increase, down = decrease)
+      const deltaY = lastY - e.clientY;
+      lastY = e.clientY;
+      
+      // Initial threshold to start registering movement
+      if (Math.abs(deltaY) >= 1) {
+        // Add to accumulated delta
+        accumulatedDelta += deltaY;
+        
+        // Require a larger accumulated threshold to actually change position
+        // This creates resistance between steps
+        const positionChangeThreshold = 15; // Pixels needed to move to next position
+        
+        if (Math.abs(accumulatedDelta) >= positionChangeThreshold) {
+          // Determine direction of movement
+          const direction = accumulatedDelta > 0 ? 1 : -1;
+          
+          // Calculate new position with wrapping
+          let newPosition = currentPosition + direction;
+          
+          // Wrap around 0-4 range
+          if (newPosition < 0) newPosition = 4;
+          if (newPosition > 4) newPosition = 0;
+          
+          // Only update if position actually changed
+          if (newPosition !== currentPosition) {
+            currentPosition = newPosition;
+            updateKnobPosition();
+            console.log(`Shape position changed to: ${currentPosition}`);
+          }
+          
+          // Reset accumulated delta after position change
+          accumulatedDelta = 0;
+        }
+      }
+      
+      e.preventDefault();
+    }
+    
+    function handleMouseUp() {
+      isDragging = false;
+      accumulatedDelta = 0;
+      shapeKnob.style.cursor = 'pointer';
+    }
+    
+    // Mouse events
+    shapeKnob.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    // Touch events
+    shapeKnob.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        lastY = e.touches[0].clientY;
+        accumulatedDelta = 0;
+      }
+      e.preventDefault();
+    }, { passive: false });
+    
+    document.addEventListener('touchmove', function(e) {
+      if (!isDragging || e.touches.length !== 1) return;
+      
+      const deltaY = lastY - e.touches[0].clientY;
+      lastY = e.touches[0].clientY;
+      
+      if (Math.abs(deltaY) >= 1) {
+        accumulatedDelta += deltaY;
+        
+        const positionChangeThreshold = 15;
+        
+        if (Math.abs(accumulatedDelta) >= positionChangeThreshold) {
+          const direction = accumulatedDelta > 0 ? 1 : -1;
+          let newPosition = currentPosition + direction;
+          
+          if (newPosition < 0) newPosition = 4;
+          if (newPosition > 4) newPosition = 0;
+          
+          if (newPosition !== currentPosition) {
+            currentPosition = newPosition;
+            updateKnobPosition();
+            console.log(`Shape position changed to: ${currentPosition}`);
+          }
+          
+          accumulatedDelta = 0;
+        }
+      }
+      e.preventDefault();
+    }, { passive: false });
+    
+    document.addEventListener('touchend', handleMouseUp);
+    document.addEventListener('touchcancel', handleMouseUp);
+  }
+});
+document.addEventListener('DOMContentLoaded', function() {
+  // Get all matrix buttons
+  const matrixButtons = document.querySelectorAll('.matrix-buttons-container .matrix-button');
+  
+  // Set up event listeners for each button
+  matrixButtons.forEach((button, index) => {
+    button.addEventListener('click', function() {
+      // If this button is already active, do nothing
+      if (button.classList.contains('active')) {
+        return;
+      }
+      
+      // Remove active class from all buttons
+      matrixButtons.forEach(btn => {
+        btn.classList.remove('active');
+      });
+      
+      // Add active class to clicked button
+      button.classList.add('active');
+      
+      // You can add additional functionality based on which button was clicked
+      console.log(`Matrix button ${index + 1} activated`);
+    });
+  });
+  
+  // Optionally make the first button active by default
+  matrixButtons[0].classList.add('active');
 });
     </script>
 </body>
