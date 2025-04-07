@@ -59,7 +59,7 @@
     background-color: #f2eed3;
     border: 1px solid #35100B;
     border-radius: 5px;
-    padding: 10px;
+
     display: flex;
     flex-direction: column;
     width: 80px; /* Fixed width, reduced by ~30% from original */
@@ -1538,8 +1538,8 @@ margin-bottom: 18px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-top: 15px;
-  margin-bottom: 9.5px; /* Adjust this to your preference */
+  margin-top: 16px;
+  margin-bottom: 8.5px; /* Adjust this to your preference */
 }
 
 /* Ensure the button itself maintains consistent styling */
@@ -3330,7 +3330,7 @@ padding-left: 6px;
   font-style: normal;
   font-size: 16px;
   margin-bottom: 5px;
-  background-color: #BA5446;
+  background-color: #CF814D;
   padding: 5px 0;
   border-radius: 10px;
   border: 0px solid #35100B;
@@ -3400,7 +3400,7 @@ padding-left: 6px;
   flex-direction: row;
   justify-content: space-between;
   width: 100%;
-  margin-top: 55px;
+  margin-top: 50px;
   gap: 5px;
 }
 
@@ -3458,7 +3458,7 @@ padding-left: 6px;
 /* Looper button without text */
 .looper-button {
   width: 25px;
-  height: 25px; /* Made slightly shorter without text */
+  height: 40px; /* Made slightly shorter without text */
   display: flex;
   justify-content: center;
   align-items: center;
@@ -3483,9 +3483,435 @@ padding-left: 6px;
   display: flex;
   justify-content: space-between;
   width: 100%;
-  margin-bottom: 10px;
+  margin-bottom: 0px;
   margin-top: 15px;
 }
+/* Icon styling */
+.looper-button .icon {
+  width: 14px;
+  height: 14px;
+  filter: invert(9%) sepia(16%) saturate(5688%) hue-rotate(323deg) brightness(99%) contrast(78%);
+  transition: filter 0.2s;
+}
+
+/* Active state for icons */
+.looper-button.active .icon,
+.looper-button:active .icon {
+  filter: invert(93%) sepia(19%) saturate(320%) hue-rotate(358deg) brightness(103%) contrast(92%);
+}
+/* FX Module styling */
+.fx-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 75px;
+  max-width: 75px;
+  align-items: center;
+  padding-top: 15px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Module title */
+.module-title.fx {
+  color: #f2eed3;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 15px;
+  background-color: #CF814D;
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 250%;
+  margin-top: -15px;
+}
+
+/* Chorus button container */
+.chorus-button-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 8px;
+  margin-top: 5px;
+}
+
+/* Chorus button */
+.chorus-button {
+  width: 40px;
+  height: 40px;
+  background-color: #CF814D; /* Orange color */
+  border: 2.5px solid #35100B;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+.chorus-button:hover {
+  background-color: #d69061;
+}
+
+/* Chorus indicators */
+.chorus-indicator {
+  color: #35100B;
+  font-family: "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  transition: color 0.2s;
+  position: absolute;
+}
+
+.chorus-indicator.first {
+  left: 12px;
+}
+
+.chorus-indicator.second {
+  right: 12px;
+}
+
+/* States for the chorus button */
+.chorus-button.state-1 .chorus-indicator.first {
+  color: #f2eed3;
+}
+
+.chorus-button.state-2 .chorus-indicator.first,
+.chorus-button.state-2 .chorus-indicator.second {
+  color: #f2eed3;
+}
+
+.chorus-button.state-1, 
+.chorus-button.state-2 {
+  box-shadow: 0 0 8px rgba(207, 129, 77, 0.8);
+}
+
+/* Chorus label */
+.chorus-button-container label {
+  margin-top: 5px;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+}
+
+/* FX knobs column */
+.fx-knobs-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+/* Knob containers */
+.fx-module .knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Knob labels */
+.fx-module .knob-container label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+}
+/* DELAY Module styling */
+.delay-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  max-width: 260px;
+  align-items: center;
+  padding-top: 15px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Module title */
+.module-title.delay {
+  color: #f2eed3;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 0px;
+  background-color: #CF814D; /* Blue title for DELAY */
+  padding: 5px 0;
+  border: 0px solid #35100B;
+  width: 100%;
+  margin-top: -15px;
+}
+
+/* Section container */
+.delay-sections {
+  display: flex;
+  width: 100%;
+  height: 433px;
+}
+
+/* Individual sections with color coding */
+.delay-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.red-section {
+  background-color: #BA5446;
+  width: 25%;
+}
+
+.orange-section {
+  background-color: #CF814D;
+  width: 25%;
+}
+
+.yellow-section {
+  background-color: #E5AB5F;
+  width: 25%;
+}
+
+.green-section {
+  background-color: #6B8F53;
+  width: 25%;
+}
+
+/* Slider container */
+.delay-slider-container {
+  height: 319px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  margin-bottom: 10px;
+  margin-top: 15px;
+  width: 25%;
+}
+
+/* Slider track */
+.delay-slider-track {
+  position: absolute;
+  top: 0;
+  height: 297px;
+  width: 5px;
+  background-color: #35100B;
+  border-radius: 2.5px;
+}
+
+/* Vertical slider */
+.delay-slider {
+  -webkit-appearance: none;
+  width: 33px;
+  height: 297px;
+  margin-top: 0px;
+  background: transparent;
+  transform-origin: center;
+  writing-mode: vertical-lr; /* Modern vertical orientation */
+  direction: rtl; /* Bottom to top orientation */
+  z-index: 1;
+}
+
+/* Slider thumb */
+.delay-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: #35100B;
+  width: 26px;
+  height: 18px;
+  cursor: pointer;
+  margin-left: 0.6px;
+  border-radius: 5px;
+  background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Firefox slider styling */
+.delay-slider::-moz-range-track {
+  width: 100%;
+  height: 5px;
+  background: transparent;
+}
+
+.delay-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background-color: #f2eed3;
+  border: 1.5px solid #35100B;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Slider labels */
+.delay-slider-label {
+  position: relative;
+  bottom: 2px;
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+}
+
+/* Switches container in red section */
+.delay-switches {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0px;
+}
+
+/* Side label for switches */
+.side-label {
+  position: absolute;
+  right: -45px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: auto;
+}
+
+/* Knob positioning */
+.delay-section .knob-container {
+  margin-top: 0px;
+}
+/* Switches container in red section */
+.delay-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+  margin-top: 0px;
+  align-items: center;
+}
+
+/* Switch container with label */
+.delay-switch-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+/* Horizontal switch styling */
+.horizontal-switch {
+  width: 35px;
+  height: 18px;
+  background-color: #c05447;
+  border-radius: 5px;
+  border: 2px solid #35100B;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+/* Switch handle */
+.horizontal-switch::after {
+  content: '';
+  position: absolute;
+  top: 0px;
+  left: 0.5px;
+  width: 18px;
+  height: 18px;
+  background-color: #37100b;
+  transition: transform 0.2s;
+  background-image: url(control\ icons/on.svg);
+  background-position: center;
+    background-repeat: no-repeat;
+    background-size: 12px 12px;
+}
+
+/* Active state moves handle to right */
+.horizontal-switch.active::after {
+  transform: translateX(17px);
+}
+
+/* Switch label */
+.delay-switch-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+}
+/* Updated DELAY Module title styling with four colored rectangles */
+.module-title.delay {
+  color: #f2eed3;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 0px;
+  background-color: transparent; /* Remove the solid background */
+  padding: 5px 0;
+  border: 0px solid #35100B;
+  width: 100%;
+  margin-top: -15px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+}
+
+/* Individual colored sections of the title */
+.delay-title-section {
+  height: 100%;
+  width: 25%;
+  position: absolute;
+  top: 0;
+}
+
+/* Position each section */
+.red-title {
+  background-color: #BA5446;
+  left: 0;
+}
+
+.orange-title {
+  background-color: #CF814D;
+  left: 25%;
+}
+
+.yellow-title {
+  background-color: #E5AB5F;
+  left: 50%;
+}
+
+.green-title {
+  background-color: #6B8F53;
+  left: 75%;
+}
+
+/* Text positioning on top of the colored sections */
+.delay-title-text {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  text-align: center;
+  display: block;
+  left: 2.5px;
+}
+
 
     </style>
 </head>
@@ -4268,38 +4694,50 @@ padding-left: 6px;
 <div class="module looper-module">
   <div class="module-title looper">LOOPER</div>
   
-  <!-- Six buttons at top -->
-  <div class="looper-buttons-container">
-    <div class="looper-button-with-label">
-      <div class="looper-button record-button" id="looper-record-button"></div>
-      <label for="looper-record-button" class="looper-label">REC</label>
+  <!-- Updated looper buttons container with icons -->
+<div class="looper-buttons-container">
+  <div class="looper-button-with-label">
+    <div class="looper-button record-button" id="looper-record-button">
+      <img src="looper button icons/record 2.svg" alt="Record" class="icon">
     </div>
-    
-    <div class="looper-button-with-label">
-      <div class="looper-button record-button" id="looper-play-button"></div>
-      <label for="looper-play-button" class="looper-label">PLAY</label>
-    </div>
-    
-    <div class="looper-button-with-label">
-      <div class="looper-button record-button" id="looper-additive-button"></div>
-      <label for="looper-additive-button" class="looper-label">ADD</label>
-    </div>
-    
-    <div class="looper-button-with-label">
-      <div class="looper-button orange-button" id="looper-delete-button"></div>
-      <label for="looper-delete-button" class="looper-label">DEL</label>
-    </div>
-    
-    <div class="looper-button-with-label">
-      <div class="looper-button orange-button" id="looper-undo-button"></div>
-      <label for="looper-undo-button" class="looper-label">UNDO</label>
-    </div>
-    
-    <div class="looper-button-with-label">
-      <div class="looper-button orange-button" id="looper-redo-button"></div>
-      <label for="looper-redo-button" class="looper-label">REDO</label>
-    </div>
+    <label for="looper-record-button" class="looper-label">REC</label>
   </div>
+  
+  <div class="looper-button-with-label">
+    <div class="looper-button record-button" id="looper-play-button">
+      <img src="looper button icons/play 1.svg" alt="Play" class="icon">
+    </div>
+    <label for="looper-play-button" class="looper-label">PLAY</label>
+  </div>
+  
+  <div class="looper-button-with-label">
+    <div class="looper-button record-button" id="looper-additive-button">
+      <img src="looper button icons/add 1.svg" alt="Add" class="icon">
+    </div>
+    <label for="looper-additive-button" class="looper-label">ADD</label>
+  </div>
+  
+  <div class="looper-button-with-label">
+    <div class="looper-button orange-button" id="looper-delete-button">
+      <img src="looper button icons/delete.svg" alt="Delete" class="icon">
+    </div>
+    <label for="looper-delete-button" class="looper-label">DEL</label>
+  </div>
+  
+  <div class="looper-button-with-label">
+    <div class="looper-button orange-button" id="looper-undo-button">
+      <img src="looper button icons/undo 1.svg" alt="Undo" class="icon">
+    </div>
+    <label for="looper-undo-button" class="looper-label">UNDO</label>
+  </div>
+  
+  <div class="looper-button-with-label">
+    <div class="looper-button orange-button" id="looper-redo-button">
+      <img src="looper button icons/redo 1.svg" alt="Redo" class="icon">
+    </div>
+    <label for="looper-redo-button" class="looper-label">REDO</label>
+  </div>
+</div>
   
   <div class="looper-columns">
     <!-- Column 1 -->
@@ -4323,19 +4761,19 @@ padding-left: 6px;
       
       <!-- Start knob (red) -->
       <div class="knob-container">
-        <div class="knob" id="looper-start-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-start-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
         <label for="looper-start-knob">Start</label>
       </div>
       
       <!-- Speed knob (blue) -->
       <div class="knob-container">
-        <div class="knob" id="looper-speed-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-speed-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
         <label for="looper-speed-knob">Speed</label>
       </div>
       
       <!-- Filter knob (green) -->
       <div class="knob-container">
-        <div class="knob" id="looper-filter-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-filter-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
         <label for="looper-filter-knob">Filter</label>
       </div>
     </div>
@@ -4350,19 +4788,19 @@ padding-left: 6px;
       
       <!-- End knob (red) -->
       <div class="knob-container">
-        <div class="knob" id="looper-end-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-end-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
         <label for="looper-end-knob">End</label>
       </div>
       
       <!-- Dropouts knob (blue) -->
       <div class="knob-container">
-        <div class="knob" id="looper-dropouts-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-dropouts-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
         <label for="looper-dropouts-knob">Dropouts</label>
       </div>
       
       <!-- Stutter knob (green) -->
       <div class="knob-container">
-        <div class="knob" id="looper-stutter-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-stutter-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
         <label for="looper-stutter-knob">Stutter</label>
       </div>
     </div>
@@ -4377,20 +4815,142 @@ padding-left: 6px;
       
       <!-- Repeats knob (red) -->
       <div class="knob-container">
-        <div class="knob" id="looper-repeats-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-repeats-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
         <label for="looper-repeats-knob">Repeats</label>
       </div>
       
       <!-- Jump knob (blue) -->
       <div class="knob-container">
-        <div class="knob" id="looper-jump-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-jump-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
         <label for="looper-jump-knob">Jump</label>
       </div>
       
       <!-- Pitch knob (green) -->
       <div class="knob-container">
-        <div class="knob" id="looper-pitch-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <div class="knob" id="looper-pitch-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
         <label for="looper-pitch-knob">Pitch</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FX Module -->
+<div class="module fx-module">
+  <div class="module-title fx">FX</div>
+  
+  <!-- Chorus Button -->
+  <div class="chorus-button-container">
+    <div class="chorus-button" id="chorus-button">
+      <span class="chorus-indicator first">I</span>
+      <span class="chorus-indicator second">I</span>
+    </div>
+    <label for="chorus-button" style="margin-top: 4.5px;">Chorus</label>
+  </div>
+  
+  <!-- Knob Column -->
+  <div class="fx-knobs-column">
+    <!-- Overload knob (yellow) -->
+    <div class="knob-container">
+      <div class="knob" id="overload-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+      <label for="overload-knob">Overload</label>
+    </div>
+    
+    <!-- Cabinet knob (yellow) -->
+    <div class="knob-container">
+      <div class="knob" id="cabinet-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+      <label for="cabinet-knob">Cabinet</label>
+    </div>
+    
+    <!-- Loss knob (blue) -->
+    <div class="knob-container">
+      <div class="knob" id="loss-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+      <label for="loss-knob">Loss</label>
+    </div>
+    
+    <!-- Artifacts knob (blue) -->
+    <div class="knob-container">
+      <div class="knob" id="artifacts-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+      <label for="artifacts-knob">Artifacts</label>
+    </div>
+  </div>
+</div>
+<!-- DELAY Module -->
+<div class="module delay-module">
+  <div class="module-title delay">
+    <div class="delay-title-section red-title"></div>
+    <div class="delay-title-section orange-title"></div>
+    <div class="delay-title-section yellow-title"></div>
+    <div class="delay-title-section green-title"></div>
+    <span class="delay-title-text">DELAY</span>
+  </div>
+  
+  <div class="delay-sections">
+    <!-- Red Section (Time) -->
+    <div class="delay-section red-section">
+      <div class="delay-slider-container">
+        <div class="delay-slider-track"></div>
+        <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+        <label class="delay-slider-label">Time</label>
+      </div>
+      
+      <!-- Switches for Reverse and Freeze -->
+      <div class="delay-switches"style="
+      margin-bottom: 21px;
+  ">
+        <div class="delay-switch-container">
+          <div class="horizontal-switch" id="reverse-switch"></div>
+          <label for="reverse-switch" class="delay-switch-label">Reverse</label>
+        </div>
+        
+        <div class="delay-switch-container">
+          <div class="horizontal-switch" id="freeze-switch"></div>
+          <label for="freeze-switch" class="delay-switch-label">Freeze</label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Orange Section (Length) -->
+    <div class="delay-section orange-section">
+      <div class="delay-slider-container">
+        <div class="delay-slider-track"></div>
+        <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+        <label class="delay-slider-label">Length</label>
+      </div>
+      
+      <!-- Low Cut knob -->
+      <div class="knob-container">
+        <div class="knob" id="low-cut-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+        <label for="low-cut-knob">Low Cut</label>
+      </div>
+    </div>
+    
+    <!-- Yellow Section (Feedback) -->
+    <div class="delay-section yellow-section">
+      <div class="delay-slider-container">
+        <div class="delay-slider-track"></div>
+        <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+        <label class="delay-slider-label">Feedback</label>
+      </div>
+      
+      <!-- High Cut knob -->
+      <div class="knob-container">
+        <div class="knob" id="high-cut-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+        <label for="high-cut-knob">High Cut</label>
+      </div>
+    </div>
+    
+    <!-- Green Section (Density) -->
+    <div class="delay-section green-section">
+      <div class="delay-slider-container">
+        <div class="delay-slider-track"></div>
+        <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+        <label class="delay-slider-label">Density</label>
+      </div>
+      
+      <!-- Mix knob -->
+      <div class="knob-container">
+        <div class="knob" id="mix-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <label for="mix-knob">Mix</label>
       </div>
     </div>
   </div>
@@ -9853,6 +10413,54 @@ document.addEventListener('DOMContentLoaded', function() {
       lastTap = now;
     });
   }
+});
+document.addEventListener('DOMContentLoaded', function() {
+  const chorusButton = document.getElementById('chorus-button');
+  let chorusState = 0; // 0: off, 1: first I lit, 2: both I's lit
+  
+  if (chorusButton) {
+    chorusButton.addEventListener('click', function() {
+      // Advance to next state
+      chorusState = (chorusState + 1) % 3;
+      
+      // Remove all state classes first
+      chorusButton.classList.remove('state-1', 'state-2');
+      
+      // Apply the appropriate class based on state
+      if (chorusState === 1) {
+        chorusButton.classList.add('state-1');
+        console.log('Chorus: Light mode activated');
+      } else if (chorusState === 2) {
+        chorusButton.classList.add('state-2');
+        console.log('Chorus: Heavy mode activated');
+      } else {
+        console.log('Chorus: Off');
+      }
+    });
+  }
+});
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize switches
+  const delayModuleSwitches = document.querySelectorAll('.delay-module .vertical-switch');
+  
+  delayModuleSwitches.forEach(switchEl => {
+    switchEl.addEventListener('click', function() {
+      this.classList.toggle('active');
+      console.log(`${this.id} switched: ${this.classList.contains('active') ? 'ON' : 'OFF'}`);
+    });
+  });
+});
+// Add this to your existing JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize horizontal switches
+  const horizontalSwitches = document.querySelectorAll('.horizontal-switch');
+  
+  horizontalSwitches.forEach(switchEl => {
+    switchEl.addEventListener('click', function() {
+      this.classList.toggle('active');
+      console.log(`${this.id} toggled: ${this.classList.contains('active') ? 'ON' : 'OFF'}`);
+    });
+  });
 });
     </script>
 </body>
