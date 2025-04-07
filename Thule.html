@@ -457,6 +457,7 @@
     border: 1px solid #35100B;
     position: relative;
     margin: 10px auto;
+    box-sizing: border-box;
     cursor: grab;
     transform-origin: center center;
     transition: transform 0.05s ease-out;
@@ -932,7 +933,7 @@ margin-top: -10.6px;
   position: relative;
   display: flex;
   gap: 25px; /* Reduced from 25px to make space for tick marks */
-  height: 81%;
+  height: 85%;
   margin-left: 20px; /* Reduced from 10% */
   margin-right: 15px; /* Add right margin to prevent overlap */
   top: 10px;
@@ -1312,6 +1313,7 @@ margin-top: -10.6px;
   flex-direction: column;
   align-items: center;
 margin-top: 26px;
+margin-bottom: 18px;
 }
 
 .select-button {
@@ -1326,8 +1328,8 @@ margin-top: 26px;
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  margin-top: -5px;
-  margin-bottom: 2px; /* Add space for label below */
+  margin-top: -3px;
+  margin-bottom: 0px; /* Add space for label below */
   transition: background-color 0.2s, box-shadow 0.2s;
   margin-right: -10px;
   right: 5px;
@@ -1536,8 +1538,8 @@ margin-top: 26px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-top: 8px;
-  margin-bottom: 12.0px; /* Adjust this to your preference */
+  margin-top: 15px;
+  margin-bottom: 9.5px; /* Adjust this to your preference */
 }
 
 /* Ensure the button itself maintains consistent styling */
@@ -1909,7 +1911,7 @@ margin-top: 26px;
 /* Adjust spacing between items in left column */
 .mod-left-column .mod-selector-container,
 .mod-left-column .knob-container {
-  margin-bottom: 15px;
+  margin-bottom: 0px;
 }
 
 /* Ensure mode selector is centered */
@@ -2124,8 +2126,8 @@ margin-top: 26px;
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  margin-top: -5px;
-  margin-bottom: 5px;
+  margin-top: -2px;
+  margin-bottom: 0px;
   transition: background-color 0.2s, box-shadow 0.2s;
 }
 
@@ -2478,7 +2480,7 @@ margin-top: 26px;
   position: relative;
   display: flex;
   gap: 25px;
-  height: 102%;
+  height: 103.5%;
   margin-left: 4%;
   margin-right: 15px;
 }
@@ -2500,7 +2502,7 @@ margin-top: 26px;
   display: flex;
   flex-direction: row;
   align-items: center;
-  height: 100%;
+  height: 101.5%;
   margin-top: 2px;
   position: relative;
 }
@@ -2530,7 +2532,7 @@ margin-top: 26px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 100.3%;
+  height: 97.7%;
   margin-left: -11px;
   pointer-events: none;
 }
@@ -2841,7 +2843,7 @@ padding-left: 6px;
 }
 
 .mod-left-column::before {
-  content: "⮝MOD⮝";
+  content: "^^MOD^^";
   position: absolute;
   top: -10px;
   left: 50%;
@@ -3302,6 +3304,189 @@ padding-left: 6px;
   box-shadow: 0 0 8px rgba(186, 84, 70, 0.5);
   color: #f2eed3;          /* Light text color when active */
 }
+/* LOOPER Module styling */
+.looper-module {
+  border: 1px solid #35100B;
+  background-color: #f2eed3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 205px;
+  max-width: 205px;
+  align-items: center;
+  padding-top: 15px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Module title */
+.module-title.looper {
+  color: #f2eed3;
+  text-align: center;
+  font-family: "Nunito", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  font-size: 16px;
+  margin-bottom: 5px;
+  background-color: #BA5446;
+  padding: 5px 0;
+  border-radius: 10px;
+  border: 0px solid #35100B;
+  width: 150%;
+  margin-top: -15px;
+}
+
+/* Top button container */
+.looper-buttons-container {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 12px;
+  margin-top: 15px;
+}
+
+/* Button styling */
+.looper-button {
+  width: 25px;
+  height: 41px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-family: "Nunito", sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  color: #35100B;
+  border: 2.5px solid #35100B;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+/* Red button styling (Record/Play/Additive) */
+.record-button {
+  background-color: #BA5446;
+  color: #f2eed3;
+}
+
+.record-button:hover {
+  background-color: #c65f53;
+}
+
+.record-button.active {
+  background-color: #d15f50;
+  box-shadow: 0 0 8px rgba(186, 84, 70, 0.8);
+}
+
+/* Orange button styling (Delete/Undo/Redo) */
+.orange-button {
+  background-color: #CF814D;
+  color: #f2eed3;
+}
+
+.orange-button:hover {
+  background-color: #d69061;
+}
+
+.orange-button:active {
+  background-color: #dc8953;
+  box-shadow: 0 0 8px rgba(207, 129, 77, 0.8);
+}
+
+/* Three column layout */
+.looper-columns {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 55px;
+  gap: 5px;
+}
+
+/* Individual column styling */
+.looper-column {
+  width: 33%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: -42px;
+}
+
+/* Layers knob with 8 positions */
+.layers-knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  width: 55px;
+  top: 6.5px;
+  margin-bottom: 15px;
+}
+
+.layers-markers {
+  position: relative;
+  width: 70px;
+  height: 0%;
+  top: 23px;
+  left: -7.4px;
+  pointer-events: none;
+}
+
+.layer-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-family: "Nunito", sans-serif;
+  font-size: 9px;
+  color: #35100B;
+  font-weight: 600;
+}
+/* Button with label container */
+.looper-button-with-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Looper button without text */
+.looper-button {
+  width: 25px;
+  height: 25px; /* Made slightly shorter without text */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 2.5px solid #35100B;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+/* Label styling */
+.looper-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  color: #35100B;
+  text-align: center;
+  margin-top: 2px;
+}
+
+/* Update the container spacing */
+.looper-buttons-container {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 10px;
+  margin-top: 15px;
+}
+
     </style>
 </head>
 <body>
@@ -3450,7 +3635,7 @@ padding-left: 6px;
 </div>
 </div>
 <!-- New 3-column layout for knobs -->
-<div class="matrix-knobs-container" style="display: flex; justify-content: space-between; margin-top: 18px; width: 94%;">
+<div class="matrix-knobs-container" style="display: flex; justify-content: space-between; margin-top: 15px; width: 94%;">
   <!-- Column 1 -->
   <div class="matrix-knob-column" style="flex-direction: column; align-items: center;">
     <div class="select-button-container">
@@ -3458,9 +3643,11 @@ padding-left: 6px;
         <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
         <div class="select-led"></div>
       </div>
-      <label for="lfo-select-button">Select</label>
+      <label for="lfo-select-button"style="
+      margin-top: 1px;
+  ">Select</label>
     </div>
-    <div class="knob-container" style="margin-top: 15px;">
+    <div class="knob-container">
       <div class="knob" id="matrix-depth-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
       <label for="matrix-depth-knob">Depth</label>
     </div>
@@ -3470,12 +3657,13 @@ padding-left: 6px;
   </div>
   
   <!-- Column 2 -->
-    <div class="matrix-knob-column" style="flex-direction: column; align-items: center;">
-      <div class="knob-container" style="margin-top: 15px;">
+    <div class="matrix-knob-column" style="flex-direction: column; align-items: center; margin-top: 9px;    display: flex
+;">
+      <div class="knob-container">
         <div class="knob" id="macro1-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
         <label for="macro1-knob">Macro 1</label>
       </div>
-      <div class="knob-container" style="margin-top: 15px;">
+      <div class="knob-container">
         <div class="knob" id="macro3-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
         <label for="macro3-knob">Macro 3</label>
       </div>
@@ -3484,13 +3672,14 @@ padding-left: 6px;
   </div>
   
   <!-- Column 3 -->
-  <div class="matrix-knob-column" style="flex-direction: column; align-items: center;">
-  <div class="knob-container" style="margin-top: 15px;">
+  <div class="matrix-knob-column" style="flex-direction: column; align-items: center; margin-top: 9px;    display: flex
+;">
+  <div class="knob-container">
     <div class="knob" id="macro2-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
     <label for="macro2-knob">Macro 2</label>
   </div>
 
-  <div class="knob-container" style="margin-top: 15px;">
+  <div class="knob-container">
     <div class="knob" id="macro4-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
     <label for="macro4-knob">Macro 4</label>
   </div> 
@@ -3512,7 +3701,7 @@ padding-left: 6px;
   <!-- Two columns below the canvas -->
   <div class="mod-columns-container">
     <!-- Left column: controls stacked vertically -->
-    <div class="mod-left-column">
+    <div class="mod-left-column" style="height: 191.400px;">
       <!-- Three-way vertical selector -->
       <div class="mod-selector-container">
         <div class="mod-mode-selector">
@@ -3524,7 +3713,7 @@ padding-left: 6px;
       
       <!-- Rate Knob -->
       <div class="knob-container" style="
-    margin-top: 17px;"> 
+    margin-top: 31.5px;"> 
         <div class="knob" id="mod-rate-knob"></div>
         <label for="mod-rate-knob">Rate</label>
       </div>
@@ -3543,13 +3732,13 @@ padding-left: 6px;
         <!-- Rate Slider -->
         <div class="slider-tick-container">
           <input type="range" class="rate-slider-range" min="0" max="1" step="0.01" value="0.5">
-          <div class="slider-label">Rate</div>
+          <div class="slider-label"style="margin-top: 17px;">Rate</div>
         </div>
 
   <!-- Delay Slider (renamed to "Fade In") -->
   <div class="slider-tick-container">
     <input type="range" class="delay-slider-range" min="0" max="1" step="0.01" value="0.5">
-    <div class="slider-label">Fade</div>
+    <div class="slider-label"style="margin-top: 17px;">Fade</div>
   </div>
 </div>
     </div>
@@ -3557,7 +3746,9 @@ padding-left: 6px;
   <div class="mod-bottom-controls">
     <div class="knob-container">
       <div class="knob" id="mod-depth-knob"></div>
-      <label for="mod-depth-knob">Depth</label>
+      <label for="mod-depth-knob"style="
+      margin-right: 6px;
+  ">Depth</label>
     </div>
 <!-- Update this line in the mod-bottom-controls section -->
 <div class="shape-knob-container">
@@ -3924,12 +4115,12 @@ padding-left: 6px;
       <!-- Frequency Slider -->
       <div class="slider-tick-container">
         <input type="range" class="freq-slider-range" min="0" max="1" step="0.01" value="0.5">
-        <div class="filter-slider-label">Freq</div>
+        <div class="filter-slider-label"style="margin-top: 23px;">Freq</div>
       </div>
       
       <div class="slider-tick-container">
         <input type="range" class="res-slider-range" min="0" max="1" step="0.01" value="0.5">
-        <div class="filter-slider-label">Res</div>
+        <div class="filter-slider-label"style="margin-top: 23px;">Res</div>
       </div>
     </div>
     
@@ -4073,7 +4264,137 @@ padding-left: 6px;
     
    
       
-
+<!-- LOOPER Module -->
+<div class="module looper-module">
+  <div class="module-title looper">LOOPER</div>
+  
+  <!-- Six buttons at top -->
+  <div class="looper-buttons-container">
+    <div class="looper-button-with-label">
+      <div class="looper-button record-button" id="looper-record-button"></div>
+      <label for="looper-record-button" class="looper-label">REC</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button record-button" id="looper-play-button"></div>
+      <label for="looper-play-button" class="looper-label">PLAY</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button record-button" id="looper-additive-button"></div>
+      <label for="looper-additive-button" class="looper-label">ADD</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button orange-button" id="looper-delete-button"></div>
+      <label for="looper-delete-button" class="looper-label">DEL</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button orange-button" id="looper-undo-button"></div>
+      <label for="looper-undo-button" class="looper-label">UNDO</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button orange-button" id="looper-redo-button"></div>
+      <label for="looper-redo-button" class="looper-label">REDO</label>
+    </div>
+  </div>
+  
+  <div class="looper-columns">
+    <!-- Column 1 -->
+    <div class="looper-column">
+      <!-- Layers knob (yellow, 8 notches) -->
+      <div class="layers-knob-container">
+        <div class="layers-markers">
+          <div class="layer-marker" style="transform: rotate(-150deg) translateY(-30px) rotate(150deg);">1</div>
+          <div class="layer-marker" style="transform: rotate(-107.14deg) translateY(-30px) rotate(107.14deg);">2</div>
+          <div class="layer-marker" style="transform: rotate(-64.29deg) translateY(-30px) rotate(64.29deg);">3</div>
+          <div class="layer-marker" style="transform: rotate(-21.43deg) translateY(-30px) rotate(21.43deg);">4</div>
+          <div class="layer-marker" style="transform: rotate(21.43deg) translateY(-30px) rotate(-21.43deg);">5</div>
+          <div class="layer-marker" style="transform: rotate(64.29deg) translateY(-30px) rotate(-64.29deg);">6</div>
+          <div class="layer-marker" style="transform: rotate(107.14deg) translateY(-30px) rotate(-107.14deg);">7</div>
+          <div class="layer-marker" style="transform: rotate(150deg) translateY(-30px) rotate(-150deg);">8</div>
+        </div>
+        <div class="shape-knob" id="looper-layers-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B; bottom: 0px; margin-bottom: 17px; margin-top: 2px;"></div>
+        <label for="looper-layers-knob"style="
+        margin-bottom: 0px; font-size: 10px; font-weight: 750; font-variant-caps: all-small-caps;">Layers</label>
+      </div>
+      
+      <!-- Start knob (red) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-start-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <label for="looper-start-knob">Start</label>
+      </div>
+      
+      <!-- Speed knob (blue) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-speed-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <label for="looper-speed-knob">Speed</label>
+      </div>
+      
+      <!-- Filter knob (green) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-filter-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <label for="looper-filter-knob">Filter</label>
+      </div>
+    </div>
+    
+    <!-- Column 2 -->
+    <div class="looper-column">
+      <!-- Volume knob (yellow) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-volume-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+        <label for="looper-volume-knob">Volume</label>
+      </div>
+      
+      <!-- End knob (red) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-end-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <label for="looper-end-knob">End</label>
+      </div>
+      
+      <!-- Dropouts knob (blue) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-dropouts-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <label for="looper-dropouts-knob">Dropouts</label>
+      </div>
+      
+      <!-- Stutter knob (green) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-stutter-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <label for="looper-stutter-knob">Stutter</label>
+      </div>
+    </div>
+    
+    <!-- Column 3 -->
+    <div class="looper-column">
+      <!-- Lo-Fi knob (yellow) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-lofi-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+        <label for="looper-lofi-knob">Lo-Fi</label>
+      </div>
+      
+      <!-- Repeats knob (red) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-repeats-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <label for="looper-repeats-knob">Repeats</label>
+      </div>
+      
+      <!-- Jump knob (blue) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-jump-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <label for="looper-jump-knob">Jump</label>
+      </div>
+      
+      <!-- Pitch knob (green) -->
+      <div class="knob-container">
+        <div class="knob" id="looper-pitch-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <label for="looper-pitch-knob">Pitch</label>
+      </div>
+    </div>
+  </div>
+</div>
         </div> <!-- End of synth-panel -->
         
         <!-- Keyboard -->
@@ -9397,6 +9718,141 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Optionally make the first button active by default
   matrixButtons[0].classList.add('active');
+});
+document.addEventListener('DOMContentLoaded', function() {
+  // Toggle buttons (Record, Play/Stop, Additive)
+  const toggleButtons = document.querySelectorAll('.record-button');
+  toggleButtons.forEach(button => {
+    button.addEventListener('click', function() {
+      this.classList.toggle('active');
+    });
+  });
+  
+  // Initialize the Layers knob
+  const layersKnob = document.getElementById('looper-layers-knob');
+  if (layersKnob) {
+    let currentPosition = 0; // 0-7 for the 8 positions
+    let isDragging = false;
+    let startY;
+    let totalMovement = 0;
+    
+    // Position angles for the 8 discrete positions in the -150 to +150 range (in degrees)
+    const positions = [-150, -107.14, -64.29, -21.43, 21.43, 64.29, 107.14, 150];
+    
+    // Initial position
+    updateKnobPosition();
+    
+    function updateKnobPosition() {
+      // Snap directly to the exact angle for the current position
+      layersKnob.style.transform = `rotate(${positions[currentPosition]}deg)`;
+    }
+    
+    layersKnob.addEventListener('mousedown', function(e) {
+      isDragging = true;
+      startY = e.clientY;
+      totalMovement = 0;
+      e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      
+      // Calculate the vertical movement
+      const deltaY = startY - e.clientY;
+      totalMovement += deltaY;
+      startY = e.clientY;
+      
+      // Determine if we should change position based on amount moved
+      const moveThreshold = 20; // Pixels needed to move to next step
+      
+      if (totalMovement >= moveThreshold) {
+        // Move up one position (if not already at max)
+        if (currentPosition < 7) {
+          currentPosition++;
+          updateKnobPosition();
+          console.log(`Layers position: ${currentPosition + 1}/8`);
+        }
+        totalMovement = 0;
+      }
+      else if (totalMovement <= -moveThreshold) {
+        // Move down one position (if not already at min)
+        if (currentPosition > 0) {
+          currentPosition--;
+          updateKnobPosition();
+          console.log(`Layers position: ${currentPosition + 1}/8`);
+        }
+        totalMovement = 0;
+      }
+    });
+    
+    document.addEventListener('mouseup', function() {
+      isDragging = false;
+      totalMovement = 0;
+    });
+    
+    // Touch support with similar snapping behavior
+    layersKnob.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      
+      isDragging = true;
+      startY = e.touches[0].clientY;
+      totalMovement = 0;
+      e.preventDefault();
+    }, { passive: false });
+    
+    document.addEventListener('touchmove', function(e) {
+      if (!isDragging || e.touches.length !== 1) return;
+      
+      const deltaY = startY - e.touches[0].clientY;
+      totalMovement += deltaY;
+      startY = e.touches[0].clientY;
+      
+      const moveThreshold = 20;
+      
+      if (totalMovement >= moveThreshold) {
+        if (currentPosition < 7) {
+          currentPosition++;
+          updateKnobPosition();
+          console.log(`Layers position: ${currentPosition + 1}/8`);
+        }
+        totalMovement = 0;
+      }
+      else if (totalMovement <= -moveThreshold) {
+        if (currentPosition > 0) {
+          currentPosition--;
+          updateKnobPosition(); 
+          console.log(`Layers position: ${currentPosition + 1}/8`);
+        }
+        totalMovement = 0;
+      }
+      
+      e.preventDefault();
+    }, { passive: false });
+    
+    document.addEventListener('touchend', function() {
+      isDragging = false;
+      totalMovement = 0;
+    });
+    
+    // Double-click/tap to reset to first position
+    layersKnob.addEventListener('dblclick', function() {
+      currentPosition = 0;
+      updateKnobPosition();
+      console.log("Layers reset to position 1/8");
+    });
+    
+    let lastTap = 0;
+    layersKnob.addEventListener('touchend', function(e) {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        // Double-tap detected
+        currentPosition = 0;
+        updateKnobPosition();
+        console.log("Layers reset to position 1/8");
+      }
+      lastTap = now;
+    });
+  }
 });
     </script>
 </body>
