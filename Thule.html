@@ -5014,7 +5014,10 @@ masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
 // Add to your global variables
 let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
 let isEmuModeOn = false;
+let isSampleKeyTrackingOn = true;
 let mediaRecorder = null;
+let isSampleReversed = false;
+let originalBuffer = null;
 let recordedChunks = [];
 let isRecording = false;
 let recordingStartTime = null;
@@ -5418,7 +5421,54 @@ function initializeKnob(knob, onChange) {
     }
   };
 }
-
+function reverseBufferIfNeeded() {
+  if (!originalBuffer) return;
+  
+  if (isSampleReversed) {
+    // Create reversed version of the buffer
+    const reversedBuffer = audioCtx.createBuffer(
+      originalBuffer.numberOfChannels,
+      originalBuffer.length,
+      originalBuffer.sampleRate
+    );
+    
+    // Copy and reverse each channel
+    for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+      const originalData = originalBuffer.getChannelData(channel);
+      const reversedData = reversedBuffer.getChannelData(channel);
+      
+      for (let i = 0; i < originalBuffer.length; i++) {
+        reversedData[i] = originalData[originalBuffer.length - 1 - i];
+      }
+    }
+    
+    // Use the reversed buffer for processing
+    audioBuffer = reversedBuffer;
+  } else {
+    // Use the original buffer
+    audioBuffer = originalBuffer.slice();
+  }
+}
+if (!AudioBuffer.prototype.slice) {
+  AudioBuffer.prototype.slice = function() {
+    const newBuffer = audioCtx.createBuffer(
+      this.numberOfChannels,
+      this.length,
+      this.sampleRate
+    );
+    
+    for (let channel = 0; channel < this.numberOfChannels; channel++) {
+      const originalData = this.getChannelData(channel);
+      const newData = newBuffer.getChannelData(channel);
+      
+      for (let i = 0; i < this.length; i++) {
+        newData[i] = originalData[i];
+      }
+    }
+    
+    return newBuffer;
+  };
+}
 // FIXED VERSION
 function fixMicRecording() {
   // Get button reference FIRST
@@ -5606,7 +5656,12 @@ function fixMicRecording() {
   // 2) Use the same global audioBuffer
   audioBuffer = newBuffer; 
   console.log("Recording loaded as sample with duration:", audioBuffer.duration);
-
+  originalBuffer = newBuffer.slice(); // Store the original buffer
+      
+      // Apply reverse if needed
+      if (isSampleReversed) {
+        reverseBufferIfNeeded();
+      }
   // 3) Process fades and crossfades using the same function
   updateSampleProcessing();
 
@@ -6526,9 +6581,16 @@ function createNote(noteNumber, buffer, audioCtx, destination) {
     source.buffer = sourceBuffer;
     
     // Set playback speed for note pitch
-    source.playbackRate.value = TR2 ** (noteNumber - 12);
-    source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
-    
+
+        // Apply key tracking only if enabled
+        if (isSampleKeyTrackingOn) {
+      // Calculate semitone difference from middle C (note 60)
+      source.playbackRate.value = TR2 ** (noteNumber - 12);
+      source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
+    } else {
+      // Just use the knob value without key tracking
+      source.detune.value = currentSampleDetune;
+    }
     // Connect nodes
     source.connect(sampleNode);
     sampleNode.connect(gainNode);
@@ -7235,14 +7297,22 @@ function generateKeyboard() {
   }
 }
 
-
+ 
 function handleFileSelect(event) {
-    const file = event.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            audioCtx.decodeAudioData(e.target.result, function(buffer) {
-                audioBuffer = buffer;
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const arrayBuffer = e.target.result;
+    audioCtx.decodeAudioData(arrayBuffer).then(buffer => {
+      audioBuffer = buffer;
+      originalBuffer = buffer.slice(); // Store the original buffer
+      
+      // Apply reverse if needed
+      if (isSampleReversed) {
+        reverseBufferIfNeeded();
+      }
                 
                 // Process fades and crossfades whenever a new sample is loaded
                 updateSampleProcessing();
@@ -7318,7 +7388,7 @@ function handleFileSelect(event) {
         };
         reader.readAsArrayBuffer(file);
     }
-}
+
 
 function checkAudioAvailable() {
     if (!audioBuffer) {
@@ -8129,7 +8199,12 @@ function loadPresetSample(filename) {
     .then(buffer => {
     // Use the buffer as the sample
     audioBuffer = buffer;
-    
+    originalBuffer = buffer.slice(); // Store the original buffer
+      
+      // Apply reverse if needed
+      if (isSampleReversed) {
+        reverseBufferIfNeeded();
+      }
     // Process fades and crossfades whenever a new preset is loaded
     updateSampleProcessing();
     
@@ -9144,38 +9219,59 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 // Add this to your existing JavaScript
 document.addEventListener('DOMContentLoaded', function() {
-  // Initialize the Reverse button
   const reverseButton = document.getElementById('reverse-button');
   if (reverseButton) {
     reverseButton.addEventListener('click', function() {
       this.classList.toggle('active');
-      const led = this.querySelector('.select-led');
-      if (this.classList.contains('active')) {
-
-    
-      } else {
-
-
+      isSampleReversed = this.classList.contains('active');
+      
+      // If we have a sample loaded, process it
+      if (audioBuffer) {
+        // Store original buffer on first use if it doesn't exist
+        if (!originalBuffer) {
+          originalBuffer = audioBuffer.slice();
+        }
+        
+        // Apply reverse if needed
+        reverseBufferIfNeeded();
+        updateSampleProcessing();
+        
+        // Update any active notes
+        Object.values(activeNotes).forEach(note => {
+          if (note && note.source) {
+            // Force re-processing
+            note.usesProcessedBuffer = false;
+            note.crossfadeActive = false;
+            
+            if (isSampleLoopOn) {
+              note.looping = true;
+              setupLoopCrossfade(note);
+            }
+            updateSamplePlaybackParameters(note);
+          }
+        });
       }
+      
+      console.log('Sample Reverse:', isSampleReversed ? 'ON' : 'OFF');
     });
   }
   
   // Initialize the Key-Track button (default: active)
-  const keytrackButton = document.getElementById('keytrack-button');
-  if (keytrackButton) {
-    keytrackButton.addEventListener('click', function() {
+  const keyTrackButton = document.getElementById('keytrack-button');
+  
+  if (keyTrackButton) {
+    // Set initial state
+    keyTrackButton.classList.add('active'); // Key tracking is on by default
+    
+    // Add click handler
+    keyTrackButton.addEventListener('click', function() {
       this.classList.toggle('active');
-      const led = this.querySelector('.select-led');
-      if (this.classList.contains('active')) {
-        led.style.backgroundColor = '#c52a18';
-        led.style.boxShadow = '0 0 4px #ff0000';
-      } else {
-        led.style.backgroundColor = '#955b56';
-        led.style.boxShadow = 'none';
-      }
+      isSampleKeyTrackingOn = this.classList.contains('active');
+      console.log('Sample Key Tracking:', isSampleKeyTrackingOn ? 'ON' : 'OFF');
     });
   }
 });
+
   // Complete replacement for the global drag handler
 document.addEventListener('DOMContentLoaded', function() {
   const canvas = document.getElementById('mod-canvas');
