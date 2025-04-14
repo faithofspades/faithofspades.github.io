@@ -1,0 +1,103 @@
+/* LFO Module Styles */
+
+/* Container for the LFO module */
+.LFO-Module {
+    background-color: #f0f0f0; /* Light background for visibility */
+    border: 1px solid #ccc; /* Light border for separation */
+    border-radius: 8px; /* Rounded corners */
+    padding: 15px; /* Padding inside the module */
+    margin: 10px; /* Margin around the module */
+}
+
+/* Title styling for the LFO module */
+.LFO-Module .lfo {
+    font-size: 1.5em; /* Larger font size for the title */
+    font-weight: bold; /* Bold text for emphasis */
+    color: #333; /* Dark color for contrast */
+    margin-bottom: 10px; /* Space below the title */
+}
+
+/* Matrix buttons container */
+.matrix-buttons-container {
+    display: flex; /* Flexbox for horizontal layout */
+    justify-content: space-between; /* Space between buttons */
+    margin-bottom: 15px; /* Space below the button container */
+}
+
+/* Individual matrix button styling */
+.matrix-button {
+    background-color: #007bff; /* Primary color for buttons */
+    color: white; /* White text color */
+    padding: 10px; /* Padding inside buttons */
+    border: none; /* No border */
+    border-radius: 5px; /* Rounded corners */
+    cursor: pointer; /* Pointer cursor on hover */
+    transition: background-color 0.3s; /* Smooth background color transition */
+}
+
+/* Hover effect for matrix buttons */
+.matrix-button:hover {
+    background-color: #0056b3; /* Darker shade on hover */
+}
+
+/* Active state for matrix buttons */
+.matrix-button.active {
+    background-color: #0056b3; /* Darker shade for active state */
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5); /* Shadow effect for active button */
+}
+
+/* LFO destination container */
+.lfo-destination-container {
+    margin-top: 10px; /* Space above the destination container */
+}
+
+/* Vertical slider styling */
+.lfo-destination-range {
+    -webkit-appearance: none; /* Remove default styling */
+    width: 10px; /* Width of the slider */
+    height: 100px; /* Height of the slider */
+    background: #ddd; /* Background color */
+    border-radius: 5px; /* Rounded corners */
+    outline: none; /* Remove outline */
+}
+
+/* Slider thumb styling */
+.lfo-destination-range::-webkit-slider-thumb {
+    -webkit-appearance: none; /* Remove default styling */
+    appearance: none; /* Remove default styling */
+    width: 20px; /* Width of the thumb */
+    height: 20px; /* Height of the thumb */
+    background: #007bff; /* Color of the thumb */
+    border-radius: 50%; /* Circular thumb */
+    cursor: pointer; /* Pointer cursor on hover */
+}
+
+/* Destination label styling */
+.destination-label {
+    font-size: 1em; /* Font size for labels */
+    color: #555; /* Gray color for labels */
+    margin-top: 5px; /* Space above labels */
+}
+
+/* Knob container styling */
+.knob-container {
+    display: flex; /* Flexbox for layout */
+    flex-direction: column; /* Vertical layout */
+    align-items: center; /* Center items */
+}
+
+/* Knob styling */
+.knob {
+    width: 40px; /* Width of the knob */
+    height: 40px; /* Height of the knob */
+    background-color: #6B8F53; /* Knob color */
+    border-radius: 50%; /* Circular knob */
+    box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B; /* Shadow effect */
+    margin-bottom: 5px; /* Space below knobs */
+}
+
+/* Label styling for knobs */
+.knob-container label {
+    font-size: 0.9em; /* Font size for knob labels */
+    color: #333; /* Dark color for labels */
+}

@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap" rel="stylesheet">
+    <title>ARDIST - Thule</title>
+    
+    <!-- CSS Modules -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/keyboard.css">
+    <link rel="stylesheet" href="css/sampler.css">
+    <link rel="stylesheet" href="css/lfo.css">
+    <link rel="stylesheet" href="css/adsr.css">
+    <link rel="stylesheet" href="css/oscillator.css">
+    <link rel="stylesheet" href="css/filter.css">
+    <link rel="stylesheet" href="css/modulation.css">
+    <link rel="stylesheet" href="css/looper.css">
+    <link rel="stylesheet" href="css/fx.css">
+    <link rel="stylesheet" href="css/delay.css">
+    <link rel="stylesheet" href="css/master.css">
+  </head>
+  <body>
+      <div class="container">
+          
+          <div class="synth-panel">
+           
+  <!-- LFO Module -->
+  <div class="module LFO-Module" style="min-width: 205px; max-width: 205px;">
+    <div class="lfo">MATRIX</div>
+    <div class="matrix-buttons-container" style="position: relative; z-index: 10;">
+      <div class="matrix-button">MOD</div>
+      <div class="matrix-button">LFO</div>
+      <div class="matrix-button">1</div>
+      <div class="matrix-button">2</div>
+      <div class="matrix-button">3</div>
+      <div class="matrix-button">4</div>
+    </div>
+    <div class="lfo-controls-container" style="z-index: 5;">
+  
+      
+  <!-- Replace the button switches with a vertical 9-position slider -->
+  <div class="lfo-destination-container">
+    <!-- Vertical slider with 9 notches -->
+    <input type="range" class="lfo-destination-range" min="0" max="12" step="1" value="0" orient="vertical">
+    
+    <!-- Tick marks with labels -->
+    <div class="lfo-destination-ticks">
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Sampler Pitch</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 1 Pitch</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 2 Pitch</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Sampler Gain</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 1 Gain</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 2 Gain</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 1 PWM</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 2 PWM</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 1 Quant</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 2 Quant</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 1 FM</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Osc 2 FM</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Overload</span>
+      </div>
+    </div>
+    <div class="destination-label">Destination</div>
+  </div>
+  <div class="lfo-destination-container">
+    <!-- Vertical slider with 9 notches -->
+    <input type="range" class="lfo-destination-range" min="0" max="12" step="1" value="0" orient="vertical">
+    
+    <!-- Tick marks with labels -->
+    <div class="lfo-destination-ticks">
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Lo-Fi</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Speed</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Jump</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Filter</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Stutter</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Pitch</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Delay Time</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Warp</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Feedback</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Cutoff</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Variant</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Resonance</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Lo-Fi Amt</span>
+      </div>
+      
+    </div>
+    <div class="destination-label">Destination</div>
+  
+  </div>
+  </div>
+  <!-- New 3-column layout for knobs -->
+  <div class="matrix-knobs-container" style="display: flex; justify-content: space-between; margin-top: 15px; width: 94%;">
+    <!-- Column 1 -->
+    <div class="matrix-knob-column" style="flex-direction: column; align-items: center;">
+      <div class="select-button-container">
+        <div class="select-button" id="lfo-select-button">
+          <img src="control icons/destination-select.svg" alt="Destination Select" class="icon">
+          <div class="select-led"></div>
+        </div>
+        <label for="lfo-select-button"style="
+        margin-top: 1px;
+    ">Select</label>
+      </div>
+      <div class="knob-container">
+        <div class="knob" id="matrix-depth-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+        <label for="matrix-depth-knob">Depth</label>
+      </div>
+  
+      
+  
+    </div>
+    
+    <!-- Column 2 -->
+      <div class="matrix-knob-column" style="flex-direction: column; align-items: center; margin-top: 9px;    display: flex
+  ;">
+        <div class="knob-container">
+          <div class="knob" id="macro1-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+          <label for="macro1-knob">Macro 1</label>
+        </div>
+        <div class="knob-container">
+          <div class="knob" id="macro3-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+          <label for="macro3-knob">Macro 3</label>
+        </div>
+      
+  
+    </div>
+    
+    <!-- Column 3 -->
+    <div class="matrix-knob-column" style="flex-direction: column; align-items: center; margin-top: 9px;    display: flex
+  ;">
+    <div class="knob-container">
+      <div class="knob" id="macro2-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+      <label for="macro2-knob">Macro 2</label>
+    </div>
+  
+    <div class="knob-container">
+      <div class="knob" id="macro4-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+      <label for="macro4-knob">Macro 4</label>
+    </div> 
+  
+  </div>
+  </div>
+  </div>
+  
+  <!-- Updated MODULATION Module with canvas at top and two-column layout below -->
+  <div class="module modulation-module">
+    <div class="module-title modulation">MODULATION</div>
+    
+    <!-- Canvas at the top of the module -->
+    <div class="mod-canvas-container">
+      <canvas id="mod-canvas" width="120" height="100"></canvas>
+      <div class="mod-grid-overlay"></div>
+    </div>
+    
+    <!-- Two columns below the canvas -->
+    <div class="mod-columns-container">
+      <!-- Left column: controls stacked vertically -->
+      <div class="mod-left-column" style="height: 191.400px;">
+        <!-- Three-way vertical selector -->
+        <div class="mod-selector-container">
+          <div class="mod-mode-selector">
+            <div class="mode-option" data-mode="env">ENV</div>
+            <div class="mode-option active" data-mode="lfo">LFO</div>
+            <div class="mode-option" data-mode="trig">TRIG</div>
+          </div>
+        </div>
+        
+        <!-- Rate Knob -->
+        <div class="knob-container" style="
+      margin-top: 31.5px;"> 
+          <div class="knob" id="mod-rate-knob"></div>
+          <label for="mod-rate-knob">Rate</label>
+        </div>
+  
+        
+        
+      </div>
+      
+      <!-- Right column: destination slider -->
+      <div class="mod-right-column">
+        <!-- Left side: Vertical sliders -->
+        <div class="lfo-sliders-container">
+  
+  
+          
+          <!-- Rate Slider -->
+          <div class="slider-tick-container">
+            <input type="range" class="rate-slider-range" min="0" max="1" step="0.01" value="0.5">
+            <div class="slider-label"style="margin-top: 17px;">Rate</div>
+          </div>
+  
+    <!-- Delay Slider (renamed to "Fade In") -->
+    <div class="slider-tick-container">
+      <input type="range" class="delay-slider-range" min="0" max="1" step="0.01" value="0.5">
+      <div class="slider-label"style="margin-top: 17px;">Fade</div>
+    </div>
+  </div>
+      </div>
+    </div>
+    <div class="mod-bottom-controls">
+      <div class="knob-container">
+        <div class="knob" id="mod-depth-knob"></div>
+        <label for="mod-depth-knob"style="
+        margin-right: 6px;
+    ">Depth</label>
+      </div>
+  <!-- Update this line in the mod-bottom-controls section -->
+  <div class="shape-knob-container">
+    <!-- Fixed position shape markers at exact angles -->
+    <div class="shape-markers">
+      <!-- -150 degrees -->
+      <div class="shape-marker" style="transform: rotate(-150deg) translateY(-30px) rotate(150deg);">
+        <img src="SHAPES/wave-sine.svg" alt="Sine" width="13" height="9">
+      </div>
+      <!-- -75 degrees -->
+      <div class="shape-marker" style="transform: rotate(-75deg) translateY(-30px) rotate(75deg);">
+        <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="13" height="9">
+      </div>
+      <!-- 0 degrees -->
+      <div class="shape-marker" style="transform: rotate(0deg) translateY(-30px) rotate(0deg);">
+        <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="13" height="9">
+      </div>
+      <!-- 75 degrees -->
+      <div class="shape-marker" style="transform: rotate(75deg) translateY(-30px) rotate(-75deg);">
+        <img src="SHAPES/square-wave.svg" alt="Square" width="13" height="9">
+      </div>
+      <!-- 150 degrees -->
+      <div class="shape-marker" style="transform: rotate(150deg) translateY(-30px) rotate(-150deg);">
+        <img src="SHAPES/mod-random.svg" alt="Random" width="13" height="9">
+      </div>
+    </div>
+    
+    <!-- The knob itself - UPDATED with shape-knob class -->
+    <div class="shape-knob" id="mod-shape-knob"></div>
+  
+  </div>
+    </div>
+  </div>
+  
+  <!-- Updated SAMPLER Module with matching styling -->
+  <div class="module sampler-module">
+    <div class="module-title sampler">SAMPLER</div>
+    
+    <!-- Two-column layout container -->
+    <div class="sampler-columns">
+      <!-- Left Column -->
+      <div class="sampler-column">
+  <!-- Completely revised HTML for the file input -->
+  <div class="sample-selector-container">
+    <div class="sample-selector-container">
+      <label for="audio-file" id="load-sample-label" class="custom-file-button">Load</label>
+      <input type="file" id="audio-file" accept="audio/*" class="hidden-file-input">
+    </div>
+  </div>
+        
+  <div class="switch-container lofi-button-container">
+    <div class="lofi-button" id="emu-mode-switch">
+      <img src="control icons/lo-fi.svg" alt="Lo-Fi" class="icon">
+    </div>
+    <label for="emu-mode-switch">Lo-Fi</label>
+  </div>
+        <div class="switch-container reverse-button-container">
+          <div class="reverse-button" id="reverse-button">
+            <img src="control icons/reverse.svg" alt="Reverse" class="icon">
+          </div>
+          <label for="reverse-button">Reverse</label>
+        </div>
+        <div class="knob-container">
+          <div class="knob" id="sample-volume-knob"></div>
+          <label for="sample-volume-knob">Volume</label>
+        </div>
+        
+        <div class="knob-container">
+          <div class="knob" id="sample-pitch-knob"></div>
+          <label for="sample-pitch-knob">Pitch</label>
+        </div>
+        
+        <div class="knob-container">
+          <div class="knob" id="sample-fade-knob"></div>
+          <label for="sample-fade-knob">Fade</label>
+        </div>
+      </div>
+      
+      <!-- Right Column -->
+      <div class="sampler-column">
+        <!-- Sample selector dropdown -->
+        <div class="sample-selector-container">
+          <button id="sample-selector-btn">Presets</button>
+          <div id="sample-dropdown" class="sample-dropdown">
+            <div class="dropdown-item" data-sample="Dirty Bass.wav">Dirty Bass</div>
+            <div class="dropdown-item" data-sample="Keys - Piano.wav">Piano</div>
+            <div class="dropdown-item" data-sample="Noise.wav">Noise</div>
+            <div class="dropdown-item" data-sample="Saw.wav">Saw</div>
+            <div class="dropdown-item" data-sample="Mallet.wav">Mallet</div>
+          </div>
+        </div>
+        
+        <div class="switch-container rec-button-container">
+          <div class="rec-button" id="mic-record-button">
+            <img src="control icons/record.svg" alt="Record" class="icon">
+          </div>
+          <label for="mic-record-button">Rec</label>
+        </div>
+        <div class="switch-container keytrack-button-container">
+          <div class="keytrack-button active" id="keytrack-button">
+            <img src="control icons/keyboard.svg" alt="Keyboard" class="icon">
+  
+            <div class="select-led" style="background-color: #c52a18; box-shadow: 0 0 4px #ff0000;"></div>
+          </div>
+          <label for="keytrack-button">Key-Track</label>
+        </div>
+        <div class="knob-container">
+          <div class="knob" id="sample-start-knob"></div>
+          <label for="sample-start-knob">Start</label>
+        </div>
+        
+        <div class="knob-container">
+          <div class="knob" id="sample-end-knob"></div>
+          <label for="sample-end-knob">End</label>
+        </div>
+        
+        <div class="knob-container">
+          <div class="knob" id="sample-crossfade-knob"></div>
+          <label for="sample-crossfade-knob">Crossfade</label>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- OSCILLATOR 2 Module -->
+  <div class="module oscillator-module">
+    <div class="module-title oscillator">OSCILLATOR</div>
+    
+    <!-- Wave Shape Selector (similar to LFO but with pulse instead of random) -->
+    <div class="osc-selector-container">
+      <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+      <div class="five-step-ticks">
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/wave-sine.svg" alt="Sine" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/square-wave.svg" alt="Square" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/pulse.svg" alt="Pulse" width="18" height="14">
+          </div>
+        </div>
+      </div>
+  
+    </div>
+    
+    <!-- Octave Selector -->
+    <div class="osc-selector-container">
+      <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+      <div class="five-step-ticks">
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">-2</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">-1</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">0</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">+1</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">+2</span>
+        </div>
+      </div>
+  
+    </div>
+  
+    <!-- Two columns for controls -->
+    <div class="osc-columns-container">
+      <!-- Left column -->
+      <div class="osc-left-column">
+        <!-- FM Source Switch -->
+        <div class="osc-switch-container">
+          <label class="osc-switch-label osc-switch-label-top">Noise</label>
+          <div class="osc-vertical-switch" id="fm-source-switch"></div>
+          <label class="osc-switch-label osc-switch-label-bottom">Osc 1</label>
+        </div>
+        
+        <!-- PWM Knob -->
+        <div class="knob-container">
+          <div class="knob" id="pwm-knob"></div>
+          <label for="pwm-knob">PWM</label>
+        </div>
+        
+        <!-- Pitch Knob -->
+        <div class="knob-container">
+          <div class="knob" id="pitch-knob"></div>
+          <label for="pitch-knob">Pitch</label>
+        </div>
+      </div>
+      
+      <!-- Right column -->
+      <div class="osc-right-column">
+        <!-- FM Knob -->
+        <div class="knob-container">
+          <div class="knob" id="fm-knob"></div>
+          <label for="fm-knob">FM</label>
+        </div>
+        
+        <!-- Quantize Knob -->
+        <div class="knob-container">
+          <div class="knob" id="quantize-knob"></div>
+          <label for="quantize-knob">Quantize</label>
+        </div>
+        
+        <!-- Gain Knob -->
+        <div class="knob-container">
+          <div class="knob" id="gain-knob"></div>
+          <label for="gain-knob">Gain</label>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- OSCILLATOR Module -->
+  <div class="module oscillator-module">
+    <div class="module-title oscillator">OSCILLATOR 2</div>
+    
+    <!-- Wave Shape Selector (similar to LFO but with pulse instead of random) -->
+    <div class="osc-selector-container">
+      <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+      <div class="five-step-ticks">
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/wave-sine.svg" alt="Sine" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/sawtooth-wave.svg" alt="Sawtooth" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/triangle-shape.svg" alt="Triangle" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/square-wave.svg" alt="Square" width="18" height="14">
+          </div>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <div class="wave-shape">
+            <img src="SHAPES/pulse.svg" alt="Pulse" width="18" height="14">
+          </div>
+        </div>
+      </div>
+  
+    </div>
+    
+    <!-- Octave Selector -->
+    <div class="osc-selector-container">
+      <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+      <div class="five-step-ticks">
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">-2</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">-1</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">0</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">+1</span>
+        </div>
+        <div class="tick-container">
+          <div class="tick"></div>
+          <span class="octave-label">+2</span>
+        </div>
+      </div>
+  
+    </div>
+  
+    <!-- Two columns for controls -->
+    <div class="osc-columns-container">
+      <!-- Left column -->
+      <div class="osc-left-column">
+        <!-- FM Source Switch -->
+        <div class="osc-switch-container">
+          <label class="osc-switch-label osc-switch-label-top">Noise</label>
+          <div class="osc-vertical-switch" id="fm-source-switch"></div>
+          <label class="osc-switch-label osc-switch-label-bottom">Osc 2</label>
+        </div>
+        
+        <!-- PWM Knob -->
+        <div class="knob-container">
+          <div class="knob" id="pwm-knob"></div>
+          <label for="pwm-knob">PWM</label>
+        </div>
+        
+        <!-- Pitch Knob -->
+        <div class="knob-container">
+          <div class="knob" id="pitch-knob"></div>
+          <label for="pitch-knob">Pitch</label>
+        </div>
+      </div>
+      
+      <!-- Right column -->
+      <div class="osc-right-column">
+        <!-- FM Knob -->
+        <div class="knob-container">
+          <div class="knob" id="fm-knob"></div>
+          <label for="fm-knob">FM</label>
+        </div>
+        
+        <!-- Quantize Knob -->
+        <div class="knob-container">
+          <div class="knob" id="quantize-knob"></div>
+          <label for="quantize-knob">Quantize</label>
+        </div>
+        
+        <!-- Gain Knob -->
+        <div class="knob-container">
+          <div class="knob" id="gain-knob"></div>
+          <label for="gain-knob">Gain</label>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- FILTER Module -->
+  <div class="module filter-module">
+    <div class="module-title filter">FILTER</div>
+    
+    <div class="filter-controls-container">
+      <!-- Left side: Vertical sliders -->
+      <div class="filter-sliders-container">
+        <!-- Frequency Slider -->
+        <div class="slider-tick-container">
+          <input type="range" class="freq-slider-range" min="0" max="1" step="0.01" value="0.5">
+          <div class="filter-slider-label"style="margin-top: 23px;">Freq</div>
+        </div>
+        
+        <div class="slider-tick-container">
+          <input type="range" class="res-slider-range" min="0" max="1" step="0.01" value="0.5">
+          <div class="filter-slider-label"style="margin-top: 23px;">Res</div>
+        </div>
+      </div>
+      
+      <!-- Right side: Filter Type Selector (vertical) -->
+      <div class="filter-type-container">
+        <!-- Vertical slider with 5 notches -->
+        <input type="range" class="filter-type-range" min="0" max="4" step="1" value="0" orient="vertical">
+        
+        <!-- Tick marks with labels -->
+        <div class="filter-type-ticks">
+          <div class="tick-with-label">
+            <div class="tick"></div>
+            <span class="tick-label">LP 12</span>
+          </div>
+          <div class="tick-with-label">
+            <div class="tick"></div>
+            <span class="tick-label">LP 24</span>
+          </div>
+          <div class="tick-with-label">
+            <div class="tick"></div>
+            <span class="tick-label">Phase</span>
+          </div>
+          <div class="tick-with-label">
+            <div class="tick"></div>
+            <span class="tick-label">Comb</span>
+          </div>
+          <div class="tick-with-label">
+            <div class="tick"></div>
+            <span class="tick-label">Dist</span>
+          </div>
+        </div>
+        <div class="filter-type-label">Type</div>
+      </div>
+    </div>
+    
+    <!-- Horizontal sliders container -->
+    <div class="filter-horizontal-sliders">
+      <!-- Drive slider -->
+      <div class="horizontal-slider-container">
+        <input type="range" class="drive-slider-range" min="0" max="1" step="0.01" value="0">
+  
+        <div class="horizontal-slider-label">Drive</div>
+      </div>
+      
+      <!-- Variant slider -->
+      <div class="horizontal-slider-container">
+        <input type="range" class="variant-slider-range" min="0" max="1" step="0.01" value="0">
+  
+        <div class="horizontal-slider-label">Variant</div>
+      </div>
+    </div>
+    
+    <!-- Bottom knobs -->
+    <div class="filter-bottom-controls">
+      <div class="filter-knob-container">
+        <div class="knob" id="adsr-knob"></div>
+        <label for="adsr-knob">ADSR</label>
+      </div>
+      <div class="filter-knob-container">
+        <div class="knob" id="keytrack-knob"></div>
+        <label for="keytrack-knob">Key-Track</label>
+      </div>
+    </div>
+  </div>
+              <!-- ADSR Module -->
+              <div class="module" style="grid-column: span 2;">
+                <div class="module-title adsr">ADSR Envelope</div>
+                
+                <div class="adsr-graph" id="adsr-visualization">
+                  <div class="adsr-line"></div>
+                </div>
+              
+                <div class="slider-group">
+                  <div class="slider-attack">
+                    <span id="attack-value">0</span>
+                    <input type="range" id="attack" min="0" max="5" step="0.001" value="0">
+                  </div>
+                  <div class="slider-decay">
+                    <span id="decay-value">0.1</span>
+                    <input type="range" id="decay" min="0" max="5" step="0.01" value="0.1">
+                  </div>
+                  <div class="slider-sustain">
+                    <span id="sustain-value">0.7</span>
+                    <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
+                  </div>
+                  <div class="slider-release">
+                    <span id="release-value">0.01</span>
+                    <input type="range" id="release" min="0" max="5" step="0.001" value="0.001">
+                  </div>
+                </div>
+                
+                <div class="slider-labels">
+                  <label>A</label>
+                  <label>D</label>
+                  <label>S</label>
+                  <label>R</label>
+                </div>
+              </div>
+              
+  
+              <div class="module master-module">
+                <div class="module-title master">MASTER</div>
+                
+  <!-- Updated POLY/MONO switch with split labels -->
+  <div class="switch-container">
+    <label class="switch-label switch-label-top">POLY</label>
+    <div class="vertical-switch" id="voice-mode-switch"></div>
+    <label class="switch-label switch-label-bottom">MONO</label>
+  </div>
+  
+  <!-- Updated MULTI/LEGATO switch with split labels -->
+  <div class="switch-container">
+    <label class="switch-label switch-label-top">MULTI</label>
+    <div class="vertical-switch" id="trigger-mode-switch"></div>
+    <label class="switch-label switch-label-bottom">LEGATO</label>
+  </div>
+                  
+                  <!-- Portamento controls -->
+                  <div class="legato-controls">
+                    <div class="porta-button-wrapper">
+                      <div class="porta-button" id="portamento-switch">
+                        <img src="control icons/portamento.svg" alt="Portamento" class="icon">
+                      </div>
+                      <label for="portamento-switch">PORTA</label>
+                    </div>
+                    
+                    <!-- Glide Time Knob (unchanged) -->
+                    <div class="knob-container">
+                      <div class="knob" id="glide-time-knob"></div>
+                      <label for="glide-time-knob">Glide</label>
+                    </div>
+                  </div>
+  
+                
+                <!-- Master Volume -->
+                <div class="knob-container">
+                  <div class="knob" id="master-volume-knob"></div>
+                  <label for="master-volume-knob">Volume</label>
+                </div>
+              </div>
+      
+     
+        
+  <!-- LOOPER Module -->
+  <div class="module looper-module">
+    <div class="module-title looper">LOOPER</div>
+    
+    <!-- Updated looper buttons container with icons -->
+  <div class="looper-buttons-container">
+    <div class="looper-button-with-label">
+      <div class="looper-button record-button" id="looper-record-button">
+        <img src="looper button icons/record 2.svg" alt="Record" class="icon">
+      </div>
+      <label for="looper-record-button" class="looper-label">REC</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button record-button" id="looper-play-button">
+        <img src="looper button icons/play 1.svg" alt="Play" class="icon">
+      </div>
+      <label for="looper-play-button" class="looper-label">PLAY</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button record-button" id="looper-additive-button">
+        <img src="looper button icons/add 1.svg" alt="Add" class="icon">
+      </div>
+      <label for="looper-additive-button" class="looper-label">ADD</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button orange-button" id="looper-delete-button">
+        <img src="looper button icons/delete.svg" alt="Delete" class="icon">
+      </div>
+      <label for="looper-delete-button" class="looper-label">DEL</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button orange-button" id="looper-undo-button">
+        <img src="looper button icons/undo 1.svg" alt="Undo" class="icon">
+      </div>
+      <label for="looper-undo-button" class="looper-label">UNDO</label>
+    </div>
+    
+    <div class="looper-button-with-label">
+      <div class="looper-button orange-button" id="looper-redo-button">
+        <img src="looper button icons/redo 1.svg" alt="Redo" class="icon">
+      </div>
+      <label for="looper-redo-button" class="looper-label">REDO</label>
+    </div>
+  </div>
+    
+    <div class="looper-columns">
+      <!-- Column 1 -->
+      <div class="looper-column">
+        <!-- Layers knob (yellow, 8 notches) -->
+        <div class="layers-knob-container">
+          <div class="layers-markers">
+            <div class="layer-marker" style="transform: rotate(-150deg) translateY(-30px) rotate(150deg);">1</div>
+            <div class="layer-marker" style="transform: rotate(-107.14deg) translateY(-30px) rotate(107.14deg);">2</div>
+            <div class="layer-marker" style="transform: rotate(-64.29deg) translateY(-30px) rotate(64.29deg);">3</div>
+            <div class="layer-marker" style="transform: rotate(-21.43deg) translateY(-30px) rotate(21.43deg);">4</div>
+            <div class="layer-marker" style="transform: rotate(21.43deg) translateY(-30px) rotate(-21.43deg);">5</div>
+            <div class="layer-marker" style="transform: rotate(64.29deg) translateY(-30px) rotate(-64.29deg);">6</div>
+            <div class="layer-marker" style="transform: rotate(107.14deg) translateY(-30px) rotate(-107.14deg);">7</div>
+            <div class="layer-marker" style="transform: rotate(150deg) translateY(-30px) rotate(-150deg);">8</div>
+          </div>
+          <div class="shape-knob" id="looper-layers-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B; bottom: 0px; margin-bottom: 17px; margin-top: 2px;"></div>
+          <label for="looper-layers-knob"style="
+          margin-bottom: 0px; font-size: 10px; font-weight: 750; font-variant-caps: all-small-caps;">Layers</label>
+        </div>
+        
+        <!-- Start knob (red) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-start-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+          <label for="looper-start-knob">Start</label>
+        </div>
+        
+        <!-- Speed knob (blue) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-speed-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+          <label for="looper-speed-knob">Speed</label>
+        </div>
+        
+        <!-- Filter knob (green) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-filter-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+          <label for="looper-filter-knob">Filter</label>
+        </div>
+      </div>
+      
+      <!-- Column 2 -->
+      <div class="looper-column">
+        <!-- Volume knob (yellow) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-volume-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+          <label for="looper-volume-knob">Volume</label>
+        </div>
+        
+        <!-- End knob (red) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-end-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+          <label for="looper-end-knob">End</label>
+        </div>
+        
+        <!-- Dropouts knob (blue) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-dropouts-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+          <label for="looper-dropouts-knob">Dropouts</label>
+        </div>
+        
+        <!-- Stutter knob (green) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-stutter-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+          <label for="looper-stutter-knob">Stutter</label>
+        </div>
+      </div>
+      
+      <!-- Column 3 -->
+      <div class="looper-column">
+        <!-- Lo-Fi knob (yellow) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-lofi-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+          <label for="looper-lofi-knob">Lo-Fi</label>
+        </div>
+        
+        <!-- Repeats knob (red) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-repeats-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+          <label for="looper-repeats-knob">Repeats</label>
+        </div>
+        
+        <!-- Jump knob (blue) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-jump-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+          <label for="looper-jump-knob">Jump</label>
+        </div>
+        
+        <!-- Pitch knob (green) -->
+        <div class="knob-container">
+          <div class="knob" id="looper-pitch-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+          <label for="looper-pitch-knob">Pitch</label>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- FX Module -->
+  <div class="module fx-module">
+    <div class="module-title fx">FX</div>
+    
+    <!-- Chorus Button -->
+    <div class="chorus-button-container">
+      <div class="chorus-button" id="chorus-button">
+        <span class="chorus-indicator first">I</span>
+        <span class="chorus-indicator second">I</span>
+      </div>
+      <label for="chorus-button" style="margin-top: 4.5px;">Chorus</label>
+    </div>
+    
+    <!-- Knob Column -->
+    <div class="fx-knobs-column">
+      <!-- Overload knob (yellow) -->
+      <div class="knob-container">
+        <div class="knob" id="overload-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <label for="overload-knob">Overload</label>
+      </div>
+      
+      <!-- Cabinet knob (yellow) -->
+      <div class="knob-container">
+        <div class="knob" id="cabinet-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+        <label for="cabinet-knob">Cabinet</label>
+      </div>
+      
+      <!-- Loss knob (blue) -->
+      <div class="knob-container">
+        <div class="knob" id="loss-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <label for="loss-knob">Loss</label>
+      </div>
+      
+      <!-- Artifacts knob (blue) -->
+      <div class="knob-container">
+        <div class="knob" id="artifacts-knob" style="background-color: #4E658B; box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;"></div>
+        <label for="artifacts-knob">Artifacts</label>
+      </div>
+    </div>
+  </div>
+  <!-- DELAY Module -->
+  <div class="module delay-module">
+    <div class="module-title delay">
+      <div class="delay-title-section red-title"></div>
+      <div class="delay-title-section orange-title"></div>
+      <div class="delay-title-section yellow-title"></div>
+      <div class="delay-title-section green-title"></div>
+      <span class="delay-title-text">DELAY</span>
+    </div>
+    
+    <div class="delay-sections">
+      <!-- Red Section (Time) -->
+      <div class="delay-section red-section">
+        <div class="delay-slider-container">
+          <div class="delay-slider-track"></div>
+          <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+          <label class="delay-slider-label">Time</label>
+        </div>
+        
+        <!-- Switches for Reverse and Freeze -->
+        <div class="delay-switches"style="
+        margin-bottom: 21px;
+    ">
+          <div class="delay-switch-container">
+            <div class="horizontal-switch" id="reverse-switch"></div>
+            <label for="reverse-switch" class="delay-switch-label">Reverse</label>
+          </div>
+          
+          <div class="delay-switch-container">
+            <div class="horizontal-switch" id="freeze-switch"></div>
+            <label for="freeze-switch" class="delay-switch-label">Freeze</label>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Orange Section (Length) -->
+      <div class="delay-section orange-section">
+        <div class="delay-slider-container">
+          <div class="delay-slider-track"></div>
+          <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+          <label class="delay-slider-label">Length</label>
+        </div>
+        
+        <!-- Low Cut knob -->
+        <div class="knob-container">
+          <div class="knob" id="low-cut-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+          <label for="low-cut-knob">Low Cut</label>
+        </div>
+      </div>
+      
+      <!-- Yellow Section (Feedback) -->
+      <div class="delay-section yellow-section">
+        <div class="delay-slider-container">
+          <div class="delay-slider-track"></div>
+          <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+          <label class="delay-slider-label">Feedback</label>
+        </div>
+        
+        <!-- High Cut knob -->
+        <div class="knob-container">
+          <div class="knob" id="high-cut-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+          <label for="high-cut-knob">High Cut</label>
+        </div>
+      </div>
+      
+      <!-- Green Section (Density) -->
+      <div class="delay-section green-section">
+        <div class="delay-slider-container">
+          <div class="delay-slider-track"></div>
+          <input type="range" class="delay-slider" min="0" max="100" value="50" orient="vertical">
+          <label class="delay-slider-label">Density</label>
+        </div>
+        
+        <!-- Mix knob -->
+        <div class="knob-container">
+          <div class="knob" id="mix-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
+          <label for="mix-knob">Mix</label>
+        </div>
+      </div>
+    </div>
+  </div>
+          </div> <!-- End of synth-panel -->
+          
+          <!-- Keyboard -->
+          <div class="keyboard" id="keyboard">
+              <!-- Keys will be generated by JavaScript -->
+          </div>
+          
+          <div class="voice-monitor">
+              <h3>Active Voices: <span id="voice-count">0</span>/6</h3>
+              <div id="voice-display"></div>
+          </div>
+      </div>
+    
+
+    <!-- JavaScript Modules -->
+    <script src="js/audio-context.js"></script>
+    <script src="js/voice-manager.js"></script>
+    <script src="js/keyboard.js"></script>
+    <script src="js/sampler.js"></script>
+    <script src="js/lfo.js"></script>
+    <script src="js/modulation.js"></script>
+    <script src="js/adsr.js"></script>
+    <script src="js/oscillator.js"></script>
+    <script src="js/filter.js"></script>
+    <script src="js/looper.js"></script>
+    <script src="js/fx.js"></script>
+    <script src="js/delay.js"></script>
+    <script src="js/master.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

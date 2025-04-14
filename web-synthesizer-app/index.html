@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@200..1000&display=swap" rel="stylesheet">
+    <title>Web Synthesizer App</title>
+    
+    <!-- Global CSS -->
+    <link rel="stylesheet" href="css/main.css">
+    
+    <!-- Module CSS -->
+    <link rel="stylesheet" href="css/keyboard.css">
+    <link rel="stylesheet" href="css/sampler.css">
+    <link rel="stylesheet" href="css/lfo.css">
+    <link rel="stylesheet" href="css/adsr.css">
+    <link rel="stylesheet" href="css/oscillator.css">
+    <link rel="stylesheet" href="css/filter.css">
+    <link rel="stylesheet" href="css/modulation.css">
+    <link rel="stylesheet" href="css/looper.css">
+    <link rel="stylesheet" href="css/fx.css">
+    <link rel="stylesheet" href="css/delay.css">
+    <link rel="stylesheet" href="css/master.css">
+</head>
+<body>
+    <div class="container">
+        <div class="synth-panel">
+            <!-- Synthesizer modules will be dynamically loaded here -->
+        </div>
+        
+        <div class="keyboard" id="keyboard">
+            <!-- Keyboard will be rendered here -->
+        </div>
+        
+        <div class="voice-monitor">
+            <!-- Voice monitor for audio feedback -->
+        </div>
+    </div>
+
+    <!-- Main JavaScript -->
+    <script src="js/main.js" type="module"></script>
+    
+    <!-- Module JavaScript -->
+    <script src="js/modules/keyboard.js" type="module"></script>
+    <script src="js/modules/sampler.js" type="module"></script>
+    <script src="js/modules/lfo.js" type="module"></script>
+    <script src="js/modules/adsr.js" type="module"></script>
+    <script src="js/modules/oscillator.js" type="module"></script>
+    <script src="js/modules/filter.js" type="module"></script>
+    <script src="js/modules/modulation.js" type="module"></script>
+    <script src="js/modules/looper.js" type="module"></script>
+    <script src="js/modules/fx.js" type="module"></script>
+    <script src="js/modules/delay.js" type="module"></script>
+    <script src="js/modules/master.js" type="module"></script>
+</body>
+</html>

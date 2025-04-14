@@ -1,0 +1,155 @@
+.adsr-graph {
+    width: 100%;
+    height: 100px;
+    min-height: 100px;
+    background-color: #f2eed3;
+    margin: 10px 0;
+
+    position: relative;
+    overflow: hidden; /* Prevent overflow */
+}
+
+.adsr-graph {
+    width: 90%;
+    height: 70px;
+    background-color: #35100B;
+    margin: 15px 0 15px 0;
+    position: relative;
+    border: 2px solid #35100B;
+    border-radius: 5px;
+  }
+  
+  /* Values row */
+  .slider-values {
+      display: flex;
+      justify-content: space-between;
+      width: 220px; /* Match slider group width */
+      margin-bottom: 5px;
+  }
+  
+  .slider-values span {
+      font-size: 12px;
+      color: #35100B;
+      width: 40px;
+      text-align: center;
+  }
+  
+  .slider-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    width: 90%;
+    margin: 0;
+    gap: 8px;
+  }
+  
+  
+  
+  .slider-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #35100B;
+    width: 18px;
+    height: 26px;
+    cursor: pointer;
+    bottom: 10px;
+    border-radius: 5px;
+    /* Add indicator line like LFO sliders */
+    background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+    background-size: 2px 100% ;
+    background-repeat: no-repeat;
+    background-position: center;
+  margin-top: -10.6px;
+  }
+  
+  /* ADSR slider tracks */
+  .slider-group input[type="range"]::-webkit-slider-runnable-track {
+    background: #35100B;
+    border-radius: 5px;
+    height: 5px;
+    border: none;
+  }
+  
+  /* Labels row */
+  .slider-labels {
+      display: flex;
+      justify-content: space-between;
+      width: 220px;
+      margin-top: -10px;
+  }
+  
+  .slider-labels label {
+      font-size: 12px;
+      color: #35100B;
+      width: 40px;
+      text-align: center;
+  }
+  .module-title.adsr {
+    color: #f2eed3;
+    text-align: center;
+    font-family: "Nunito", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 16px;
+    margin-bottom: 5px;
+    background-color: #BA5446; /* Same color as LFO/SAMPLER */
+    padding: 5px 0;
+    border-radius: 10px;
+    border: 0px solid #35100B;
+    width: 150%;
+    margin-top: -15px; /* Pull it up slightly to connect with top edge */
+  }
+  /* Individual slider containers */
+.slider-attack, .slider-decay, .slider-sustain, .slider-release {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 22%;
+  }
+  
+  /* Common slider styles */
+  .slider-group input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 241px;
+    height: 5px; /* Thinner track like LFO */
+    background: transparent;
+    transform: rotate(270deg);
+    position: absolute;
+    top: 135px;
+  }
+  
+  /* Values above sliders */
+  #attack-value, #decay-value, #sustain-value, #release-value {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-weight: 750;
+    font-variant-caps: all-small-caps;
+    color: #35100B;
+    width: 25px; /* Fixed width */
+    text-align: center;
+    display: block;
+    margin: 0 auto 5px auto;
+    height: 12px; /* Fixed height */
+    overflow: hidden; /* Prevent overflow */
+  }
+  
+  /* Labels below sliders */
+  .slider-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 90%;
+    margin-top: 244px;
+  }
+  
+  .slider-labels label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-weight: 750;
+    font-variant-caps: all-small-caps;
+    color: #35100B;
+    text-align: center;
+    width: 22%;
+  }

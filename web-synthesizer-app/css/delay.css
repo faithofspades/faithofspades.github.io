@@ -1,0 +1,102 @@
+/* Delay Module Styles */
+
+/* Container for the delay controls */
+.delay-module {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+}
+
+/* Title styling for the delay module */
+.module-title.delay {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 15px;
+}
+
+/* Slider container for delay time */
+.delay-slider-container {
+    width: 100%;
+    margin: 10px 0;
+}
+
+/* Slider track styling */
+.delay-slider-track {
+    width: 100%;
+}
+
+/* Vertical slider for delay time */
+.delay-slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 8px;
+    background: #ddd;
+    border-radius: 5px;
+}
+
+/* Slider thumb styling */
+.delay-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: #4E658B;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+/* Slider labels for delay controls */
+.delay-slider-label {
+    text-align: center;
+    margin-top: 5px;
+}
+
+/* Switches container for delay effects */
+.delay-switches {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 15px;
+}
+
+/* Individual switch styling */
+.delay-switch-container {
+    display: flex;
+    align-items: center;
+}
+
+/* Switch label styling */
+.delay-switch-label {
+    margin-left: 10px;
+}
+
+/* Active state for switches */
+.horizontal-switch.active {
+    background-color: #4E658B;
+}
+
+/* Styling for the delay section */
+.delay-section {
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-top: 10px;
+}
+
+/* Color coding for different sections */
+.red-section {
+    background-color: rgba(255, 0, 0, 0.1);
+}
+
+.orange-section {
+    background-color: rgba(255, 165, 0, 0.1);
+}
+
+.yellow-section {
+    background-color: rgba(255, 255, 0, 0.1);
+}
+
+.green-section {
+    background-color: rgba(0, 255, 0, 0.1);
+}

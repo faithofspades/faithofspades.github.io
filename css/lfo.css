@@ -1,0 +1,555 @@
+/* Module title */
+.lfo {
+    color: #f2eed3;
+    text-align: center;
+    font-family: "Nunito", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 16px;
+    margin-bottom: 5px;
+    background-color:  #4E658B;
+    padding: 5px 0;
+    border-radius: 10px;
+    border: 0px solid #35100B;
+    width: 150%;
+  
+    margin-top: -15px; /* Pull it up slightly to connect with top edge */
+  }
+  /* LFO Module container */
+  .LFO-Module {
+    border: 1px solid #35100B;
+    background-color: #f2eed3;
+    border-radius: 10px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    min-width: 169px;
+    max-width: 169px;
+    align-items: center;
+    padding-top: 15px; /* Remove top padding */
+    overflow: hidden; /* Ensure the header connects to edges */
+    box-sizing: border-box; /* Include padding in width */
+  }
+  /* Main controls container (sliders + buttons) */
+.lfo-controls-container {
+    display: flex;
+    width: 87%;
+    justify-content: space-between;
+    height: 240px; /* Match your original height */
+    padding-top: 7%;
+    margin-bottom: -25px;
+    margin-right: 30px;
+    padding-top: 0px;
+    margin-top: -29px;
+  }
+  
+  /* Left container for vertical sliders */
+  .lfo-sliders-container {
+    position: relative;
+    display: flex;
+    gap: 25px; /* Reduced from 25px to make space for tick marks */
+    height: 85%;
+    margin-left: 20px; /* Reduced from 10% */
+    margin-right: 15px; /* Add right margin to prevent overlap */
+    top: 10px;
+  }
+  /* Vertical sliders: Rate and Delay */
+.rate-slider-range,
+.delay-slider-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 5px; /* Thin track (matches the horizontal slider track height) */
+  height: 100%;
+  background: transparent;
+  writing-mode: vertical-lr; /* Modern vertical orientation */
+  direction: rtl; /* Bottom to top orientation */
+}
+.lfo-selector-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 7px;
+  }
+  /* Shared slider track styling - make tracks thinner */
+.rate-slider-range::-webkit-slider-runnable-track,
+.delay-slider-range::-webkit-slider-runnable-track {
+  background: #35100B;
+  border-radius: 5px;
+  width: 5px; /* For vertical sliders (needed for proper appearance) */
+  border: none;
+}
+.rate-slider-range::-webkit-slider-thumb,
+.delay-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+
+  background: #35100B;
+  width: 26px;
+  height: 18px;
+  cursor: pointer;
+  margin-left: -10.6px; /* For vertical sliders */
+  border-radius: 5px; /* Remove circular shape to make rectangular */
+    /* Optional: Add a small indicator line */
+    background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+/* Container for bottom row controls */
+.lfo-bottom-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-top: 13px;
+    padding: 0 5px;
+  }
+  
+  /* Depth Knob with double border */
+  .depth-knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-right: 10px;
+    margin-left: 10px;
+  }
+  
+  .depth-knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #4E658B;
+    position: relative;
+    cursor: grab;
+    box-sizing: border-box;
+    
+    /* Double border effect */
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+    
+    /* Center point marker */
+    transform-origin: center center;
+  }
+  
+  /* Special tick style for depth knob - starts from center */
+  .depth-knob::after {
+    content: '';
+    position: absolute;
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    width: 23.6px; /* Longer line from center to edge */
+    height: 3px;
+    background-color: #f2eed3;
+    transform-origin: left center;
+    transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
+  }
+  
+  .depth-knob-container label {
+    margin-top: 8px;
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+  }
+  /* Bottom knobs container */
+.mod-bottom-controls {
+    display: flex;
+    justify-content: space-around;
+    width: 92%;
+  padding-left: 6px;
+    margin-left: 5px;
+    margin-top: 7px;
+  
+  }
+  
+  /* Depth knob (regular styling) */
+  #mod-depth-knob {
+    background-color: #BA5446; /* Blue color */
+    box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+    right: 3px;
+  }
+  
+  /* Shape knob container with ticks */
+  .shape-knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    width: 55px;
+    left: 5px;
+  
+  }
+  
+  /* Ticks container positioned around the knob */
+  .shape-knob-ticks {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Don't block interactions */
+    bottom: 9px;
+    right: 0.5px;
+  }
+  
+  /* Individual tick styling */
+  .shape-tick {
+    position: absolute;
+    width: 1px;
+    height: 4px;
+    background-color: #35100B;
+    left: 50%;
+    top: 50%;
+    transform-origin: center bottom;
+  }
+  
+  /* Discrete shape knob with 5 positions */
+  .shape-knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #6B8F53; /* Green color */
+    position: relative;
+    cursor: pointer;
+    box-sizing: border-box;
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+    z-index: 1;
+    top: 10px;
+  }
+  
+  /* Shape knob indicator line */
+  .shape-indicator {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    height: 45%;
+    width: 3px;
+    background-color: #f2eed3;
+    transform: translateX(-50%);
+  }
+  
+  /* Label styling */
+  .shape-knob-container label {
+    margin-top: 26px;
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+  }
+  /* Add this to your CSS */
+  .shape-knob-ticks .wave-shape {
+    position: absolute;
+    height: 14px;
+    width: 18px;
+    filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+    pointer-events: none;
+  }
+  .mod-left-column {
+    position: relative;
+  }
+  
+  .mod-left-column::before {
+    content: "^^MOD^^";
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #f2eed3;
+    padding: 0 8px;
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    z-index: 1;
+  }
+  /* Make the shape ticks larger to accommodate the icons */
+  .shape-tick {
+    position: absolute;
+    width: 2px;
+    height: 5px;
+    background-color: #35100B;
+    left: 50%;
+    top: 50%;
+    transform-origin: center bottom;
+  }
+  
+  /* Update positioning for the shape knob container */
+  .shape-knob-container {
+    margin-top: 5px;
+    padding-top: 10px;
+  }
+  
+  /* When active, make the wave shapes visible */
+  .shape-knob.active + .shape-knob-ticks .wave-shape img {
+    filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+  }
+  /* Shape knob container styling */
+  .shape-knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    margin-top: 5px;
+  }
+  
+  /* Container for the shape notches */
+  .shape-knob-notches {
+    position: absolute;
+    width: 150%;
+    height: 18px;
+    top: -22px;
+    left: -25%;
+    pointer-events: none;
+  }
+  
+  /* Individual shape notch */
+  .shape-notch {
+    position: absolute;
+    filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+    pointer-events: none;
+    transform: translateX(-50%);
+  }
+  
+  /* Make the shape knob look like other knobs */
+  #mod-shape-knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #E5AB5F; /* Green color */
+    position: relative;
+    cursor: pointer;
+    box-sizing: border-box;
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;
+    transform-origin: center center;
+  }
+  
+  /* Add indicator line */
+  #mod-shape-knob::after {
+    content: '';
+    position: absolute;
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    width: 23.6px;
+    height: 3px;
+    background-color: #f2eed3;
+    transform-origin: left center;
+    transform: translate(-0px, -50%) rotate(270deg);
+  }
+  /* Shape knob container */
+  .shape-knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    margin-top: 5px;
+    margin-bottom: 20px; /* Add space for label */
+  }
+  
+  /* Container for the wave shape icons */
+  .shape-notches {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+  }
+  
+  /* Individual shape icon styling */
+  .shape-icon {
+    position: absolute;
+    width: 18px;
+    height: 14px;
+    filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+    pointer-events: none;
+  }
+  
+  /* Shape knob styling (same as other knobs) */
+  #mod-shape-knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #6B8F53; /* Green color */
+    position: relative;
+    cursor: pointer;
+    box-sizing: border-box;
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+    transform-origin: center center;
+  }
+  
+  /* Indicator line */
+  #mod-shape-knob::after {
+    content: '';
+    position: absolute;
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    width: 23.6px;
+    height: 3px;
+    background-color: #f2eed3;
+    transform-origin: left center;
+    transform: translate(-0px, -50%) rotate(270deg);
+  }
+  /* Shape knob container */
+  .shape-knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    margin-top: 5px;
+    margin-bottom: 28px;
+    bottom: 6px;
+  }
+  
+  /* Markers container */
+  .shape-markers {
+    position: absolute;
+    width: 100%;
+    height: 85%;
+    right: 7px;
+    top: 5px;
+    pointer-events: none;
+  }
+  
+  /* Individual shape marker */
+  .shape-marker {
+    position: absolute;
+    width: 18px;
+    height: 14px;
+    top: 50%;
+    left: 50%;
+    transform-origin: center;
+    filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+    pointer-events: none;
+  }
+  
+  /* Shape knob styling */
+  #mod-shape-knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #E5AB5F;
+    position: relative;
+    cursor: pointer;
+    box-sizing: border-box;
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;
+    transform-origin: center center;
+  }
+  
+  /* Indicator line */
+  #mod-shape-knob::after {
+    content: '';
+    position: absolute;
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    width: 23.6px;
+    height: 3px;
+    background-color: #f2eed3;
+    transform-origin: left center;
+    transform: translate(-0px, -50%) rotate(270deg);
+  }
+  
+  /* Label styling */
+  .shape-knob-container label {
+    margin-top: 8px;
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  /* Shape knob styling */
+  .shape-knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #6B8F53; /* Green color */
+    position: relative;
+    cursor: pointer;
+    box-sizing: border-box;
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+    transform-origin: center center;
+  }
+  
+  /* Shape knob indicator line */
+  .shape-knob::after {
+    content: '';
+    position: absolute;
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    width: 23.6px;
+    height: 3px;
+    background-color: #f2eed3;
+    transform-origin: left center;
+    transform: translate(-0px, -50%) rotate(270deg);
+  }
+  .mod-horizontal-line {
+    position: relative;
+    width: 140%;
+    height: 1px; /* Keep original height */
+    min-height: 1px; /* Add min-height to prevent collapse */
+    background-color: #35100B;
+    margin: 10px auto 15px auto;
+    opacity: 1;
+    display: block;
+  
+    overflow: visible; /* Ensure it's not being cut off */
+    right: 15.3px;
+    bottom: 205px;
+  }
+  .mod-vertical-line {
+    position: relative;
+    width: 1px; /* Thin vertical line */
+    min-height: 190px;
+    min-width: 1px; /* Add min-width to prevent collapse */
+    background-color: #35100B;
+    opacity: 1;
+    display: block;
+  
+    overflow: visible; /* Ensure it's not being cut off */
+    bottom: 195px;
+    left: 30px; /* Position to the right of the mod-rate-knob */
+  }
+  .slider-horizontal-line {
+    position: absolute;
+    width: 170%;
+    height: 1px;
+    min-height: 1px;
+    background-color: #35100B;
+    top: -8px;
+    right: 10px;
+    left: -13.9px;
+    opacity: 1;
+    display: block;
+    z-index: 1;
+  }
+  .lfo-section-label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+    width: 100%;
+    position: absolute;
+    top: -23px;
+    left: 1px;
+    z-index: 2;
+  }

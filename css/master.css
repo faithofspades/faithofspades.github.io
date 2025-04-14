@@ -1,0 +1,280 @@
+/* Mono controls container */
+.mono-controls {
+    width: 100%;
+    transition: opacity 0.3s;
+}
+
+.legato-controls {
+    width: 100%;
+    transition: opacity 0.3s;
+}
+/* Update Master Module Styling */
+.module-title.master {
+    color: #f2eed3;
+    text-align: center;
+    font-family: "Nunito", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 16px;
+    margin-bottom: 9px;
+    background-color: #BA5446; /* Same color as LFO/SAMPLER */
+    padding: 5px 0;
+    border: 0px solid #35100B;
+    width: 150%;
+    margin-top: -15px; /* Pull it up slightly to connect with top edge */
+  }
+  
+  /* Make master module match LFO/SAMPLER module styling */
+  .module.master-module {
+    border: 1px solid #35100B;
+    background-color: #f2eed3;
+    border-radius: 10px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    min-width: 75px;
+    max-width: 75px;
+    align-items: center;
+    padding-top: 15px; /* Remove top padding */
+    overflow: hidden; /* Ensure the header connects to edges */
+    box-sizing: border-box; /* Include padding in width */
+  }
+  
+  .vertical-switch {
+    width: 20px;
+    height: 40px;
+    background: #E5AB5F;
+    border: 2px solid #35100B;
+    border-radius: 5px;
+    position: relative;
+    cursor: grab;
+    margin-bottom: 5px;
+    
+  }
+  
+  .vertical-switch::after {
+    content: '';
+    position: absolute;
+    width: 19px;
+    height: 19.5px;
+    background: #35100B;
+    border: 1px solid #35100B;
+    border-radius: 0px;
+    left: -0.5px;
+    top: 0px;
+    transition: top 0.1s;
+    
+    /* Add the on.svg overlay as a background image */
+    background-image: url("control icons/on.svg");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 12px 12px; /* Adjust size to fit inside the handle */
+    
+    /* Filter to make the icon white */
+  }
+  
+  .vertical-switch.active::after {
+    top: 19px;
+  }
+  /* Add this CSS class for the porta button container */
+  .porta-button-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 16px;
+    margin-bottom: 8.5px; /* Adjust this to your preference */
+  }
+  
+  /* Ensure the button itself maintains consistent styling */
+  .porta-button-wrapper .porta-button {
+    position: relative;
+    width: 41px;
+    height: 21px;
+    background-color: #CF814D;
+    border: 2.5px solid #35100B;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+  
+    transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+  }
+  
+  /* Ensure label styling is consistent */
+  .porta-button-wrapper label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+  
+  }
+  .porta-button-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 4px;
+    margin-top: -5px;
+  
+  }
+  
+  .porta-button {
+    position: relative;
+    width: 41px;
+    height: 21px;
+    background-color: #CF814D;
+    border: 2.5px solid #35100B;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+  
+    transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+  }
+  
+  .porta-button:hover {
+    background-color: #d69061;
+  }
+  
+  .porta-button.active {
+    background-color: #dc8953;
+    color: #f2eed3;
+    box-shadow: 0 0 8px #dc8953; /* Glow effect */
+    transform: scale(0.98); /* Slight pressed effect */
+  }
+  
+  /* Add icon styling */
+  .porta-button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .porta-button .icon {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    opacity: 0.8;
+    pointer-events: none;
+  }
+  
+  /* Icon color changes with button state */
+  .porta-button .icon {
+    filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+  }
+  
+  .porta-button.active .icon {
+    filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+  }
+  
+  /* Remove the LED */
+  .porta-button .select-led {
+    display: none;
+  }
+  
+  /* Switch container styling */
+  .switch-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px 0;
+  }
+  
+  .switch-label {
+    position: relative;
+    font-size: 10px;
+    color: #35100B;
+    text-align: center;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* New class for labels above the switch */
+  .switch-label-top {
+    margin-bottom: 3.5px;
+  }
+  
+  /* New class for labels below the switch */
+  .switch-label-bottom {
+    margin-top: 5px;
+  }
+  
+  /* Master Volume Knob */
+  .master-module .knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #BA5446;
+    position: relative;
+    cursor: grab;
+    box-sizing: border-box;
+    
+    /* Double border effect - EXACT match to other knobs */
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+    
+    /* Center point marker */
+    transform-origin: center center;
+    margin: 10px 0;
+  }
+  
+  /* Style knob indicator line */
+  .master-module .knob::after {
+    content: '';
+    position: absolute;
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    width: 23.6px; /* Longer line from center to edge */
+    height: 3px;
+    background-color: #f2eed3;
+    transform-origin: left center;
+    transform: translate(-0px, -50%) rotate(270deg); /* Center at origin */
+  }
+  
+  /* Knob label style */
+  .master-module label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+  }
+  
+  /* Control sections */
+  .mono-controls,
+  .legato-controls {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: opacity 0.3s;
+  }
+  
+  
+  .module-title.modulation {
+    color: #f2eed3;
+    text-align: center;
+    font-family: "Nunito", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 16px;
+    margin-bottom: 10px;
+    background-color: #4E658B; /* Distinct color for MODULATION module */
+    padding: 5px 0;
+    border-radius: 10px;
+    border: 0px solid #35100B;
+    width: 150%;
+    margin-top: -15px;
+  }
+  

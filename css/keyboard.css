@@ -1,0 +1,98 @@
+        /* Keyboard responsive resizing */
+        .keyboard {
+            display: flex;
+            width: 100%;
+            position: relative;
+            background-color: #f2eed3;
+            border: 2px solid #35100B;
+            border-radius: 5px;
+            /* Create an aspect ratio container */
+            aspect-ratio: 4 / 1; /* Width:Height ratio for the keyboard */
+            max-height: 190px; /* Maximum height */
+            margin-top: 20px;
+            overflow: hidden;
+        }
+        
+        .key {
+            flex: 1;
+            height: 100%;
+            background-color: #f2eed3;
+            border: 1px solid #35100B;
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .key.black {
+            background-color: #35100B;
+            position: absolute;
+            width: 7%; /* Relative width instead of fixed pixels */
+            height: 60%; /* Height relative to keyboard height */
+            z-index: 1;
+            border: none;
+            transform: translateX(-50%);
+            max-width: 5.5%; /* Maximum width for larger screens */
+        }
+        
+        /* Update black key positioning calculations */
+        .key.black:nth-of-type(15) { left: calc(100% * 1/14); }   /* C# */
+        .key.black:nth-of-type(16) { left: calc(100% * 2/14); }   /* D# */
+        .key.black:nth-of-type(17) { left: calc(100% * 4/14); }   /* F# */
+        .key.black:nth-of-type(18) { left: calc(100% * 5/14); }   /* G# */
+        .key.black:nth-of-type(19) { left: calc(100% * 6/14); }   /* A# */
+        .key.black:nth-of-type(20) { left: calc(100% * 8/14); }   /* C# (second octave) */
+        .key.black:nth-of-type(21) { left: calc(100% * 9/14); }   /* D# (second octave) */
+        .key.black:nth-of-type(22) { left: calc(100% * 11/14); }  /* F# (second octave) */
+        .key.black:nth-of-type(23) { left: calc(100% * 12/14); }  /* G# (second octave) */
+        .key.black:nth-of-type(24) { left: calc(100% * 13/14); }  /* A# (second octave) */
+        /* Add a responsive adjustment for small screens */
+        @media (max-width: 768px) {
+            .keyboard {
+                max-height: 150px; /* Smaller maximum height on small screens */
+            }
+            
+            .key.black {
+                width: 8%; /* Slightly wider on small screens for better touch targets */
+            }
+        }
+        
+        /* For very small screens */
+        @media (max-width: 480px) {
+            .keyboard {
+                max-height: 120px; /* Even smaller on very small screens */
+            }
+        }
+        /* Make sure the black keys overflow is visible */
+        
+        .key.pressed {
+            background-color: #E8E3C4;
+        }
+        
+        .key.black.pressed {
+            background-color: #4A261D;
+        }
+                
+                /* Voice monitoring */
+                .voice-monitor {
+                    margin-top: 20px;
+                    padding: 10px;
+                    border: 1px solid #35100B;
+                    border-radius: 4px;
+                    background-color: #f2eed3;
+                }
+                
+                .voice-item {
+                    display: inline-block;
+                    padding: 5px 10px;
+                    margin: 5px;
+                    background-color: #f2eed3;
+                    border-radius: 3px;
+                    border: 1px solid #35100B;
+                }
+                
+                .active-voice {
+                    background-color: #8b4513;
+                    color: white;
+                }

@@ -1,0 +1,102 @@
+/* Sampler Module Styles */
+
+/* Container for the sampler module */
+.sampler-module {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+}
+
+/* Title styling */
+.sampler-module .module-title {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 15px;
+}
+
+/* Sample selector container */
+.sample-selector-container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 15px;
+}
+
+/* Button styles for sample loading */
+.sample-button {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.sample-button:hover {
+    background-color: #45a049;
+}
+
+/* Switch container styles */
+.switch-container {
+    display: flex;
+    align-items: center;
+    margin: 10px 0;
+}
+
+/* Label for switches */
+.switch-container label {
+    margin-right: 10px;
+}
+
+/* Knob container styles */
+.knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px;
+}
+
+/* Knob styles */
+.knob {
+    width: 50px;
+    height: 50px;
+    background-color: #ccc;
+    border-radius: 50%;
+    position: relative;
+    cursor: pointer;
+}
+
+/* Active state for knobs */
+.knob.active {
+    background-color: #4CAF50;
+}
+
+/* Label for knobs */
+.knob-container label {
+    margin-top: 5px;
+    font-size: 14px;
+}
+
+/* Layout for the sampler column */
+.sampler-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+    .sampler-module {
+        padding: 10px;
+    }
+
+    .sample-button {
+        width: 100%;
+    }
+}

@@ -1,0 +1,58 @@
+/* Keyboard Module Styles */
+
+/* Container for the keyboard */
+.keyboard {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    margin: 20px 0;
+}
+
+/* Individual keys */
+.key {
+    width: 40px; /* Width of the key */
+    height: 150px; /* Height of the key */
+    margin: 0 2px; /* Spacing between keys */
+    background-color: white; /* Default key color */
+    border: 1px solid #ccc; /* Key border */
+    border-radius: 4px; /* Rounded corners */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); /* Shadow effect */
+    cursor: pointer; /* Pointer cursor on hover */
+    transition: background-color 0.2s, transform 0.1s; /* Smooth transitions */
+}
+
+/* Black keys */
+.key.black {
+    width: 30px; /* Width of the black key */
+    height: 100px; /* Height of the black key */
+    background-color: black; /* Black key color */
+    position: relative; /* Position relative for stacking */
+    left: -15px; /* Offset to center over white keys */
+    z-index: 1; /* Stack above white keys */
+}
+
+/* Key hover effect */
+.key:hover {
+    background-color: #f0f0f0; /* Light gray on hover */
+}
+
+/* Key active effect */
+.key:active {
+    transform: translateY(2px); /* Press down effect */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); /* Reduced shadow */
+}
+
+/* Active state for keys */
+.key.active {
+    background-color: #e0e0e0; /* Darker gray when active */
+}
+
+/* Label for keys */
+.key-label {
+    position: absolute; /* Positioning for label */
+    bottom: -20px; /* Position below the key */
+    left: 50%; /* Center horizontally */
+    transform: translateX(-50%); /* Center alignment */
+    font-size: 12px; /* Font size for label */
+    color: #333; /* Label color */
+}

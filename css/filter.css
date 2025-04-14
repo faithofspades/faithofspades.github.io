@@ -1,0 +1,333 @@
+.filter-slider-label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+    width: 100%;
+    position: absolute;
+    bottom: -20px;
+    left: 50%; /* Center relative to parent */
+    transform: translateX(-50%); /* Perfect centering */
+    right: auto; /* Remove the right offset that was causing misalignment */
+  }
+  .filter-sliders-container .slider-tick-container {
+    position: relative;
+    width: 15px; /* Set explicit width */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  /* FILTER Module styling */
+.filter-module {
+    border: 1px solid #35100B;
+    background-color: #f2eed3;
+    border-radius: 10px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    min-width: 169px;
+    max-width: 169px;
+    align-items: center;
+    padding-top: 15px;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  
+  .module-title.filter {
+    color: #f2eed3;
+    text-align: center;
+    font-family: "Nunito", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 16px;
+    margin-bottom: 10px;
+    background-color: #BA5446; /* Blue color for FILTER */
+    padding: 5px 0;
+    border-radius: 10px;
+    border: 0px solid #35100B;
+    width: 150%;
+    margin-top: -15px;
+  }
+  
+  /* Main controls container (sliders + type selector) */
+  .filter-controls-container {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    height: 200px;
+    padding-top: 7%;
+    padding-bottom: 2%;
+  }
+  
+  /* Left container for vertical sliders */
+  .filter-sliders-container {
+    position: relative;
+    display: flex;
+    gap: 25px;
+    height: 103.5%;
+    margin-left: 4%;
+    margin-right: 15px;
+  }
+  
+  /* Vertical sliders: Freq and Res */
+  .freq-slider-range,
+  .res-slider-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 5px;
+    height: 100%;
+    background: transparent;
+    writing-mode: vertical-lr;
+    direction: rtl;
+  }
+  
+  /* Filter type container */
+  .filter-type-container {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 101.5%;
+    margin-top: 2px;
+    position: relative;
+  }
+  
+  /* Vertical filter type slider */
+  .filter-type-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 100%;
+    background: transparent;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    margin: 15px;
+  }
+  
+  /* Custom track styling */
+  .filter-type-range::-webkit-slider-runnable-track {
+    width: 10px;
+    height: 100%;
+    background: #35100B;
+    border-radius: 8px;
+  }
+  
+  /* Ticks container positioned to the right of the slider */
+  .filter-type-ticks {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 97.7%;
+    margin-left: -11px;
+    pointer-events: none;
+  }
+  
+  /* Shared slider track styling */
+  .freq-slider-range::-webkit-slider-runnable-track,
+  .res-slider-range::-webkit-slider-runnable-track {
+    background: #35100B;
+    border-radius: 5px;
+    width: 5px;
+    border: none;
+  }
+  
+  /* Shared slider thumb styling */
+  .freq-slider-range::-webkit-slider-thumb,
+  .res-slider-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    background: #35100B;
+    width: 26px;
+    height: 18px;
+    cursor: pointer;
+    margin-left: -10.6px;
+    border-radius: 5px;
+    background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+    background-size: 100% 2px;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+  
+  /* Filter type thumb styling */
+  .filter-type-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #35100B;
+    width: 24px;
+    height: 26px;
+    cursor: pointer;
+    border-radius: 5px;
+    margin-left: -6.8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    background-image: linear-gradient(to right, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
+    background-size: 100% 2px;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+  
+  /* Slider label styling */
+  .slider-label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+    margin-top: 10px;
+    width: 100%;
+    position: absolute;
+    bottom: -24px;
+    right: 5px;
+  }
+  
+  /* Filter type label */
+  .filter-type-label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+    width: 100%;
+    position: absolute;
+    bottom: -22px;
+    margin-left: -4px;
+  }
+  
+  /* Horizontal sliders container */
+  .filter-horizontal-sliders {
+    display: flex;
+    flex-direction: column;
+    width: 85%;
+    margin-bottom: 15px;
+  }
+  
+  /* Horizontal slider container */
+  .horizontal-slider-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 10px;
+  }
+  
+  /* Horizontal slider styling */
+  .drive-slider-range,
+  .variant-slider-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 5px;
+    background: transparent;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Horizontal slider track */
+  .drive-slider-range::-webkit-slider-runnable-track,
+  .variant-slider-range::-webkit-slider-runnable-track {
+    background: #35100B;
+    border-radius: 5px;
+    height: 5px;
+    border: none;
+  }
+  
+  /* Horizontal slider thumb */
+  .drive-slider-range::-webkit-slider-thumb,
+  .variant-slider-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #35100B;
+    width: 18px;
+    height: 24px;
+    cursor: pointer;
+    margin-top: -9.5px;
+    border-radius: 5px;
+    background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+    background-size: 2px 100%;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+  
+  /* Horizontal slider ticks */
+  .horizontal-slider-ticks {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 5px;
+  }
+  
+  .horizontal-slider-ticks .tick {
+    width: 1.7px;
+    height: 8px;
+    background-color: #35100B;
+  }
+  
+  /* Horizontal slider label */
+  .horizontal-slider-label {
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+    text-align: center;
+    margin-top: 5px;
+  }
+  
+  /* Bottom knobs container */
+  .filter-bottom-controls {
+    display: flex;
+    justify-content: space-around;
+    width: 90%;
+    margin-top: 3px;
+  }
+  
+  /* Knob container styling */
+  .filter-knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  /* Filter knobs */
+  .filter-module .knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #CF814D; /* Blue color matching filter module */
+    position: relative;
+    cursor: grab;
+    box-sizing: border-box;
+    border: 0.5px solid #35100B;
+    box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;
+    transform-origin: center center;
+  }
+  .filter-module #keytrack-knob {
+    background-color: #BA5446; /* Red color */
+    box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+  }
+  /* Knob indicator styling */
+  .filter-module .knob::after {
+    content: '';
+    position: absolute;
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    width: 23.6px;
+    height: 3px;
+    background-color: #f2eed3;
+    transform-origin: left center;
+    transform: translate(-0px, -50%) rotate(270deg);
+  }
+  
+  /* Knob label styling */
+  .filter-knob-container label {
+    margin-top: -3.5px;
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    color: #35100B;
+  }

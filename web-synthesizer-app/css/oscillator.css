@@ -1,0 +1,92 @@
+/* Oscillator Module Styles */
+
+/* Container for the oscillator module */
+.oscillator-module {
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+}
+
+/* Title styling for the oscillator module */
+.module-title.oscillator {
+    font-size: 24px;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 15px;
+}
+
+/* Wave shape selector styles */
+.osc-selector-container {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 20px;
+}
+
+/* Individual wave shape button styles */
+.osc-wave-shape {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    border: 2px solid #666;
+    background-color: #fff;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+/* Hover effect for wave shape buttons */
+.osc-wave-shape:hover {
+    background-color: #e0e0e0;
+}
+
+/* Active state for selected wave shape */
+.osc-wave-shape.active {
+    background-color: #4CAF50;
+    border-color: #388E3C;
+}
+
+/* Octave selector styles */
+.osc-octave-selector {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+/* Knob container styles */
+.knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Knob styles */
+.knob {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #ccc;
+    position: relative;
+    cursor: pointer;
+}
+
+/* Label styles for knobs */
+.knob-container label {
+    margin-top: 5px;
+    font-size: 14px;
+    color: #333;
+}
+
+/* Oscillator controls layout */
+.osc-columns-container {
+    display: flex;
+    justify-content: space-between;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .osc-columns-container {
+        flex-direction: column;
+    }
+}

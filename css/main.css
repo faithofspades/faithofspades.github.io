@@ -1,0 +1,265 @@
+body {
+    font-family: "Nunito", sans-serif;
+font-optical-sizing: auto;
+font-weight: 600;
+font-style: normal;
+      background-color: #E8E3C4;
+      color: #35100B;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+  }
+  
+  .container {
+max-width: 1763px; /* Increased from 1200px - 25% wider */
+width: 100%;
+}
+  
+  h2 {
+      color: #8b4513;
+      margin-bottom: 5px;
+  }
+  
+  p {
+      margin-top: 5px;
+      margin-bottom: 15px;
+  }
+  
+  /* Synth panel styling */
+  /* Update the synth-panel class */
+  .synth-panel {
+display: flex;
+flex-direction: row;
+gap: 2px;
+background-color: #f2eed3;
+border: 2px solid #35100B;
+border-radius: 5px;
+padding: 15px;
+margin-bottom: 20px;
+box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+overflow-x: auto;
+align-items: stretch; /* Ensures same height for all modules */
+}
+  
+  .module {
+background-color: #f2eed3;
+border: 1px solid #35100B;
+border-radius: 5px;
+
+display: flex;
+flex-direction: column;
+width: 80px; /* Fixed width, reduced by ~30% from original */
+min-width: 80px; /* Same as width to prevent resizing */
+max-width: 80px; /* Same as width to prevent resizing */
+}
+  
+  .module-title {
+      text-align: center;
+      font-weight: bold;
+      margin-bottom: 14px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #35100B;
+  }
+  .wave-select-container {
+position: relative;
+width: 100%;
+margin: 10px 0;
+}
+/* Improve knob container spacing */
+.knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 9px 0; /* Reduced from 10px */
+  }
+  .tooltip {
+    position: absolute;
+    background: #35100bcf;
+    color: #f2eed3;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+/* Style for options */
+.wave-select option {
+    background-color: #f2eed3;
+    color: #35100B;
+    padding: 8px;
+}
+        /* Sliders and knobs */
+        .knob {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #f2eed3;
+    border: 1px solid #35100B;
+    position: relative;
+    margin: 10px auto;
+    box-sizing: border-box;
+    cursor: grab;
+    transform-origin: center center;
+    transition: transform 0.05s ease-out;
+}
+
+.knob:active {
+    cursor: grabbing;
+}
+
+.knob::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 3px;    /* Changed from 3px to 2px for consistency */
+    height: 14px;   /* Changed from 14px to 10px for consistency */
+    background-color: #35100B;
+    transform-origin: bottom center;
+    transform: translateX(-50%);
+}
+        
+.slider-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    height: 120px;
+    margin: 0 10px;
+}
+
+.slider-container label {
+    font-size: 12px;
+    color: #35100B;
+    margin-top: 10px;
+}
+
+.slider-container input[type="range"] {
+    width: 100px;
+    height: 30px;
+    background: transparent;
+    transform: rotate(270deg) translate(-35px, 35px);
+}
+
+.slider-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 28px;
+    width: 16px;
+    border-radius: 3px;
+    background: #f2eed3;
+    border: 1px solid #35100B;
+    cursor: grab;
+    margin-top: -12px;
+}
+
+.slider-container input[type="range"]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    background: #f2eed3;
+    border: 1px solid #35100B;
+    border-radius: 2px;
+}
+
+.slider-container span {
+    font-size: 12px;
+    color: #35100B;
+    margin-top: 5px;
+}
+        
+        /* Radio button group styling */
+        .radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin: 10px 0;
+        }
+        
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .radio-option input[type="radio"] {
+            margin: 0;
+        }
+        body {
+            user-select: none; /* Prevent text selection */
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }        
+        /* Make ADSR module match LFO/SAMPLER module styling */
+.module[style="grid-column: span 2;"] {
+    border: 1px solid #35100B;
+    background-color: #f2eed3;
+    border-radius: 10px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    min-width: 169px;
+    max-width: 169px;
+    align-items: center;
+    padding-top: 15px; /* Remove top padding */
+    overflow: hidden; /* Ensure the header connects to edges */
+    box-sizing: border-box; /* Include padding in width */
+  }
+  /* ADSR container styles */
+.module[style="grid-column: span 2;"] {
+    border: 1px solid #35100B;
+    background-color: #f2eed3;
+    border-radius: 10px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    min-width: 159px;
+    max-width: 159px;
+    align-items: center;
+    padding-top: 15px; /* Remove top padding */
+    overflow: hidden; /* Ensure the header connects to edges */
+    box-sizing: border-box; /* Include padding in width */
+  }
+  /* Add vertical switch styling */
+.switch-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px 0;
+}
+
+.switch-label {
+    font-size: 10px;
+    margin-bottom: 5px;
+    color: #35100B;
+    text-align: center;
+}
+/* Add flex: none to prevent unwanted stretching */
+.synth-panel > div {
+    flex: none;
+  }
+  /* Firefox versions */
+.five-step-selector-range::-moz-range-track,
+.rate-slider-range::-moz-range-track,
+.delay-slider-range::-moz-range-track {
+  background: #35100B;
+  border-radius: 5px;
+  height: 5px;
+  width: 5px;
+}
+
+/* Firefox versions */
+.five-step-selector-range::-moz-range-thumb,
+.rate-slider-range::-moz-range-thumb,
+.delay-slider-range::-moz-range-thumb,
+.lfo-destination-range::-moz-range-thumb {
+  background: #f2eed3;
+  border: 2px solid #35100B;
+  width: 18px;
+  height: 24px;
+  cursor: pointer;
+  border-radius: 5px;
+}
