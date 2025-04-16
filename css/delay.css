@@ -204,7 +204,7 @@
     border-radius: 3px;
     background-color: #E5AB5F;
     transition: transform 0.2s;
-    background-image: url(control\ icons/on.svg);
+    background-image: url("../control icons/on.svg");
     background-position: center;
       background-repeat: no-repeat;
       background-size: 12px 12px;
