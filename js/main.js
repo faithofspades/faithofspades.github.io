@@ -22,8 +22,10 @@ let currentVolume = 0.5; // Initial volume
 masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
 // Add these global variables at the top with other audio-related variables
 // Add to your global variables
+
 let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
 let isEmuModeOn = false;
+let currentModSource = 'lfo';
 let isSampleKeyTrackingOn = true;
 let mediaRecorder = null;
 let isSampleReversed = false;
@@ -33,6 +35,13 @@ let isRecording = false;
 let recordingStartTime = null;
 let fadedBufferOriginalDuration = null;
 let emuFilterNode = null;
+
+let isMonoMode = false;
+let isLegatoMode = false;
+let isPortamentoOn = false;
+let glideTime = 0.1; // seconds
+let heldNotes = []; // Keep track of held notes in mono mode
+let currentNote = null; // Currently sounding note in mono mode
 let lastPlayedNote = null;
 let sampleSource = null;
 let isPlaying = false;
@@ -648,75 +657,170 @@ console.log('Glide Time:', (value * 2000).toFixed(0) + 'ms');
 },
 };
 /**
-* Updates existing note playback parameters.
-* For crossfaded loops, if not already using the processed buffer,
-* this will create a new note and fade out the old one.
-*/
+ * Updates existing note playback parameters, aggressively replacing the source node.
+ * For crossfaded loops, if not already using the processed buffer,
+ * this will create a new note and fade out the old one.
+ */
 function updateSamplePlaybackParameters(note) {
-if (!note || !audioBuffer) return note;
-if (note.isBeingUpdated) return note;
-if (note.state === "releasing") {
-console.log("updateSamplePlaybackParameters: Note", note.id, "is releasing; skipping update.");
-return note;
-}
-note.isBeingUpdated = true;
+    if (!note || !audioBuffer || !note.source || !note.gainNode) {
+        console.warn(`updateSamplePlaybackParameters: Skipping update for note ${note?.id} due to missing note, buffer, source, or gainNode.`);
+        return note;
+    }
+    // Prevent recursive updates or updates on notes already ending
+    if (note.isBeingUpdated || note.state === "releasing" || note.state === "fadingOut" || note.state === "killed") {
+         console.log(`updateSamplePlaybackParameters: Skipping update for note ${note.id}, state: ${note.state}, isBeingUpdated: ${note.isBeingUpdated}`);
+        return note;
+    }
 
-// Reset flags to force new settings to take hold
-note.crossfadeActive = false;
-note.usesProcessedBuffer = false;
+    console.log(`updateSamplePlaybackParameters: Starting update for note ${note.id} (state: ${note.state})`);
+    note.isBeingUpdated = true; // Mark as being updated
 
-try {
-if (sampleCrossfadeAmount > 0.01) {
-console.log("updateSamplePlaybackParameters: Creating replacement note with crossfade for note", note.id);
-const replacementNote = createNote(
-note.noteNumber,
-audioBuffer,
-audioCtx,
-masterGain
-);
-if (replacementNote) {
-replacementNote.gainNode.gain.value = note.gainNode.gain.value;
-quickFadeOut(note, 0.03);
-note = replacementNote;
-console.log("updateSamplePlaybackParameters: Replaced note", note.id, "with crossfaded version");
-}
-} else {
-if (note.source && note.looping) {
-note.source.loop = isSampleLoopOn;
-note.source.loopStart = sampleStartPosition * audioBuffer.duration;
-note.source.loopEnd = sampleEndPosition * audioBuffer.duration;
-console.log("updateSamplePlaybackParameters: Updated loop points for note", note.id);
-}
-if (
-!note.looping ||
-Math.abs(note.sampleStartPosition - sampleStartPosition * audioBuffer.duration) > 0.01
-) {
-console.log("updateSamplePlaybackParameters: Creating new source for note", note.id);
-const newSource = audioCtx.createBufferSource();
-newSource.buffer = audioBuffer;
-newSource.loop = isSampleLoopOn;
-newSource.playbackRate.value = note.source.playbackRate.value;
-newSource.detune.value = currentSampleDetune;
-if (isSampleLoopOn) {
-  newSource.loopStart = sampleStartPosition * audioBuffer.duration;
-  newSource.loopEnd = sampleEndPosition * audioBuffer.duration;
-}
-note.source.disconnect();
-newSource.connect(note.sampleNode);
-newSource.start(0, sampleStartPosition * audioBuffer.duration);
-setTimeout(() => { 
-  try { note.source.stop(); } catch (e) {} 
-}, 30);
-note.source = newSource;
-note.sampleStartPosition = sampleStartPosition * audioBuffer.duration;
-note.sampleEndPosition = sampleEndPosition * audioBuffer.duration;
-console.log("updateSamplePlaybackParameters: New source set for note", note.id);
-}
-}
-} finally {
-note.isBeingUpdated = false;
-}
-return note;
+    // --- Aggressive Cleanup ---
+    const oldSource = note.source;
+    const oldGainNode = note.gainNode; // Keep reference if needed for fade-out, but we'll create a new one
+    const oldSampleNode = note.sampleNode;
+    const currentGainValue = oldGainNode.gain.value; // Get current gain before stopping
+
+    console.log(`updateSamplePlaybackParameters [${note.id}]: Stopping and disconnecting old source.`);
+    try {
+        oldGainNode.gain.cancelScheduledValues(audioCtx.currentTime); // Cancel ramps
+        oldGainNode.gain.setValueAtTime(0, audioCtx.currentTime); // Set gain to 0 immediately
+        oldSource.stop(0); // Stop playback immediately
+        oldSource.disconnect();
+        oldSampleNode?.disconnect(); // Disconnect old sample node if exists
+        oldGainNode.disconnect();    // Disconnect old gain node
+    } catch (e) {
+        // Ignore errors if source was already stopped or disconnected
+        if (!e.message.includes("already stopped") && !e.message.includes("invalid state")) {
+            console.error(`updateSamplePlaybackParameters [${note.id}]: Error stopping/disconnecting old source:`, e);
+        }
+    }
+    // Clear references on the note object temporarily
+    note.source = null;
+    note.gainNode = null;
+    note.sampleNode = null;
+    // --- End Aggressive Cleanup ---
+
+
+    try {
+        // --- Create Replacement Note Structure ---
+        console.log(`updateSamplePlaybackParameters [${note.id}]: Calling createNote to get new source/nodes.`);
+        // Use createNote logic, but only extract the new nodes/buffer info
+        // We need to determine which buffer createNote *would* use
+
+        let useOriginalBuffer = true;
+        let sourceBuffer = audioBuffer; // Default to original buffer
+        let bufferType = "original";
+
+        if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
+            sourceBuffer = cachedCrossfadedBuffer;
+            useOriginalBuffer = false;
+            bufferType = "crossfaded";
+        } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
+            sourceBuffer = fadedBuffer;
+            useOriginalBuffer = false;
+            bufferType = "faded";
+        }
+
+        if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer)) {
+             console.error(`updateSamplePlaybackParameters [${note.id}]: Invalid sourceBuffer selected (type: ${bufferType}). Cannot create replacement.`);
+             // Attempt to kill the note entirely if we can't replace it
+             killNote(note.id);
+             return null;
+        }
+         console.log(`updateSamplePlaybackParameters [${note.id}]: Selected buffer for replacement: ${bufferType}`);
+
+        // Create new nodes
+        const newSource = audioCtx.createBufferSource();
+        const newGainNode = audioCtx.createGain();
+        const newSampleNode = audioCtx.createGain();
+
+        newSource.buffer = sourceBuffer;
+        newSampleNode.gain.value = currentSampleGain; // Use global sample gain
+
+        // Apply playback rate / detune (same logic as in createNote)
+        let calculatedRate = 1.0;
+        if (isSampleKeyTrackingOn) {
+            calculatedRate = TR2 ** (note.noteNumber - 12);
+            newSource.playbackRate.value = calculatedRate;
+            newSource.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
+        } else {
+            newSource.playbackRate.value = 1.0;
+            newSource.detune.value = currentSampleDetune;
+        }
+
+        // Connect new nodes
+        newSource.connect(newSampleNode);
+        newSampleNode.connect(newGainNode);
+        newGainNode.connect(masterGain); // Connect to master gain
+
+        // Apply loop settings (same logic as in createNote)
+        if (useOriginalBuffer) {
+            if (isSampleLoopOn) {
+                newSource.loop = true;
+                newSource.loopStart = sampleStartPosition * audioBuffer.duration;
+                newSource.loopEnd = sampleEndPosition * audioBuffer.duration;
+            } else {
+                 newSource.loop = false;
+            }
+        } else {
+            newSource.loop = isSampleLoopOn;
+        }
+
+        // Update the note object with new nodes and state
+        note.source = newSource;
+        note.gainNode = newGainNode;
+        note.sampleNode = newSampleNode;
+        note.usesProcessedBuffer = !useOriginalBuffer;
+        note.crossfadeActive = !useOriginalBuffer && isSampleLoopOn && sampleCrossfadeAmount > 0.01;
+        note.looping = isSampleLoopOn; // Update looping state
+        note.sampleStartPosition = useOriginalBuffer ? sampleStartPosition * audioBuffer.duration : 0;
+        note.sampleEndPosition = useOriginalBuffer ? sampleEndPosition * audioBuffer.duration : sourceBuffer.duration;
+
+        // Start the new source
+        console.log(`updateSamplePlaybackParameters [${note.id}]: Starting new source.`);
+        newSource.start(0);
+
+        // Restore gain smoothly (or apply ADSR if needed, but for held notes, restoring gain is better)
+        const now = audioCtx.currentTime;
+        note.gainNode.gain.cancelScheduledValues(now);
+        // Ramp from 0 back to the previous gain value quickly to avoid clicks but maintain level
+        note.gainNode.gain.setValueAtTime(0, now);
+        note.gainNode.gain.linearRampToValueAtTime(currentGainValue, now + 0.01); // Quick ramp (10ms)
+
+        // Schedule stop if not looping (same logic as createNote)
+        if (!isSampleLoopOn) {
+            let originalDuration;
+             if (fadedBuffer && sourceBuffer === fadedBuffer && fadedBufferOriginalDuration) {
+                originalDuration = fadedBufferOriginalDuration;
+            } else if (!useOriginalBuffer && sourceBuffer === cachedCrossfadedBuffer) {
+                originalDuration = sourceBuffer.duration;
+            } else {
+                originalDuration = (sampleEndPosition - sampleStartPosition) * audioBuffer.duration;
+            }
+            const playbackRate = calculatedRate;
+            const adjustedDuration = originalDuration / playbackRate;
+            const safetyMargin = 0.05;
+            const stopTime = now + adjustedDuration + safetyMargin;
+            try {
+                 newSource.stop(stopTime);
+                 console.log(`updateSamplePlaybackParameters [${note.id}]: New source scheduled to stop at ${stopTime.toFixed(3)}`);
+            } catch (e) {
+                 console.error(`updateSamplePlaybackParameters [${note.id}]: Error scheduling stop for new source:`, e);
+            }
+        }
+         console.log(`updateSamplePlaybackParameters [${note.id}]: Successfully updated note with new source/nodes.`);
+
+    } catch (error) {
+        console.error(`updateSamplePlaybackParameters [${note.id}]: Error during replacement process:`, error);
+        // Attempt to kill the note if replacement fails badly
+        killNote(note.id);
+        return null;
+    } finally {
+        note.isBeingUpdated = false; // Release the update lock
+        console.log(`updateSamplePlaybackParameters: Finished update for note ${note.id}`);
+    }
+    return note;
 }
 // Replace the entire createNote function with this fixed version
 function createNote(noteNumber, buffer, audioCtx, destination) {
@@ -1117,7 +1221,7 @@ updateVoiceDisplay();
 
 // Initialize switches on DOM load
 document.addEventListener('DOMContentLoaded', () => {
-initializeSwitches();
+//nitializeSwitches();
 });
 /**
 * Quickly fades out a note and cleans it up.
@@ -1160,25 +1264,41 @@ return note;
 }
 // Fix the killNote function
 function killNote(noteId) {
-const note = activeNotes[noteId];
-if (!note) return false;
+    const note = activeNotes[noteId];
+    if (!note) return false;
 
-// Clean up scheduled events
-note.scheduledEvents.forEach(event => {
-if (event.type === "timeout") {
-    clearTimeout(event.id);
-}
-});
+    // Only set currentNote to null if it's the actual current note AND there are no held notes
+    if (note === currentNote) {
+        if (heldNotes.length === 0) {
+            console.log(`killNote: Killing the currentNote (ID: ${noteId}, Note: ${note.noteNumber}). Setting currentNote to null.`);
+            currentNote = null;
+        } else {
+            console.log(`killNote: Not nullifying currentNote because there are still ${heldNotes.length} held notes.`);
+        }
+    }
+    // ---
+
+    // Clean up scheduled events
+    note.scheduledEvents.forEach(event => {
+        if (event.type === "timeout") {
+            clearTimeout(event.id);
+        }
+    });
 
 // Stop the source and disconnect nodes
 try {
-note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-if (note.source) {
-    note.source.stop(audioCtx.currentTime);
-}
+    note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+    note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+    if (note.source) {
+        note.source.stop(audioCtx.currentTime);
+        note.source.disconnect();
+    }
+    if (note.sampleNode) note.sampleNode.disconnect();
+    note.gainNode.disconnect();
 } catch (e) {
-console.log("Error during cleanup:", e);
+    if (!e.message.includes("already stopped") && !e.message.includes("invalid state")) {
+        console.warn(`Error during killNote cleanup for ${noteId}:`, e);
+    }
 }
 
 // Remove note from active notes
@@ -1342,17 +1462,17 @@ updateADSRVisualization();
 // Initialize Keyboard Module
 initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay)
 
-document.addEventListener('DOMContentLoaded', () => {
-// Initialize all knobs with placeholder functionality
-const knobInitializations = {
-'sample-volume-knob': (value) => {
-    if (sampleGainNode) {
-        sampleGainNode.gain.setValueAtTime(value, audioCtx.currentTime);
-        console.log('Sample Gain:', value.toFixed(2));
-    }
-}
-};
-});
+// document.addEventListener('DOMContentLoaded', () => {
+// // Initialize all knobs with placeholder functionality
+// const knobInitializations = {
+// 'sample-volume-knob': (value) => {
+//     if (sampleGainNode) {
+//         sampleGainNode.gain.setValueAtTime(value, audioCtx.currentTime);
+//         console.log('Sample Gain:', value.toFixed(2));
+//     }
+// }
+// };
+// });
 
 
 
@@ -1507,13 +1627,7 @@ if (slider) {
 });
 });
 
-// Add to your global variables
-let isMonoMode = false;
-let isLegatoMode = false;
-let isPortamentoOn = false;
-let glideTime = 0.1; // seconds
-let heldNotes = []; // Keep track of held notes in mono mode
-let currentNote = null; // Currently sounding note in mono mode
+
 
 
 // Add to initializeSwitch function
@@ -1575,7 +1689,7 @@ setValue: (value) => {
 
 // Initialize switches on DOM load
 document.addEventListener('DOMContentLoaded', () => {
-initializeSwitches();
+//initializeSwitches();
 });
 
 // Update noteOn function to handle mono mode
@@ -1587,123 +1701,153 @@ handlePolyNoteOn(noteNumber);
 }
 }
 // Fix for voice limiting in mono mode
+// Fix for voice limiting in mono mode
 function handleMonoNoteOn(noteNumber) {
-if (!checkAudioAvailable()) return;
+    if (!checkAudioAvailable()) return;
 
-// Add note to held notes
-if (!heldNotes.includes(noteNumber)) {
-heldNotes.push(noteNumber);
-}
+    // Add note to held notes
+    if (!heldNotes.includes(noteNumber)) {
+        heldNotes.push(noteNumber);
+    }
 
-// Clean up any stale notes that aren't the current note
-Object.values(activeNotes).forEach(note => {
-if (note !== currentNote && note.state === "releasing") {
-    quickFadeOut(note, 0.015);
-}
-});
+    // IMPORTANT: Check the state of switches directly before making decisions
+    console.log(`SWITCH STATE CHECK: mono=${isMonoMode}, legato=${isLegatoMode}, portamento=${isPortamentoOn}, glideTime=${glideTime.toFixed(3)}`);
 
-const shouldTrigger = !isLegatoMode || !currentNote;
-const shouldGlide = isPortamentoOn && lastPlayedNote !== null;
+    // THE KEY FIX: Legato mode ONLY controls if we trigger or not
+    // It should NOT be mixed with portamento decision
+    const shouldTrigger = !isLegatoMode || !currentNote;
 
-if (shouldTrigger) {
-if (currentNote) {
-    const prevNote = currentNote;
-    quickFadeOut(prevNote, 0.015);
-    setTimeout(() => {
-        // Make sure we're really in mono mode - kill any remaining notes
-        Object.values(activeNotes).forEach(note => {
-            if (note !== prevNote) {
-                killNote(note.id);
-            }
-        });
-        
+    // Log initial state
+    console.log(
+        `handleMonoNoteOn: note=${noteNumber}, isPortamentoOn=${isPortamentoOn}, ` +
+        `isLegatoMode=${isLegatoMode}, currentNoteExists=${!!currentNote}, ` +
+        `lastPlayedNote=${lastPlayedNote}, shouldTrigger=${shouldTrigger}`
+    );
+
+    if (shouldTrigger) {
+        // We're going to trigger a new note
+        const prevNote = currentNote;
         currentNote = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
         
-        if (shouldGlide) {
+        // Apply portamento if enabled AND we have a last played note
+        if (isPortamentoOn && lastPlayedNote !== null) {
+            console.log(`Applying portamento glide (new note): ${glideTime.toFixed(3)}s from ${lastPlayedNote} to ${noteNumber}`);
             const startRate = TR2 ** (lastPlayedNote - 12);
             const targetRate = TR2 ** (noteNumber - 12);
+            
             currentNote.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
             currentNote.source.playbackRate.linearRampToValueAtTime(
-                targetRate,
+                targetRate, 
                 audioCtx.currentTime + glideTime
             );
         }
-        updateVoiceDisplay();
-    }, 20);
-    return;
-}
-
-currentNote = startNote(noteNumber, audioCtx, masterGain, audioBuffer);
-if (shouldGlide) {
-    const startRate = TR2 ** (lastPlayedNote - 12);
-    const targetRate = TR2 ** (noteNumber - 12);
-    currentNote.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
-    currentNote.source.playbackRate.linearRampToValueAtTime(
-        targetRate,
-        audioCtx.currentTime + glideTime
-    );
-}
-} else if (currentNote) {
-// Handle pitch changes in legato mode
-currentNote.source.playbackRate.cancelScheduledValues(audioCtx.currentTime);
-const currentRate = currentNote.source.playbackRate.value;
-const targetRate = TR2 ** (noteNumber - 12);
-
-currentNote.source.playbackRate.setValueAtTime(currentRate, audioCtx.currentTime);
-currentNote.source.playbackRate.linearRampToValueAtTime(
-    targetRate,
-    audioCtx.currentTime + glideTime
-);
-}
-
-lastPlayedNote = noteNumber;
-updateVoiceDisplay();
-}
-
-// Update handleMonoNoteOff function
-function handleMonoNoteOff(noteNumber) {
-// Remove note from held notes array
-heldNotes = heldNotes.filter(n => n !== noteNumber);
-
-if (heldNotes.length > 0) {
-// If there are still held notes, move to the last pressed note
-const lastNote = heldNotes[heldNotes.length - 1];
-
-if (!isLegatoMode) {
-    // In multi-trigger mode, only retrigger if we're releasing the currently playing note
-    if (currentNote && currentNote.noteNumber === noteNumber) {
-        quickFadeOut(currentNote);
-        setTimeout(() => {
-            currentNote = startNote(lastNote, audioCtx, masterGain, audioBuffer);
-            updateVoiceDisplay();
-        }, 20);
-    }
-} else {
-    // In legato mode, glide if needed
-    if (currentNote) {
+        
+        // Fade out previous note if there was one
+        if (prevNote) {
+            quickFadeOut(prevNote, 0.015);
+        }
+    } else {
+        // Legato mode - remove the "if (isPortamentoOn)" check
         currentNote.source.playbackRate.cancelScheduledValues(audioCtx.currentTime);
         const currentRate = currentNote.source.playbackRate.value;
-        const targetRate = TR2 ** (lastNote - 12);
-        
+        const targetRate = TR2 ** (noteNumber - 12);
+    
+        // Always ramp to the user-set glideTime from the knob
         currentNote.source.playbackRate.setValueAtTime(currentRate, audioCtx.currentTime);
         currentNote.source.playbackRate.linearRampToValueAtTime(
             targetRate,
             audioCtx.currentTime + glideTime
         );
+    
+        currentNote.noteNumber = noteNumber;
     }
-}
-} else {
-if (currentNote) {
-    releaseNote(currentNote.id, audioCtx);
-    currentNote = null;
-}
+
+    lastPlayedNote = noteNumber;
+    updateVoiceDisplay();
 }
 
-updateVoiceDisplay();
+// Update handleMonoNoteOff function
+function handleMonoNoteOff(noteNumber) {
+    // Remove note from held notes array
+    const initialLength = heldNotes.length;
+    heldNotes = heldNotes.filter(n => n !== noteNumber);
+    const noteWasHeld = heldNotes.length < initialLength;
+
+    if (!noteWasHeld) return;
+
+    if (heldNotes.length > 0) {
+        const lastNote = heldNotes[heldNotes.length - 1]; // The note to return to
+
+        if (currentNote && currentNote.noteNumber === noteNumber) { // If the note being released is the one currently sounding
+            if (!isLegatoMode) {
+                // Multi-trigger: Fade out current, start last held note (potentially with glide)
+                const prevNote = currentNote; // The note we are releasing (e.g., B)
+                const prevNoteNumber = prevNote.noteNumber; // Get the note number of the note being released
+                // --- Get the actual playback rate just before stopping ---
+                const actualStartRateValue = prevNote.source.playbackRate.value;
+                // ---
+
+                // Start the new note (the one we are returning to, e.g., A)
+                currentNote = startNote(lastNote, audioCtx, masterGain, audioBuffer);
+                lastPlayedNote = lastNote; // Update last played note
+
+                // --- Modify Glide Logic for Multi-Trigger Note Off ---
+                if (isPortamentoOn && prevNoteNumber !== null) {
+                    console.log(`Applying glide (multi-trigger note off): ${glideTime.toFixed(3)}s`);
+                    // const startRate = TR2 ** (prevNoteNumber - 12); // OLD: Start glide FROM the released note's target pitch
+                    const startRate = actualStartRateValue; // NEW: Start glide FROM the actual current pitch
+                    const targetRate = TR2 ** (lastNote - 12);     // Glide TO the held note's pitch
+
+                    // Set starting pitch immediately based on where the previous note left off
+                    currentNote.source.playbackRate.setValueAtTime(startRate, audioCtx.currentTime);
+                    // Schedule ramp to target pitch
+                    currentNote.source.playbackRate.linearRampToValueAtTime(
+                        targetRate,
+                        audioCtx.currentTime + glideTime
+                    );
+                }
+                // --- End Glide Logic Modification ---
+
+                // Fade out the note that was just released
+                quickFadeOut(prevNote, 0.015);
+
+            } else {
+                // Legato mode: ALWAYS glide pitch back to the last held note
+                currentNote.source.playbackRate.cancelScheduledValues(audioCtx.currentTime);
+                const currentRate = currentNote.source.playbackRate.value; // Get pitch where it was released
+                const targetRate = TR2 ** (lastNote - 12); // Target pitch of the held note
+
+                 // Log state before glide logic
+                console.log(`handleMonoNoteOff (Legato): note=${noteNumber} released, gliding back to ${lastNote}. GlideTime=${glideTime.toFixed(3)}, currentRate=${currentRate.toFixed(4)}, targetRate=${targetRate.toFixed(4)}`);
+
+                // --- REMOVED: if (isPortamentoOn) { ... } else { ... } ---
+                // ALWAYS apply the glide back using the global glideTime
+                console.log(`Applying glide back (legato note off): ${glideTime.toFixed(3)}s`);
+                currentNote.source.playbackRate.setValueAtTime(currentRate, audioCtx.currentTime);
+                currentNote.source.playbackRate.linearRampToValueAtTime(
+                    targetRate,
+                    audioCtx.currentTime + glideTime // Use the global glideTime
+                );
+                // --- End of modification ---
+
+                 currentNote.noteNumber = lastNote; // Update the current note's number
+                 lastPlayedNote = lastNote; // Update last played note as well
+            }
+        }
+    } else { // No notes left held
+        if (currentNote && currentNote.noteNumber === noteNumber) {
+            releaseNote(currentNote.id, audioCtx);
+            console.log(`handleMonoNoteOff: Setting currentNote to null (released last held note ${noteNumber})`);
+            // Comment out or remove this line so the next NoteOn can glide:
+            // lastPlayedNote = null;
+            currentNote = null;
+        }
+    }
+    updateVoiceDisplay();
 }
 // Initialize switches on DOM load
 document.addEventListener('DOMContentLoaded', () => {
-initializeSwitches();
+//initializeSwitches();
 });
 function initializeSampleLoopSwitch() {
 const loopSwitch = document.getElementById('sample-loop-switch');
@@ -2420,12 +2564,11 @@ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 }
 
 // Only show the unlock overlay on iOS devices
-if (isIOS()) {
-// Wait a moment for everything else to initialize
 setTimeout(() => {
-createiOSStartupOverlay(audioCtx);
+    console.log("Creating startup overlay for audio unlock.");
+    createiOSStartupOverlay(audioCtx); // Use the existing overlay function
 }, 100);
-}
+
 // Add explicit touch handling for iOS throughout your UI
 function addIOSTouchHandlers() {
 // Add touch handlers to all interactive elements
@@ -2479,11 +2622,21 @@ initializeSpecialButtons( // <-- Add this line, passing dependencies/callbacks
 );
 
 // fixSwitchesTouchMode(); // <-- Remove this line
-fixSwitchesTouchMode( // <-- Add this line, passing callbacks
-    (newState) => { isMonoMode = newState; }, // Callback for Mono toggle
-    (newState) => { isLegatoMode = newState; }, // Callback for Legato toggle
-    (newState) => { isPortamentoOn = newState; }, // Callback for Porta toggle
-    cleanupAllNotes // Pass function reference
+fixSwitchesTouchMode(
+    (newState) => { 
+        isMonoMode = newState; // Direct assignment
+        console.log('>>> Mono Mode SET:', isMonoMode);
+        cleanupAllNotes(); 
+    },
+    (newState) => { 
+        isLegatoMode = newState; // Direct assignment
+        console.log('>>> Legato Mode SET:', isLegatoMode); 
+    },
+    (newState) => {
+        isPortamentoOn = newState; // Direct assignment
+        console.log('>>> Portamento SET TO:', newState, 'Global value now:', isPortamentoOn);
+    },
+    cleanupAllNotes
 );
 
 
@@ -2499,6 +2652,48 @@ if (modCanvasElement) {
 }
 // Initialize Placeholder UI Elements
 initializeUiPlaceholders();
+// --- Modulation Source Button Logic ---
+const modModeSelector = document.querySelector('.mod-mode-selector'); // Get the container
+if (modModeSelector) {
+    const modOptions = modModeSelector.querySelectorAll('.mode-option');
+
+    // Function to update button states and global variable
+    function setActiveModSource(sourceName) {
+        currentModSource = sourceName; // Update global state
+
+        // Deactivate all options within this selector
+        modOptions.forEach(option => {
+            option.classList.remove('active');
+        });
+
+        // Activate the selected option
+        const activeOption = modModeSelector.querySelector(`.mode-option[data-mode="${sourceName}"]`);
+        if (activeOption) {
+            activeOption.classList.add('active');
+        }
+
+        console.log(`Modulation source set to: ${currentModSource}`);
+        // TODO: Add logic here to show/hide relevant controls based on currentModSource
+        // e.g., updateModCanvasDisplay(currentModSource);
+        // e.g., showModControls(currentModSource);
+    }
+
+    // Add click listeners to each option
+    modOptions.forEach(option => {
+        option.addEventListener('click', () => {
+            const sourceName = option.getAttribute('data-mode');
+            if (sourceName) {
+                setActiveModSource(sourceName);
+            }
+        });
+    });
+
+    // Set initial active button based on the default global variable
+    setActiveModSource(currentModSource); // Initialize with the default
+
+} else {
+    console.warn("Modulation mode selector container (.mod-mode-selector) not found.");
+}
 // Set up special handling for touch devices
 if (isTouchDevice()) {
 setupAutoHideTooltips();

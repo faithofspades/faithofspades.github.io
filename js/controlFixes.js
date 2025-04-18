@@ -179,9 +179,15 @@ export function initializeSpecialButtons(
             newEmuSwitch.classList.toggle('active', newState);
 
             // Trigger necessary updates
-            updateSampleProcessingCallback();
+            updateSampleProcessingCallback(); // Regenerate buffers (emu/non-emu)
+
+            // Update ALL active notes, including held ones, when Lo-Fi toggles
             Object.values(activeNotesRef).forEach(note => {
-                if (note && note.source && !heldNotesRef.includes(note.noteNumber)) {
+                // REMOVED check: !heldNotesRef.includes(note.noteNumber)
+                if (note && note.source) {
+                     console.log(`Lo-Fi Toggle: Updating note ${note.id} (held: ${heldNotesRef.includes(note.noteNumber)})`); // Log update attempt
+                    // This callback (updateSamplePlaybackParameters) will handle
+                    // replacing the note source node with one using the new buffer.
                     updatePlaybackParamsCallback(note);
                 }
             });
@@ -230,55 +236,59 @@ export function fixSwitchesTouchMode(
         'portamento-switch': { callback: onPortaToggle, logName: 'Portamento', states: ['OFF', 'ON'] }
     };
 
+    // Force reset global state before attaching new handlers
+    window.isMonoMode = false;
+    window.isLegatoMode = false;
+    window.isPortamentoOn = false;
+    console.log("RESETTING ALL SWITCH STATES");
+
     Object.keys(switchConfigs).forEach(id => {
         const switchEl = D(id);
         if (!switchEl) return;
 
+        // IMPORTANT: Remove the old switch and replace with clone
         const newSwitch = switchEl.cloneNode(true);
         switchEl.parentNode.replaceChild(newSwitch, switchEl);
 
+        // Reset visual state to match our forced reset above
+        newSwitch.classList.remove('active');
+        
         const config = switchConfigs[id];
 
-        const handleInteraction = function(e) {
-            // Prevent default actions and bubbling
+        // Simplify event handling - use a single function for all events
+        const toggleSwitch = function(e) {
             e.preventDefault();
             e.stopPropagation();
 
-            // Toggle the class
-            newSwitch.classList.toggle('active');
-            const isActive = newSwitch.classList.contains('active');
-
-            // Call the specific callback
-            config.callback(isActive);
-
-            // Log the change
-            console.log(`${config.logName}: ${config.states[isActive ? 1 : 0]}`);
-
+            // Explicitly toggle, don't rely on classList.toggle
+            const currentState = newSwitch.classList.contains('active');
+            const newState = !currentState;
+            
+            // Update visual state
+            newSwitch.classList.toggle('active', newState);
+            
+            // Update global state with a very explicit approach
+            console.log(`${config.logName} toggled to:`, newState);
+            
+            // Call the callback with explicit log verification
+            config.callback(newState);
+            
             // Special action for voice mode switch
-            if (id === 'voice-mode-switch') {
+            if (id === 'voice-mode-switch' && newState) {
                 cleanupNotesCallback();
             }
         };
 
-        // Use touchstart for immediate feedback on touch devices
-        newSwitch.addEventListener('touchstart', handleInteraction, { passive: false });
-
-        // Also handle clicks for mouse users, but prevent double-triggering from touch
-        newSwitch.addEventListener('click', function(e) {
-            // If the event originated from touch, the touchstart handler already ran
-            if (e.pointerType === 'touch' || e.sourceCapabilities?.firesTouchEvents) {
-                return;
-            }
-            // Manually toggle state for click events as classList might have been toggled by touchstart
-            const currentState = this.classList.contains('active');
-            const newState = !currentState;
-            this.classList.toggle('active', newState); // Ensure class matches intended state
-
-            config.callback(newState);
-            console.log(`${config.logName}: ${config.states[newState ? 1 : 0]}`);
-            if (id === 'voice-mode-switch') {
-                cleanupNotesCallback();
-            }
-        });
+        // Use click for all devices for consistency
+        newSwitch.addEventListener('click', toggleSwitch);
+        
+        // Also catch touchend for touch devices to ensure the event fires
+        newSwitch.addEventListener('touchend', function(e) {
+            toggleSwitch(e);
+        }, { passive: false });
     });
+
+    // Log the initial state of all switches
+    console.log("INITIAL SWITCH STATE CHECK after fixSwitchesTouchMode:", 
+        `mono=${window.isMonoMode}, legato=${window.isLegatoMode}, portamento=${window.isPortamentoOn}`);
 }

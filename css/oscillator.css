@@ -164,32 +164,54 @@
     width: 45%;
   }
   
-  /* Oscillator knobs - using colors that match the module theme */
-  .oscillator-module .knob {
-    width: 35px;
-    height: 35px;
-    border-radius: 50%;
-    background-color: #6B8F53;
-    position: relative;
-    cursor: grab;
-    box-sizing: border-box;
-    border: 0.5px solid #35100B;
-    box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
-    transform-origin: center center;
-  }
-  
-  .oscillator-module .knob::after {
-    content: '';
-    position: absolute;
-    border-radius: 1px;
-    top: 50%;
-    left: 50%;
-    width: 23.6px;
-    height: 3px;
-    background-color: #f2eed3;
-    transform-origin: left center;
-    transform: translate(-0px, -50%) rotate(270deg);
-  }
+/* Default knob style (keeping the same structure) */
+.oscillator-module .knob {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  position: relative;
+  cursor: grab;
+  box-sizing: border-box;
+  border: 0.5px solid #35100B;
+  transform-origin: center center;
+  /* Default to Green for FM */
+  background-color: #6B8F53;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+}
+
+/* Red knobs: Pitch and Gain - USE CORRECT IDs */
+.oscillator-module #osc1-pitch-knob,
+.oscillator-module #osc1-gain-knob {
+  background-color: #BA5446;
+  box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+}
+
+/* Blue knobs: PWM and Quantize - USE CORRECT IDs */
+.oscillator-module #osc1-pwm-knob,
+.oscillator-module #osc1-quantize-knob {
+  background-color: #4E658B;
+  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+}
+
+/* Green knob: FM - USE CORRECT ID (already default, but explicit is fine) */
+.oscillator-module #osc1-fm-knob {
+  background-color: #6B8F53;
+  box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;
+}
+
+/* Ensure indicator line is present on all */
+.oscillator-module .knob::after {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  width: 23.6px;
+  height: 3px;
+  background-color: #f2eed3;
+  transform-origin: left center;
+  transform: translate(-0px, -50%) rotate(270deg);
+}
   
   /* Space knobs properly */
   .oscillator-module .knob-container {

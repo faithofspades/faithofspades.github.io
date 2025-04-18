@@ -407,15 +407,17 @@
     </div>
   </div>
   
-  <!-- OSCILLATOR 2 Module -->
-  <div class="module oscillator-module">
-    <div class="module-title oscillator">OSCILLATOR</div>
-    
-    <!-- Wave Shape Selector (similar to LFO but with pulse instead of random) -->
-    <div class="osc-selector-container">
-      <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
-      <div class="five-step-ticks">
-        <div class="tick-container">
+  <!-- OSCILLATOR 1 Module -->
+  <div class="module oscillator-module"> <!-- Keep existing classes -->
+    <div class="module-title oscillator">OSCILLATOR 1</div> <!-- Changed title -->
+
+    <!-- Wave Shape Selector -->
+    <div class="osc-selector-container"> <!-- Keep existing classes -->
+      <!-- Add ID, keep existing classes -->
+      <input type="range" id="osc1-wave-selector" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+      <div class="five-step-ticks"> <!-- Keep existing classes -->
+        <!-- ... ticks ... -->
+         <div class="tick-container">
           <div class="tick"></div>
           <div class="wave-shape">
             <img src="SHAPES/wave-sine.svg" alt="Sine" width="18" height="14">
@@ -446,14 +448,15 @@
           </div>
         </div>
       </div>
-  
     </div>
-    
+
     <!-- Octave Selector -->
-    <div class="osc-selector-container">
-      <input type="range" class="five-step-selector-range" min="0" max="4" step="1" value="2">
-      <div class="five-step-ticks">
-        <div class="tick-container">
+    <div class="osc-selector-container"> <!-- Keep existing classes -->
+      <!-- Add ID, keep existing classes -->
+      <input type="range" id="osc1-octave-selector" class="five-step-selector-range" min="0" max="4" step="1" value="2">
+      <div class="five-step-ticks"> <!-- Keep existing classes -->
+        <!-- ... ticks ... -->
+         <div class="tick-container">
           <div class="tick"></div>
           <span class="octave-label">-2</span>
         </div>
@@ -474,56 +477,61 @@
           <span class="octave-label">+2</span>
         </div>
       </div>
-  
     </div>
-  
+
     <!-- Two columns for controls -->
-    <div class="osc-columns-container">
+    <div class="osc-columns-container"> <!-- Keep existing classes -->
       <!-- Left column -->
-      <div class="osc-left-column">
+      <div class="osc-left-column"> <!-- Keep existing classes -->
         <!-- FM Source Switch -->
-        <div class="osc-switch-container">
+        <div class="osc-switch-container"> <!-- Keep existing classes -->
           <label class="osc-switch-label osc-switch-label-top">Noise</label>
-          <div class="osc-vertical-switch" id="fm-source-switch"></div>
-          <label class="osc-switch-label osc-switch-label-bottom">Osc 1</label>
+          <!-- Add ID, keep existing classes -->
+          <div class="osc-vertical-switch" id="osc1-fm-source-switch"></div>
+          <label class="osc-switch-label osc-switch-label-bottom">Osc 2</label> <!-- Changed label -->
         </div>
-        
+
         <!-- PWM Knob -->
-        <div class="knob-container">
-          <div class="knob" id="pwm-knob"></div>
-          <label for="pwm-knob">PWM</label>
+        <div class="knob-container"> <!-- Keep existing classes -->
+          <!-- Add ID, keep existing classes -->
+          <div class="knob" id="osc1-pwm-knob"></div>
+          <label for="osc1-pwm-knob">PWM</label>
         </div>
-        
+
         <!-- Pitch Knob -->
-        <div class="knob-container">
-          <div class="knob" id="pitch-knob"></div>
-          <label for="pitch-knob">Pitch</label>
+        <div class="knob-container"> <!-- Keep existing classes -->
+          <!-- Add ID, keep existing classes -->
+          <div class="knob" id="osc1-pitch-knob"></div>
+          <label for="osc1-pitch-knob">Pitch</label>
         </div>
       </div>
-      
+
       <!-- Right column -->
-      <div class="osc-right-column">
+      <div class="osc-right-column"> <!-- Keep existing classes -->
         <!-- FM Knob -->
-        <div class="knob-container">
-          <div class="knob" id="fm-knob"></div>
-          <label for="fm-knob">FM</label>
+        <div class="knob-container"> <!-- Keep existing classes -->
+          <!-- Add ID, keep existing classes -->
+          <div class="knob" id="osc1-fm-knob"></div>
+          <label for="osc1-fm-knob">FM</label>
         </div>
-        
+
         <!-- Quantize Knob -->
-        <div class="knob-container">
-          <div class="knob" id="quantize-knob"></div>
-          <label for="quantize-knob">Quantize</label>
+        <div class="knob-container"> <!-- Keep existing classes -->
+          <!-- Add ID, keep existing classes -->
+          <div class="knob" id="osc1-quantize-knob"></div>
+          <label for="osc1-quantize-knob">Quantize</label>
         </div>
-        
+
         <!-- Gain Knob -->
-        <div class="knob-container">
-          <div class="knob" id="gain-knob"></div>
-          <label for="gain-knob">Gain</label>
+        <div class="knob-container"> <!-- Keep existing classes -->
+          <!-- Add ID, keep existing classes -->
+          <div class="knob" id="osc1-gain-knob"></div>
+          <label for="osc1-gain-knob">Gain</label>
         </div>
       </div>
     </div>
   </div>
-  <!-- OSCILLATOR Module -->
+  <!-- OSCILLATOR 2 Module -->
   <div class="module oscillator-module">
     <div class="module-title oscillator">OSCILLATOR 2</div>
     
