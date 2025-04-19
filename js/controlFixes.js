@@ -140,14 +140,14 @@ export function fixAllKnobs(knobInitCallbacks, knobDefaultValues) {
  * @param {function} onEmuModeToggle - Callback function when Emu mode is toggled (receives new boolean state).
  * @param {function} updateSampleProcessingCallback - Callback to trigger sample processing update.
  * @param {function} updatePlaybackParamsCallback - Callback to update playback parameters for active notes.
- * @param {object} activeNotesRef - Reference to the activeNotes object.
+ * @param {object} activeVoicesRef - Reference to the activeVoices object. // Renamed parameter
  * @param {array} heldNotesRef - Reference to the heldNotes array.
  */
 export function initializeSpecialButtons(
     onEmuModeToggle,
     updateSampleProcessingCallback,
     updatePlaybackParamsCallback,
-    activeNotesRef,
+    activeVoicesRef,
     heldNotesRef
 ) {
     // Fix for LoFi button
@@ -181,16 +181,20 @@ export function initializeSpecialButtons(
             // Trigger necessary updates
             updateSampleProcessingCallback(); // Regenerate buffers (emu/non-emu)
 
-            // Update ALL active notes, including held ones, when Lo-Fi toggles
-            Object.values(activeNotesRef).forEach(note => {
-                // REMOVED check: !heldNotesRef.includes(note.noteNumber)
-                if (note && note.source) {
-                     console.log(`Lo-Fi Toggle: Updating note ${note.id} (held: ${heldNotesRef.includes(note.noteNumber)})`); // Log update attempt
-                    // This callback (updateSamplePlaybackParameters) will handle
-                    // replacing the note source node with one using the new buffer.
-                    updatePlaybackParamsCallback(note);
-                }
-            });
+            // Update ALL active SAMPLER notes when Lo-Fi toggles
+            // Use setTimeout to allow updateSampleProcessingCallback's async part to potentially finish
+            setTimeout(() => {
+                Object.values(activeVoicesRef).forEach(voice => { // Use renamed parameter
+                    // Target the samplerNote within the voice
+                    if (voice && voice.samplerNote) {
+                        // Check if the note is held (using heldNotesRef which maps to main.js heldNotes)
+                        const isHeld = heldNotesRef.includes(voice.noteNumber);
+                        console.log(`Lo-Fi Toggle: Updating sampler note ${voice.samplerNote.id} (held: ${isHeld})`);
+                        // Call the update function specifically for the sampler note
+                        updatePlaybackParamsCallback(voice.samplerNote);
+                    }
+                });
+            }, 50); // Small delay
 
             console.log('Lo-Fi Mode:', newState ? 'ON' : 'OFF');
 
