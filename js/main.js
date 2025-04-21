@@ -13,7 +13,17 @@ Tone.setContext(audioCtx); // <<< ADD THIS LINE
 const masterGain = audioCtx.createGain();
 masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
 masterGain.connect(audioCtx.destination);
-
+// --- Load AudioWorklet ---
+let isWorkletReady = false;
+// <<< CHANGE FILENAME AND PROCESSOR NAME >>>
+audioCtx.audioWorklet.addModule('js/shape-hold-processor.js').then(() => {
+    console.log('ShapeHoldProcessor AudioWorklet loaded successfully.'); // <<< Updated log
+    isWorkletReady = true;
+}).catch(error => {
+    console.error('Failed to load ShapeHoldProcessor AudioWorklet:', error); // <<< Updated log
+    // Handle error appropriately
+});
+// --- End Load AudioWorklet ---
 
 
 
@@ -47,6 +57,8 @@ let osc1Waveform = 'triangle';
 let osc1OctaveOffset = 0;
 let osc1Detune = 0;
 let osc1GainValue = 0.5;
+let osc1PWMValue = 0.0; // 0.0 to 1.0. Interpreted as Duty Cycle (Pulse/Square) or Shape Amount (Others)
+let osc1QuantizeValue = 0.0; // <<< ADD: Quantization amount 0.0 to 1.0
 let isMonoMode = false;
 let isLegatoMode = false;
 let isPortamentoOn = false;
@@ -88,10 +100,23 @@ const knobDefaults = {
 'glide-time-knob': 0.05,      // 100ms (5% of 2000ms)
 'osc1-gain-knob': 0.5, // <<< ADD: Default gain 50%
 'osc1-pitch-knob': 0.5, // <<< ADD: Default pitch 0 cents (center)
+'osc1-pwm-knob': 0.0, // Default: 50% duty cycle / minimal shape distortion
+'osc1-quantize-knob': 0.0, // <<< ADD: Default quantize amount
 // All other knobs default to 0.5
 };
 // --- Helper Functions ---
-
+// Function to create an asymmetric waveshaper curve
+function createAsymmetricCurve(amount, resolution = 256) {
+    const curve = new Float32Array(resolution);
+    // Map amount (0-1) to an offset (-0.8 to 0.8). 0 amount = 0 offset.
+    const offset = (amount * 1.6) - 0.8;
+    for (let i = 0; i < resolution; ++i) {
+        const x = (i / (resolution - 1)) * 2 - 1; // Input range -1 to 1
+        // Apply offset before tanh for asymmetric soft clipping
+        curve[i] = Math.tanh(x + offset);
+    }
+    return curve;
+}
 function noteToFrequency(noteNumber, octaveOffset = 0, detuneCents = 0) {
     const baseNote = 69; // MIDI note number for A4
     const baseFreq = 440;
@@ -235,7 +260,26 @@ return ('ontouchstart' in window) ||
  (navigator.msMaxTouchPoints > 0);
 }
 
-
+/**
+ * Clears any scheduled timeouts associated with a note object.
+ * @param {object} note - The note object (samplerNote or osc1Note).
+ */
+function clearScheduledEventsForNote(note) {
+    if (note && Array.isArray(note.scheduledEvents)) {
+        // console.log(`Clearing ${note.scheduledEvents.length} scheduled events for note ${note.id}`);
+        note.scheduledEvents.forEach(event => {
+            if (event.type === "timeout" && event.id) {
+                clearTimeout(event.id);
+                // console.log(`Cleared timeout ID: ${event.id}`);
+            }
+            // Add handling for other event types if needed (e.g., Tone.Transport events)
+            // else if (event.type === "toneDispose" && event.id) {
+            //    Tone.Transport.clear(event.id);
+            // }
+        });
+        note.scheduledEvents = []; // Clear the array
+    }
+}
 
 
 function reverseBufferIfNeeded() {
@@ -458,32 +502,24 @@ const knobInitializations = {
         console.log('Osc1 Gain:', value.toFixed(2));
     },
     'osc1-pitch-knob': (value) => {
-        // Convert 0-1 range to -1200 to +1200 cents (like sample pitch)
-        const newDetune = (value * 2400) - 1200;
-        osc1Detune = newDetune; // Update global detune value
+        // Calculate detune value (e.g., -100 to +100 cents)
+        osc1Detune = (value - 0.5) * 200; // Example mapping
 
         const tooltip = createTooltipForKnob('osc1-pitch-knob', value);
-        tooltip.textContent = `${osc1Detune.toFixed(0)} cents`;
+        tooltip.textContent = `Detune: ${osc1Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
 
-        // Update detune of all active Osc1 notes smoothly
         const now = audioCtx.currentTime;
         Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc1Note) {
-                let oscDetuneParam = null;
-                if (voice.osc1Note.toneOscillator) {
-                    oscDetuneParam = voice.osc1Note.toneOscillator.detune;
-                } else if (voice.osc1Note.oscillator) {
-                    oscDetuneParam = voice.osc1Note.oscillator.detune;
-                }
-
+            // <<< Simplify: Only target workletNode >>>
+            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
+                const oscDetuneParam = voice.osc1Note.workletNode.parameters.get('detune');
                 if (oscDetuneParam) {
-                    // Use setTargetAtTime for smooth updates
                     oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
                 }
             }
         });
-        console.log('Osc1 Pitch (Detune):', osc1Detune.toFixed(0) + ' cents');
+        console.log('Osc1 Detune:', osc1Detune.toFixed(2));
     },
     'sample-start-knob': (value) => {
         const minLoopFractionRequired = 0.001; // Minimum gap always required
@@ -761,6 +797,53 @@ const knobInitializations = {
         tooltip.style.opacity = '1';
         glideTime = timeMs / 1000; // Convert ms to seconds for Web Audio API
         console.log('Glide Time:', glideTime.toFixed(3) + 's');
+    },
+    'osc1-pwm-knob': (value) => {
+        osc1PWMValue = value; // Update global hold amount
+
+        const holdAmount = osc1PWMValue; // Value is 0-1
+
+        const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
+        // <<< Simplified tooltip >>>
+        tooltip.textContent = `Shape: ${(holdAmount * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+
+        // Update active notes
+        const now = audioCtx.currentTime;
+        Object.values(activeVoices).forEach(voice => {
+            // <<< Simplify: Only target workletNode >>>
+            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
+                const holdParam = voice.osc1Note.workletNode.parameters.get('holdAmount');
+                if (holdParam) {
+                    holdParam.setTargetAtTime(holdAmount, now, 0.015);
+                }
+            }
+        });
+        // <<< Simplified log >>>
+        console.log(`Osc1 PWM/Shape Knob: ${holdAmount.toFixed(2)}`);
+    },
+
+    // <<< ADD Quantize Knob Callback >>>
+    'osc1-quantize-knob': (value) => {
+        osc1QuantizeValue = value; // Update global quantize amount
+
+        const quantizeAmount = osc1QuantizeValue; // Value is 0-1
+
+        const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
+        tooltip.textContent = `Quant: ${(quantizeAmount * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+
+        // Update active notes
+        const now = audioCtx.currentTime;
+        Object.values(activeVoices).forEach(voice => {
+            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
+                const quantizeParam = voice.osc1Note.workletNode.parameters.get('quantizeAmount');
+                if (quantizeParam) {
+                    quantizeParam.setTargetAtTime(quantizeAmount, now, 0.015);
+                }
+            }
+        });
+        console.log(`Osc1 Quantize Knob: ${quantizeAmount.toFixed(2)}`);
     },
 };
 /**
@@ -2215,55 +2298,62 @@ function releaseSamplerNote(note) {
 function killSamplerNote(note) {
     // Check if note is valid and not already killed
     if (!note || note.state === "killed") return false;
-    const noteNumber = note.noteNumber;
     const noteId = note.id;
-    console.log(`killSamplerNote: Attempting to kill ${noteId} (Note ${noteNumber})`);
+    const originalNoteNumber = note.noteNumber; // Store for logging, but don't rely on it for lookup
+    console.log(`killSamplerNote: Starting kill process for ${noteId} (Original Note ${originalNoteNumber})`);
     note.state = "killed";
 
-    // ... (clear scheduledEvents) ...
-    note.scheduledEvents.forEach(event => {
-        if (event.type === "timeout") clearTimeout(event.id);
-    });
-    note.scheduledEvents = [];
+    clearScheduledEventsForNote(note);
 
     try {
         // Stop and disconnect audio nodes
         if (note.gainNode) {
             note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
             note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-            note.gainNode.disconnect();
+            setTimeout(() => { try { note.gainNode.disconnect(); } catch(e){} }, 20);
         }
         if (note.sampleNode) {
-            note.sampleNode.disconnect();
+            setTimeout(() => { try { note.sampleNode.disconnect(); } catch(e){} }, 20);
         }
         if (note.source) {
             try { note.source.stop(audioCtx.currentTime); } catch(e) {}
-            note.source.disconnect();
+            setTimeout(() => { try { note.source.disconnect(); } catch(e){} }, 20);
         }
     } catch (e) {
          console.warn(`killSamplerNote [${noteId}]: Error during node cleanup:`, e);
     }
 
-    // --- Safely update unified voice tracking (activeVoices ONLY) ---
-    const voice = activeVoices[noteNumber];
-    if (voice) {
-        // Nullify the reference in activeVoices if it points to the note we just killed
-        if (voice.samplerNote === note) {
-            console.log(`killSamplerNote [${noteId}]: Nullifying samplerNote reference in activeVoices[${noteNumber}].`);
-            voice.samplerNote = null;
-        } else {
-             console.log(`killSamplerNote [${noteId}]: samplerNote reference in activeVoices[${noteNumber}] did not match. Skipping nullification.`);
-        }
+    // --- Robust activeVoices update ---
+    let voiceEntryKey = null;
+    let voiceEntry = null;
 
-        // Check if the voice entry in activeVoices is now empty and can be deleted
-        if (!voice.samplerNote && !voice.osc1Note) {
-            console.log(`killSamplerNote [${noteId}]: Both components for note ${noteNumber} in activeVoices are null. Deleting voice entry activeVoices[${noteNumber}].`);
-            delete activeVoices[noteNumber]; // Delete if BOTH are null
+    // Find the voice entry containing this specific note object
+    for (const key in activeVoices) {
+        if (activeVoices[key].samplerNote === note) {
+            voiceEntryKey = key;
+            voiceEntry = activeVoices[key];
+            break;
+        }
+    }
+
+    if (voiceEntry) {
+        console.log(`killSamplerNote [${noteId}]: Found matching samplerNote in activeVoices[${voiceEntryKey}]. Nullifying.`);
+        voiceEntry.samplerNote = null; // Nullify the reference in the found entry
+
+        // Check if the voice entry is now empty
+        if (!voiceEntry.samplerNote && !voiceEntry.osc1Note) {
+            console.log(`killSamplerNote [${noteId}]: Both components for note ${voiceEntryKey} in activeVoices are now null. Deleting voice entry activeVoices[${voiceEntryKey}].`);
+            delete activeVoices[voiceEntryKey]; // Delete the entry using the key we found
         }
     } else {
-         console.log(`killSamplerNote [${noteId}]: No active voice found for note ${noteNumber} in activeVoices during cleanup.`);
+        // If the note wasn't found in any active voice entry (already removed, stolen, etc.)
+        console.log(`killSamplerNote [${noteId}]: Note object not found in any activeVoices entry during cleanup (expected if stolen/retriggered/legato state changed).`);
     }
-    // --- End safe update ---
+    // --- End Robust update ---
+
+    // Update UI regardless
+    updateVoiceDisplay();
+    updateKeyboardDisplay();
 
     console.log(`killSamplerNote: Finished killing ${noteId}`);
     return true;
@@ -2288,76 +2378,95 @@ function quickFadeOutSampler(note, fadeTime = 0.05) {
 
 // --- Oscillator 1 Note Creation/Management ---
 function startOsc1Note(noteNumber, audioCtx, destination) {
-    // Only start if gain is audible
     if (osc1GainValue <= 0.001) return null;
-
-    const noteId = `osc1_${noteNumber}_${Date.now()}`;
-    const osc1LevelNode = audioCtx.createGain(); // <<< NEW: Node for knob control
-    const oscGainNode = audioCtx.createGain();   // Node for ADSR control
-    osc1LevelNode.gain.value = osc1GainValue;    // Set initial level from global
-    oscGainNode.gain.value = 0;                  // Start silent for ADSR
-
-
-    let nativeOscillator = null;
-    let toneOscillator = null;
-    const now = audioCtx.currentTime;
-    const targetFreq = noteToFrequency(noteNumber, osc1OctaveOffset); // Base frequency
-
-    if (osc1Waveform === 'pulse') {
-        try {
-            // --- Create Tone.js Pulse Oscillator with BASE frequency ---
-            console.log(`startOsc1Note [${noteId}]: Creating Tone.PulseOscillator with BASE Freq=${targetFreq.toFixed(2)}`);
-            toneOscillator = new Tone.PulseOscillator(targetFreq, 0.25); // <<< Use BASE targetFreq
-
-            // --- Apply detune using setValueAtTime for precise timing ---
-            toneOscillator.detune.setValueAtTime(osc1Detune, now); // <<< USE setValueAtTime
-            console.log(`startOsc1Note [${noteId}]: Scheduled initial detune to ${osc1Detune.toFixed(0)} cents at time ${now.toFixed(4)}.`);
-
-            toneOscillator.connect(osc1LevelNode); // Connect Osc to Level Node
-            toneOscillator.start(now); // Start at the same time
-        } catch (e) {
-            console.error(`startOsc1Note [${noteId}]: Failed to create Tone.PulseOscillator:`, e);
-            // Clean up gain node if creation failed
-            try { oscGainNode.disconnect(); } catch(err) {}
-            return null;
-        }
-    } else {
-        // --- Create Standard Native Oscillator ---
-        nativeOscillator = audioCtx.createOscillator();
-        nativeOscillator.type = osc1Waveform;
-        // Set base frequency and detune separately for native oscillator
-        nativeOscillator.frequency.setValueAtTime(targetFreq, now); // <<< Base frequency
-        nativeOscillator.detune.setValueAtTime(osc1Detune, now);    // <<< Detune offset (already correct)
-        nativeOscillator.connect(osc1LevelNode); // Connect Osc to Level Node
-        nativeOscillator.start(now);
-        console.log(`startOsc1Note [${noteId}]: Using native ${osc1Waveform} oscillator with detune ${osc1Detune}.`); // Log detune
+    // <<< Always check worklet readiness >>>
+    if (!isWorkletReady) {
+        console.error(`startOsc1Note: ShapeHoldProcessor AudioWorklet not ready. Aborting.`);
+        return null;
     }
 
-    // Connect Level Node -> ADSR Node -> Destination
-    osc1LevelNode.connect(oscGainNode);
+    const noteId = `osc1_${noteNumber}_${Date.now()}`;
+    const osc1LevelNode = audioCtx.createGain();
+    const oscGainNode = audioCtx.createGain();
+    osc1LevelNode.gain.value = osc1GainValue;
+    oscGainNode.gain.value = 0;
+
+    // <<< Remove toneOscillator variable >>>
+    // let toneOscillator = null;
+    let workletNode = null;
+    const now = audioCtx.currentTime;
+    const targetFreq = noteToFrequency(noteNumber, osc1OctaveOffset);
+
+    // <<< Updated map including pulse >>>
+    const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
+
+    // <<< REMOVE 'pulse' specific path >>>
+    // if (osc1Waveform === 'pulse') { ... }
+
+    // <<< ALWAYS Use AudioWorklet >>>
+    try {
+        const waveformTypeValue = waveMapNameToWorkletType[osc1Waveform] !== undefined ? waveMapNameToWorkletType[osc1Waveform] : 0; // Default to sine
+        const holdAmountValue = osc1PWMValue; // Current shape/PWM value
+        const quantizeValue = osc1QuantizeValue; // <<< Get current quantize value
+
+        console.log(`startOsc1Note [${noteId}]: Creating AudioWorkletNode. Wave: ${osc1Waveform}(${waveformTypeValue}), Hold: ${holdAmountValue.toFixed(2)}, Quant: ${quantizeValue.toFixed(2)}`);
+
+        workletNode = new AudioWorkletNode(audioCtx, 'shape-hold-processor', {
+            parameterData: {
+                frequency: targetFreq,
+                detune: osc1Detune, // Use global detune
+                holdAmount: holdAmountValue,
+                quantizeAmount: quantizeValue, // <<< Pass quantize value
+                waveformType: waveformTypeValue
+            }
+        });
+
+        workletNode.connect(osc1LevelNode);
+        osc1LevelNode.connect(oscGainNode);
+
+        console.log(`startOsc1Note [${noteId}]: Using AudioWorklet ${osc1Waveform}.`);
+    } catch (e) {
+        console.error(`startOsc1Note [${noteId}]: Failed to create AudioWorkletNode:`, e);
+        try { oscGainNode.disconnect(); } catch(err) {}
+        return null;
+    }
+
+
+    // Connect ADSR Node -> Destination
     oscGainNode.connect(destination);
 
-    // Apply ADSR envelope to oscGainNode (ADSR node ramps 0 -> 1 -> sustain)
+    // Apply ADSR envelope
     const attack = parseFloat(D('attack').value);
     const decay = parseFloat(D('decay').value);
-    const sustainLevel = parseFloat(D('sustain').value); // <<< Use sustainLevel here
+    const sustainLevel = parseFloat(D('sustain').value);
     oscGainNode.gain.setValueAtTime(0, now);
-    oscGainNode.gain.linearRampToValueAtTime(1.0, now + attack); // <<< Ramp to 1
-    oscGainNode.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay); // <<< Ramp to sustainLevel
+    oscGainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+    oscGainNode.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
 
     const note = {
         id: noteId,
         type: 'osc1',
         noteNumber,
-        oscillator: nativeOscillator,
-        toneOscillator: toneOscillator,
-        levelNode: osc1LevelNode, // <<< Store reference to level node
-        gainNode: oscGainNode,    // ADSR gain node
+        oscillator: null,
+        // <<< Remove toneOscillator property >>>
+        // toneOscillator: null,
+        workletNode: workletNode, // Store Worklet reference
+        levelNode: osc1LevelNode,
+        gainNode: oscGainNode,
         startTime: now,
         state: "playing",
         scheduledEvents: []
     };
-    return note;
+
+    // <<< Simplified return check >>>
+    if (note.workletNode) {
+        return note;
+    } else {
+        console.error(`startOsc1Note [${noteId}]: Failed to create worklet node. Returning null.`);
+        try { osc1LevelNode.disconnect(); } catch(e){}
+        try { oscGainNode.disconnect(); } catch(e){}
+        return null;
+    }
 }
 
 function releaseOsc1Note(note) {
@@ -2398,61 +2507,67 @@ function releaseOsc1Note(note) {
 }
 
 function killOsc1Note(note) {
-    // Check if note is valid and not already killed
     if (!note || note.state === "killed") return false;
-    const noteNumber = note.noteNumber;
+
     const noteId = note.id;
-    console.log(`killOsc1Note: Attempting to kill ${noteId} (Note ${noteNumber})`);
+    const originalNoteNumber = note.noteNumber; // Store for logging
+    console.log(`killOsc1Note: Starting kill process for ${noteId} (Original Note ${originalNoteNumber})`);
     note.state = "killed";
 
-    // Clear scheduled events (including potential Tone disposal)
-    note.scheduledEvents.forEach(event => {
-        if (event.type === "timeout") clearTimeout(event.id);
-        // No explicit cancel needed for scheduled Tone disposal, dispose() handles it
-    });
-    note.scheduledEvents = [];
+    clearScheduledEventsForNote(note);
 
     try {
-        // Stop and disconnect ADSR gain node (native)
+        // ... (node cleanup: gainNode, levelNode, workletNode - remains the same) ...
+        const now = audioCtx.currentTime;
         if (note.gainNode) {
-            note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-            note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-            note.gainNode.disconnect();
+            note.gainNode.gain.cancelScheduledValues(now);
+            note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now);
+            note.gainNode.gain.linearRampToValueAtTime(0, now + 0.01);
+            setTimeout(() => { try { note.gainNode.disconnect(); } catch(e){} }, 20);
         }
-        // Disconnect Level node <<< ADDED
         if (note.levelNode) {
-            note.levelNode.disconnect();
+            setTimeout(() => { try { note.levelNode.disconnect(); } catch(e){} }, 20); // Added delay
         }
-
-        // Stop/Dispose/Disconnect Oscillators
-        if (note.toneOscillator) {
-            try {
-                note.toneOscillator.disconnect(); // Disconnect from levelNode
-                note.toneOscillator.dispose();
-            } catch(e) { /* ... */ }
-        } else if (note.oscillator) {
-             try { note.oscillator.stop(audioCtx.currentTime); } catch(e) {}
-            note.oscillator.disconnect(); // Disconnect from levelNode
+        if (note.workletNode) {
+            setTimeout(() => { try { note.workletNode.disconnect(); } catch(e){} }, 20); // Added delay
         }
 
     } catch (e) {
-        console.warn(`killOsc1Note [${noteId}]: Error during node cleanup:`, e);
+        console.error(`Error during killOsc1Note cleanup for ${noteId}:`, e);
     }
 
-    // --- Safely update unified voice tracking (activeVoices ONLY) ---
-    // ... (This part remains the same) ...
-    const voice = activeVoices[noteNumber];
-    if (voice) {
-        if (voice.osc1Note === note) {
-            voice.osc1Note = null;
-        }
-        if (!voice.samplerNote && !voice.osc1Note) {
-            delete activeVoices[noteNumber];
+    // --- Robust activeVoices update ---
+    let voiceEntryKey = null;
+    let voiceEntry = null;
+
+    // Find the voice entry containing this specific note object
+    for (const key in activeVoices) {
+        if (activeVoices[key].osc1Note === note) {
+            voiceEntryKey = key;
+            voiceEntry = activeVoices[key];
+            break;
         }
     }
-    // --- End safe update ---
 
-     console.log(`killOsc1Note: Finished killing ${noteId}`);
+    if (voiceEntry) {
+        console.log(`killOsc1Note [${noteId}]: Found matching osc1Note in activeVoices[${voiceEntryKey}]. Nullifying.`);
+        voiceEntry.osc1Note = null; // Nullify the reference in the found entry
+
+        // Check if the voice entry is now empty
+        if (!voiceEntry.samplerNote && !voiceEntry.osc1Note) {
+            console.log(`killOsc1Note [${noteId}]: Both components for note ${voiceEntryKey} in activeVoices are now null. Deleting voice entry activeVoices[${voiceEntryKey}].`);
+            delete activeVoices[voiceEntryKey]; // Delete the entry using the key we found
+        }
+    } else {
+        // If the note wasn't found in any active voice entry
+        console.log(`killOsc1Note [${noteId}]: Note object not found in any activeVoices entry during cleanup (expected if stolen/retriggered/legato state changed).`);
+    }
+    // --- End Robust update ---
+
+    updateVoiceDisplay(); // Update UI
+    updateKeyboardDisplay(); // Ensure key visuals update
+
+    console.log(`killOsc1Note: Finished killing ${noteId}`);
     return true;
 }
 
@@ -2518,16 +2633,15 @@ function noteOn(noteNumber) {
                 let oscDetuneParam = null;
                 let currentFreq = NaN; // Capture current frequency before glide
 
-                if (currentMonoVoice.osc1Note) {
-                    if (currentMonoVoice.osc1Note.toneOscillator) {
-                        oscFreqParam = currentMonoVoice.osc1Note.toneOscillator.frequency;
-                        oscDetuneParam = currentMonoVoice.osc1Note.toneOscillator.detune;
-                        currentFreq = oscFreqParam.value;
-                    } else if (currentMonoVoice.osc1Note.oscillator) {
-                        oscFreqParam = currentMonoVoice.osc1Note.oscillator.frequency;
-                        oscDetuneParam = currentMonoVoice.osc1Note.oscillator.detune;
-                        currentFreq = oscFreqParam.value;
+                // <<< CHECK if workletNode exists before getting params >>>
+                if (currentMonoVoice.osc1Note && currentMonoVoice.osc1Note.workletNode) {
+                    oscFreqParam = currentMonoVoice.osc1Note.workletNode.parameters.get('frequency');
+                    oscDetuneParam = currentMonoVoice.osc1Note.workletNode.parameters.get('detune');
+                    if (oscFreqParam) {
+                        try { currentFreq = oscFreqParam.value; } catch(e) { console.warn("Couldn't get current worklet freq (Legato)"); }
                     }
+                } else {
+                    console.warn("Mono Legato: osc1Note or workletNode missing when trying to get parameters.");
                 }
                 // --- End Get parameters ---
 
@@ -2573,17 +2687,17 @@ function noteOn(noteNumber) {
                     } else { console.error("Mono Legato (Porta OFF) Glide Error: Sampler source missing!"); }
 
                     // Osc1 Pitch Glide (using glideDuration and obtained oscFreqParam)
-                    if (oscFreqParam && !isNaN(currentFreq)) { // <<< FIX: Use oscFreqParam here
+                    // <<< ADD CHECK: Ensure oscFreqParam was found >>>
+                    if (oscFreqParam && !isNaN(currentFreq)) {
                         oscFreqParam.cancelScheduledValues(now);
                         console.log(`Mono Legato (Porta OFF) Osc1 Glide: Freq from ${currentFreq.toFixed(2)} to ${targetFreq.toFixed(2)}`);
                         oscFreqParam.setValueAtTime(currentFreq, now);
                         oscFreqParam.linearRampToValueAtTime(targetFreq, now + glideDuration);
-                        // Update detune smoothly <<< ADDED
                         if (oscDetuneParam) {
-                            oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01); // Target global detune
+                            oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
                         }
                     } else {
-                         console.error("Mono Legato (Porta OFF) Glide Error: Oscillator frequency parameter missing or invalid current frequency!"); // <<< FIX: Updated error message
+                         console.error("Mono Legato (Porta OFF) Glide Error: Oscillator frequency parameter missing or invalid current frequency!");
                     }
                 }
                 // Update component note numbers
@@ -2600,8 +2714,10 @@ function noteOn(noteNumber) {
             } else {
                 // --- Multi-Trigger Retrigger ---
                 console.log("Mono NoteOn: Applying Multi-Trigger Retrigger.");
-                const prevSamplerNote = currentMonoVoice.samplerNote;
-                const prevOsc1Note = currentMonoVoice.osc1Note;
+                const prevVoice = currentMonoVoice;
+                const prevSamplerNote = prevVoice?.samplerNote;
+                const prevOsc1Note = prevVoice?.osc1Note;
+                const prevNoteNumber = prevVoice?.noteNumber; // <<< DEFINED HERE
 
                 // --- Get current pitch BEFORE starting new notes/fading old ---
                 let startRate = null;
@@ -2611,13 +2727,12 @@ function noteOn(noteNumber) {
                     if (prevSamplerNote?.source) {
                         try { startRate = prevSamplerNote.source.playbackRate.value; } catch(e) { console.warn("Couldn't get prev sampler rate"); }
                     }
-                    // Check previous osc1 note (Tone or Native)
-                    if (prevOsc1Note) {
-                        if (prevOsc1Note.toneOscillator) {
-                             try { startFreq = prevOsc1Note.toneOscillator.frequency.value; } catch(e) { console.warn("Couldn't get prev Tone osc freq"); }
-                        } else if (prevOsc1Note.oscillator) {
-                             try { startFreq = prevOsc1Note.oscillator.frequency.value; } catch(e) { console.warn("Couldn't get prev native osc freq"); }
-                        }
+                    // Check previous osc1 note (Worklet)
+                    if (prevOsc1Note?.workletNode) { // <<< Check workletNode
+                         try {
+                             const freqParam = prevOsc1Note.workletNode.parameters.get('frequency');
+                             if (freqParam) startFreq = freqParam.value;
+                         } catch(e) { console.warn("Couldn't get prev worklet freq"); }
                     }
                     // Fallback to lastPlayedNoteNumber target if actual value couldn't be read
                     if (startRate === null && lastPlayedNoteNumber !== null) startRate = TR2 ** (lastPlayedNoteNumber - 12);
@@ -2626,63 +2741,68 @@ function noteOn(noteNumber) {
                 // --- End Get current pitch ---
 
                 // Update voice state for the NEW note
-                currentMonoVoice.noteNumber = noteNumber;
+                currentMonoVoice.noteNumber = noteNumber; // Update the existing voice object
                 currentMonoVoice.startTime = now;
                 // Update activeVoices mapping if note number changed
-                if (oldNoteNumber !== noteNumber) {
-                    activeVoices[noteNumber] = currentMonoVoice;
-                    delete activeVoices[oldNoteNumber];
-                    console.log(`Mono Multi-Trigger: Updated activeVoices mapping from ${oldNoteNumber} to ${noteNumber}.`);
+                if (prevNoteNumber !== noteNumber && prevNoteNumber !== undefined) { // <<< Check prevNoteNumber defined
+                    activeVoices[noteNumber] = currentMonoVoice; // Point new key to the updated voice
+                    delete activeVoices[prevNoteNumber]; // Remove old key
+                    console.log(`Mono Multi-Trigger: Updated activeVoices mapping from ${prevNoteNumber} to ${noteNumber}.`);
+                } else if (prevNoteNumber === undefined) {
+                    console.warn("Mono Multi-Trigger: prevNoteNumber was undefined during mapping update.");
+                    activeVoices[noteNumber] = currentMonoVoice; // Ensure new key points correctly
                 }
+
 
                 // Start NEW components and assign them to currentMonoVoice
                 console.log("Mono Multi-Trigger: Starting new components.");
                 currentMonoVoice.samplerNote = startSamplerNote(noteNumber, audioCtx, masterGain, audioBuffer);
                 currentMonoVoice.osc1Note = startOsc1Note(noteNumber, audioCtx, masterGain);
                 console.log(`Mono Multi-Trigger: New samplerNote: ${currentMonoVoice.samplerNote?.id}, New osc1Note: ${currentMonoVoice.osc1Note?.id}`);
+
                 // Apply portamento glide to NEW components if applicable
                 if (isPortamentoOn && glideTime > 0.001 && (startRate !== null || startFreq !== null)) {
-                    console.log(`Applying MONO multi-trigger glide: ${glideTime.toFixed(3)}s from actual pitch to ${noteNumber}`);
-                    const targetRate = TR2 ** (noteNumber - 12);
                     const targetFreq = noteToFrequency(noteNumber, osc1OctaveOffset);
-
+                    const targetRate = TR2 ** (noteNumber - 12);
                     // Sampler Glide (to NEW samplerNote)
                     if (currentMonoVoice.samplerNote?.source && startRate !== null) {
                         console.log(`Mono Multi Sampler Glide: Rate from ${startRate.toFixed(4)} to ${targetRate.toFixed(4)}`);
                         currentMonoVoice.samplerNote.source.playbackRate.setValueAtTime(startRate, now);
                         currentMonoVoice.samplerNote.source.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
                     }
-
-                    // Osc1 Glide (to NEW osc1Note - check Tone or Native)
-                    if (currentMonoVoice.osc1Note && startFreq !== null) {
-                        let newOscFreqParam = null;
-                        let newOscDetuneParam = null; // <<< ADDED
-                        if (currentMonoVoice.osc1Note.toneOscillator) {
-                            newOscFreqParam = currentMonoVoice.osc1Note.toneOscillator.frequency;
-                            newOscDetuneParam = currentMonoVoice.osc1Note.toneOscillator.detune; // <<< ADDED
-                        } else if (currentMonoVoice.osc1Note.oscillator) {
-                            newOscFreqParam = currentMonoVoice.osc1Note.oscillator.frequency;
-                            newOscDetuneParam = currentMonoVoice.osc1Note.oscillator.detune; // <<< ADDED
-                        }
-
+                    // Osc1 Glide (to NEW osc1Note)
+                    if (currentMonoVoice.osc1Note && currentMonoVoice.osc1Note.workletNode && startFreq !== null) {
+                        let newOscFreqParam = currentMonoVoice.osc1Note.workletNode.parameters.get('frequency');
+                        let newOscDetuneParam = currentMonoVoice.osc1Note.workletNode.parameters.get('detune');
                         if (newOscFreqParam) {
                             console.log(`Mono Multi Osc1 Glide: Freq from ${startFreq.toFixed(2)} to ${targetFreq.toFixed(2)}`);
                             newOscFreqParam.setValueAtTime(startFreq, now);
                             newOscFreqParam.linearRampToValueAtTime(targetFreq, now + glideTime);
-                            // Update detune on new oscillator smoothly <<< ADDED
                             if (newOscDetuneParam) {
-                                newOscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01); // Target global detune
+                                newOscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
                             }
                         } else { console.error("Mono Multi Glide Error: New oscillator frequency parameter missing!"); }
+                    } else if (startFreq !== null) {
+                        console.warn("Mono Multi Glide Warning: Skipping Osc1 glide - new osc1Note, workletNode, or startFreq missing.");
                     }
                 }
 
+                // <<< FIX: Always fade out previous components in Multi-Trigger >>>
                 // Fade out the PREVIOUS voice components (use stored references)
                 console.log("Mono Multi-Trigger: Fading out previous components.");
-                if (prevSamplerNote) quickFadeOutSampler(prevSamplerNote, 0.015);
-                if (prevOsc1Note) quickFadeOutOsc1(prevOsc1Note, 0.015);
+                // Use a minimal delay to ensure new notes have started before fade begins
+                setTimeout(() => {
+                    if (prevSamplerNote) {
+                        console.log(`Fading out previous sampler note: ${prevSamplerNote.id}`);
+                        quickFadeOutSampler(prevSamplerNote, 0.015);
+                    }
+                    if (prevOsc1Note) {
+                        console.log(`Fading out previous osc1 note: ${prevOsc1Note.id}`);
+                        quickFadeOutOsc1(prevOsc1Note, 0.015);
+                    }
+                }, 5); // 5ms delay
+                // <<< END FIX >>>
             }
-
         } else {
             // --- Mono First Note (No Existing Voice) ---
             // This path is now correctly entered after releasing all keys in legato mode
@@ -2693,8 +2813,8 @@ function noteOn(noteNumber) {
 
             // Start new components (triggers envelope)
             currentMonoVoice.samplerNote = startSamplerNote(noteNumber, audioCtx, masterGain, audioBuffer);
-            currentMonoVoice.osc1Note = startOsc1Note(noteNumber, audioCtx, masterGain);
-            // ...
+            currentMonoVoice.osc1Note = startOsc1Note(noteNumber, audioCtx, masterGain); // <<< Assign result here
+
 
             // Apply initial portamento glide if needed
             if (isPortamentoOn && glideTime > 0.001) {
@@ -2721,27 +2841,22 @@ function noteOn(noteNumber) {
                         currentMonoVoice.samplerNote.source.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
                     }
 
-                    // Osc1 Glide (to NEW osc1Note - check Tone or Native)
-                    if (currentMonoVoice.osc1Note && glideStartFreq !== null) {
-                        let newOscFreqParam = null;
-                        let newOscDetuneParam = null; // <<< ADDED
-                        if (currentMonoVoice.osc1Note.toneOscillator) {
-                            newOscFreqParam = currentMonoVoice.osc1Note.toneOscillator.frequency;
-                            newOscDetuneParam = currentMonoVoice.osc1Note.toneOscillator.detune; // <<< ADDED
-                        } else if (currentMonoVoice.osc1Note.oscillator) {
-                            newOscFreqParam = currentMonoVoice.osc1Note.oscillator.frequency;
-                            newOscDetuneParam = currentMonoVoice.osc1Note.oscillator.detune; // <<< ADDED
-                        }
+                    // Osc1 Glide (to NEW osc1Note)
+                    // <<< ADD CHECK: Ensure new osc1Note and its workletNode exist >>>
+                    if (currentMonoVoice.osc1Note && currentMonoVoice.osc1Note.workletNode && glideStartFreq !== null) {
+                        let newOscFreqParam = currentMonoVoice.osc1Note.workletNode.parameters.get('frequency');
+                        let newOscDetuneParam = currentMonoVoice.osc1Note.workletNode.parameters.get('detune');
 
                         if (newOscFreqParam) {
                             console.log(`Mono First Osc1 Glide: Freq from ${glideStartFreq.toFixed(2)} to ${targetFreq.toFixed(2)}`);
                             newOscFreqParam.setValueAtTime(glideStartFreq, now);
                             newOscFreqParam.linearRampToValueAtTime(targetFreq, now + glideTime);
-                            // Update detune on new oscillator smoothly <<< ADDED
                             if (newOscDetuneParam) {
-                                newOscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01); // Target global detune
+                                newOscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
                             }
                         } else { console.error("Mono First Glide Error: New oscillator frequency parameter missing!"); }
+                    } else if (glideStartFreq !== null) {
+                        console.warn("Mono First Glide Warning: Skipping Osc1 glide - new osc1Note or workletNode missing.");
                     }
                 }
            }
@@ -2823,29 +2938,23 @@ function noteOn(noteNumber) {
            } else { console.log("Poly Glide: No sampler source to glide."); }
 
            // --- CORRECTED Osc1 Glide ---
-           if (targetVoice.osc1Note) {
-               let oscFreqParam = null;
-               let oscDetuneParam = null;
-               if (targetVoice.osc1Note.toneOscillator) { // <<< Check Tone first
-                   oscFreqParam = targetVoice.osc1Note.toneOscillator.frequency;
-                   oscDetuneParam = targetVoice.osc1Note.toneOscillator.detune;
-               } else if (targetVoice.osc1Note.oscillator) { // <<< Fallback to native
-                   oscFreqParam = targetVoice.osc1Note.oscillator.frequency;
-                   oscDetuneParam = targetVoice.osc1Note.oscillator.detune;
-               }
+           // <<< ADD CHECK: Ensure targetVoice.osc1Note and workletNode exist >>>
+           if (targetVoice.osc1Note && targetVoice.osc1Note.workletNode) {
+            let oscFreqParam = targetVoice.osc1Note.workletNode.parameters.get('frequency');
+            let oscDetuneParam = targetVoice.osc1Note.workletNode.parameters.get('detune');
 
-               if (oscFreqParam) {
-                   console.log(`Poly Osc1 Glide: Freq from ${startFreq.toFixed(2)} to ${targetFreq.toFixed(2)}`);
-                   oscFreqParam.cancelScheduledValues(now); // Cancel previous ramps
-                   oscFreqParam.setValueAtTime(startFreq, now);
-                   oscFreqParam.linearRampToValueAtTime(targetFreq, now + glideTime);
-                   if (oscDetuneParam) { // Update detune smoothly
-                       oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
-                   }
-               } else { console.log("Poly Glide: No valid oscillator frequency parameter found."); }
-           } else { console.log("Poly Glide: No oscillator note found to glide."); }
-           // --- END CORRECTED Osc1 Glide ---
-
+            if (oscFreqParam) {
+                console.log(`Poly Osc1 Glide: Freq from ${startFreq.toFixed(2)} to ${targetFreq.toFixed(2)}`);
+                oscFreqParam.cancelScheduledValues(now);
+                oscFreqParam.setValueAtTime(startFreq, now);
+                oscFreqParam.linearRampToValueAtTime(targetFreq, now + glideTime);
+                if (oscDetuneParam) {
+                    oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
+                }
+            } else { console.log("Poly Glide: No valid oscillator frequency parameter found."); }
+        } else { console.log("Poly Glide: No oscillator note or worklet node found to glide."); }
+        // --- END CORRECTED Osc1 Glide ---
+        
        } else if (isPortamentoOn) {
             console.log(`Poly Portamento: Skipping glide for note ${noteNumber} (no previous note or zero glide time).`);
        }
@@ -2891,32 +3000,32 @@ function noteOff(noteNumber) {
 
             if (!isLegatoMode) { // --- Multi-trigger: Retrigger last held note, glide pitch down ---
                 console.log("Mono NoteOff (Multi): Retriggering and gliding down.");
-                const prevVoice = currentMonoVoice; // Voice being released
-                const prevNoteNumber = prevVoice.noteNumber; // Note being released (noteNumber)
+                const voiceBeingReleased = currentMonoVoice; // The voice object associated with the key being released
+                const releasedNoteNumber = voiceBeingReleased?.noteNumber; // The note number being released
 
                 // --- Get current pitch of the NOTE BEING RELEASED ---
                 let startRate = null;
                 let startFreq = null;
                 if (isPortamentoOn && glideTime > 0.001) {
-                    if (prevVoice?.samplerNote?.source) { /* ... */ }
-                    // Check previous osc1 note (Tone or Native)
-                    if (prevVoice?.osc1Note) { // <<< Check if osc1Note exists on prevVoice
-                        if (prevVoice.osc1Note.toneOscillator) {
-                             try { startFreq = prevVoice.osc1Note.toneOscillator.frequency.value; } catch(e) { console.warn("Couldn't get prev Tone osc freq (noteOff)"); }
-                        } else if (prevVoice.osc1Note.oscillator) {
-                             try { startFreq = prevVoice.osc1Note.oscillator.frequency.value; } catch(e) { console.warn("Couldn't get prev native osc freq (noteOff)"); }
-                        }
+                    if (voiceBeingReleased?.samplerNote?.source) {
+                         try { startRate = voiceBeingReleased.samplerNote.source.playbackRate.value; } catch(e) {}
+                    }
+                    if (voiceBeingReleased?.osc1Note?.workletNode) { // <<< Check workletNode
+                         try {
+                             const freqParam = voiceBeingReleased.osc1Note.workletNode.parameters.get('frequency');
+                             if (freqParam) startFreq = freqParam.value;
+                         } catch(e) {}
                     }
                     // Fallback to target pitch if actual value couldn't be read
-                    if (startRate === null && prevNoteNumber !== null) startRate = TR2 ** (prevNoteNumber - 12);
-                    if (startFreq === null && prevNoteNumber !== null) startFreq = noteToFrequency(prevNoteNumber, osc1OctaveOffset);
+                    if (startRate === null && releasedNoteNumber !== null) startRate = TR2 ** (releasedNoteNumber - 12);
+                    if (startFreq === null && releasedNoteNumber !== null) startFreq = noteToFrequency(releasedNoteNumber, osc1OctaveOffset);
                     console.log(`Mono NoteOff (Multi): Captured glide start pitch - Rate: ${startRate?.toFixed(4)}, Freq: ${startFreq?.toFixed(2)}`);
                 }
                 // --- End Get current pitch ---
 
                 // --- Start NEW voice components for the note being returned to (lastHeldNoteNumber) ---
-                // This ensures the envelope re-triggers correctly.
                 console.log(`Mono NoteOff (Multi): Starting new components for Note ${lastHeldNoteNumber}.`);
+                // Create a *new* voice object for the held note, replacing the old currentMonoVoice
                 currentMonoVoice = { samplerNote: null, osc1Note: null, startTime: now, noteNumber: lastHeldNoteNumber };
                 activeVoices[lastHeldNoteNumber] = currentMonoVoice; // Add/update entry for the held note
 
@@ -2925,100 +3034,132 @@ function noteOff(noteNumber) {
 
                 // --- Apply glide FROM the released note's pitch TO the held note's pitch (on NEW components) ---
                 if (isPortamentoOn && glideTime > 0.001 && (startRate !== null || startFreq !== null)) {
-                    console.log(`Applying MONO multi-trigger glide (noteOff): ${glideTime.toFixed(3)}s from actual pitch of ${prevNoteNumber} down to ${lastHeldNoteNumber}`);
+                    console.log(`Applying MONO multi-trigger glide (noteOff): ${glideTime.toFixed(3)}s from actual pitch of ${releasedNoteNumber} down to ${lastHeldNoteNumber}`);
                     const targetRate = TR2 ** (lastHeldNoteNumber - 12);
                     const targetFreq = noteToFrequency(lastHeldNoteNumber, osc1OctaveOffset);
                    // Sampler Glide (to NEW samplerNote)
-                   if (currentMonoVoice.samplerNote?.source && startRate !== null) { /* ... */ }
-                   // Osc1 Glide (to NEW osc1Note - check Tone or Native)
-                   if (currentMonoVoice.osc1Note && startFreq !== null) {
-                    let newOscFreqParam = null;
-                    let newOscDetuneParam = null; // <<< ADDED
-                    if (currentMonoVoice.osc1Note.toneOscillator) {
-                        newOscFreqParam = currentMonoVoice.osc1Note.toneOscillator.frequency;
-                        newOscDetuneParam = currentMonoVoice.osc1Note.toneOscillator.detune; // <<< ADDED
-                    } else if (currentMonoVoice.osc1Note.oscillator) {
-                        newOscFreqParam = currentMonoVoice.osc1Note.oscillator.frequency;
-                        newOscDetuneParam = currentMonoVoice.osc1Note.oscillator.detune; // <<< ADDED
-                    }
-                    if (newOscFreqParam) {
-                        console.log(`Mono Multi Osc1 Glide (noteOff): Freq from ${startFreq.toFixed(2)} to ${targetFreq.toFixed(2)}`);
-                        newOscFreqParam.setValueAtTime(startFreq, now);
-                        newOscFreqParam.linearRampToValueAtTime(targetFreq, now + glideTime);
-                        // Update detune if needed <<< ADDED
-                        if (newOscDetuneParam) {
-                            newOscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01); // Target global detune
-                        }
-                    } else { console.error("Mono Multi Glide Error (noteOff): New oscillator frequency parameter missing!"); }
-                }
+                   if (currentMonoVoice.samplerNote?.source && startRate !== null) {
+                        console.log(`Mono Multi Sampler Glide (noteOff): Rate from ${startRate.toFixed(4)} to ${targetRate.toFixed(4)}`);
+                        currentMonoVoice.samplerNote.source.playbackRate.setValueAtTime(startRate, now);
+                        currentMonoVoice.samplerNote.source.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
+                   }
+                   // Osc1 Glide (to NEW osc1Note - check Worklet)
+                   // <<< FIX: Ensure we check the NEW currentMonoVoice.osc1Note and its workletNode >>>
+                   if (currentMonoVoice.osc1Note && currentMonoVoice.osc1Note.workletNode && startFreq !== null) { // <<< Check NEW voice
+                        let newOscFreqParam = currentMonoVoice.osc1Note.workletNode.parameters.get('frequency');
+                        let newOscDetuneParam = currentMonoVoice.osc1Note.workletNode.parameters.get('detune');
+
+                        if (newOscFreqParam) {
+                            console.log(`Mono Multi Osc1 Glide (noteOff): Freq from ${startFreq.toFixed(2)} to ${targetFreq.toFixed(2)}`);
+                            newOscFreqParam.setValueAtTime(startFreq, now); // Start glide from released note's pitch
+                            newOscFreqParam.linearRampToValueAtTime(targetFreq, now + glideTime); // Glide to held note's pitch
+                            if (newOscDetuneParam) {
+                                newOscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01); // Target global detune
+                            }
+                        } else { console.error("Mono Multi Glide Error (noteOff): New oscillator frequency parameter missing!"); }
+                   } else if (startFreq !== null) {
+                        console.warn("Mono Multi Glide Warning (noteOff): Skipping Osc1 glide - new osc1Note, workletNode, or startFreq missing.");
+                   }
+                   // <<< END FIX >>>
                } else {
-                     // If portamento is off, the new components started at the correct pitch already.
                      console.log(`Mono NoteOff (Multi): Portamento off or zero glide. New components started at target pitch ${lastHeldNoteNumber}.`);
                 }
 
                 // --- Fade out the components of the note that was just released ---
-                console.log(`Mono NoteOff (Multi): Fading out previous components for Note ${prevNoteNumber}.`);
-                if (prevVoice) {
-                    // Make sure we don't fade out the components we just created if prevNoteNumber === lastHeldNoteNumber (unlikely but possible)
-                    if (prevVoice.samplerNote && prevVoice.samplerNote !== currentMonoVoice.samplerNote) {
-                         quickFadeOutSampler(prevVoice.samplerNote, 0.015);
-                    }
-                    if (prevVoice.osc1Note && prevVoice.osc1Note !== currentMonoVoice.osc1Note) {
-                         quickFadeOutOsc1(prevVoice.osc1Note, 0.015);
-                    }
+                console.log(`Mono NoteOff (Multi): Fading out previous components for Note ${releasedNoteNumber}.`);
+                if (voiceBeingReleased) {
+                    // Use a minimal delay
+                    setTimeout(() => {
+                        if (voiceBeingReleased.samplerNote) quickFadeOutSampler(voiceBeingReleased.samplerNote, 0.015);
+                        if (voiceBeingReleased.osc1Note) quickFadeOutOsc1(voiceBeingReleased.osc1Note, 0.015);
+                    }, 5);
                 }
                 // Remove the old activeVoices entry if it wasn't overwritten
-                if (activeVoices[prevNoteNumber] === prevVoice) {
+                if (releasedNoteNumber !== lastHeldNoteNumber && activeVoices[releasedNoteNumber] === voiceBeingReleased) {
                      // Let kill functions handle deletion after fade out
+                } else if (releasedNoteNumber === lastHeldNoteNumber) {
+                    // If returning to the same note, the entry was already updated.
                 }
-
             } else { // --- Legato mode: Glide pitch back to the last held note (NO retrigger) ---
                 console.log(`Mono NoteOff (Legato): Gliding pitch back to ${lastHeldNoteNumber}.`);
                 const voiceToUpdate = currentMonoVoice; // Use existing voice
-                const releasedNoteNumber = voiceToUpdate.noteNumber; // The note being released (noteNumber)
+                const releasedNoteNumber = voiceToUpdate.noteNumber; // The note being released
 
-                // Update voice state
-                voiceToUpdate.noteNumber = lastHeldNoteNumber;
-                // Update activeVoices mapping
-                activeVoices[lastHeldNoteNumber] = voiceToUpdate;
-                if (releasedNoteNumber !== lastHeldNoteNumber) { // Avoid deleting if returning to the same note (shouldn't happen with heldNotes logic)
-                    delete activeVoices[releasedNoteNumber];
+                // --- CRITICAL: Ensure voiceToUpdate and its ACTIVE components are valid BEFORE proceeding ---
+                // Check the voice object itself and the OSCILLATOR component (which must exist for mono legato)
+                // Sampler component is optional.
+                if (!voiceToUpdate || voiceToUpdate.state === 'killed' ||
+                    !voiceToUpdate.osc1Note || voiceToUpdate.osc1Note.state === 'killed' || !voiceToUpdate.osc1Note.workletNode ||
+                    // <<< MODIFIED CHECK: Only check sampler if it's supposed to be there >>>
+                    (voiceToUpdate.samplerNote && (voiceToUpdate.samplerNote.state === 'killed' || !voiceToUpdate.samplerNote.source))
+                   )
+                {
+                    // Log the state, including whether samplerNote was expected but invalid
+                    let errorDetails = `voiceExists=${!!voiceToUpdate}, voiceState=${voiceToUpdate?.state}, oscExists=${!!voiceToUpdate?.osc1Note}, oscState=${voiceToUpdate?.osc1Note?.state}, workletExists=${!!voiceToUpdate?.osc1Note?.workletNode}`;
+                    if (voiceToUpdate?.samplerNote) { // Log sampler state only if it exists
+                        errorDetails += `, samplerExists=true, samplerState=${voiceToUpdate.samplerNote.state}, sourceExists=${!!voiceToUpdate.samplerNote.source}`;
+                    } else {
+                        errorDetails += `, samplerExists=false`; // Indicate sampler was null
+                    }
+                    console.error(`Mono NoteOff (Legato): Critical error! voiceToUpdate or its required components are invalid/killed before glide back. Details: ${errorDetails}. Voice:`, JSON.stringify(voiceToUpdate, (k,v) => v instanceof AudioNode ? `[${v.constructor.name}]` : v));
+                    // Attempt cleanup or reset if possible, otherwise, the state is broken.
+                    // cleanupAllNotes(); // Avoid drastic cleanup for now, just log and stop.
+                    return; // Stop processing this noteOff
                 }
-                console.log(`Mono NoteOff (Legato): Updated activeVoices map. Key ${releasedNoteNumber} deleted, Key ${lastHeldNoteNumber} points to voice.`);
+                // --- End validation ---
+
+                // Update voice state FIRST
+                voiceToUpdate.noteNumber = lastHeldNoteNumber; // Update the note number it represents
+                // Update activeVoices mapping
+                activeVoices[lastHeldNoteNumber] = voiceToUpdate; // Point the held key to the existing voice
+                if (releasedNoteNumber !== lastHeldNoteNumber) {
+                    delete activeVoices[releasedNoteNumber]; // Remove the entry for the released key
+                }
+                console.log(`Mono NoteOff (Legato): Updated activeVoices map. Key ${releasedNoteNumber} deleted (if different), Key ${lastHeldNoteNumber} points to voice.`);
 
                 // --- Glide pitch FROM current pitch DOWN TO the held note's pitch ---
-                const glideDuration = Math.max(glideTime, 0.001);
+                const glideDuration = Math.max(glideTime, 0.001); // Use global glideTime, ensure minimum
                 console.log(`Applying MONO Legato glide (noteOff): ${glideDuration.toFixed(3)}s`);
                 const targetRate = TR2 ** (lastHeldNoteNumber - 12);
                 const targetFreq = noteToFrequency(lastHeldNoteNumber, osc1OctaveOffset);
 
-                // Sampler Glide (from current rate) - remains the same
-                if (voiceToUpdate.samplerNote?.source) {
-                    // ... (existing sampler glide logic) ...
-                } else { console.log("Mono NoteOff (Legato): No sampler source to glide."); }
+                // Sampler Glide (from current rate) - <<< ONLY IF SAMPLER NOTE IS VALID >>>
+                if (voiceToUpdate.samplerNote && voiceToUpdate.samplerNote.source && voiceToUpdate.samplerNote.state !== 'killed') {
+                    const samplerSource = voiceToUpdate.samplerNote.source;
+                    // <<< Ensure playbackRate exists and is valid >>>
+                    if (samplerSource.playbackRate) {
+                        const currentRate = samplerSource.playbackRate.value;
+                        samplerSource.playbackRate.cancelScheduledValues(now);
+                        console.log(`Mono NoteOff (Legato) Sampler Glide: Rate from ${currentRate.toFixed(4)} to ${targetRate.toFixed(4)}`);
+                        samplerSource.playbackRate.setValueAtTime(currentRate, now);
+                        samplerSource.playbackRate.linearRampToValueAtTime(targetRate, now + glideDuration);
+                        voiceToUpdate.samplerNote.noteNumber = lastHeldNoteNumber; // Update internal note number
+                    } else { console.warn("Mono NoteOff (Legato): Sampler source playbackRate parameter missing."); }
+                } else {
+                    // Log if samplerNote was null or invalid, but don't treat as error
+                    console.log(`Mono NoteOff (Legato): Skipping sampler glide (samplerNote is null or invalid).`);
+                }
 
                 // --- CORRECTED Osc1 Glide (from current freq) ---
-                if (voiceToUpdate.osc1Note) {
-                    let oscFreqParam = null;
-                    let oscDetuneParam = null;
+                // (Oscillator glide logic remains the same, as it's required)
+                if (voiceToUpdate.osc1Note && voiceToUpdate.osc1Note.workletNode) {
+                    // ... (oscillator glide logic) ...
+                    let oscFreqParam = voiceToUpdate.osc1Note.workletNode.parameters.get('frequency');
+                    let oscDetuneParam = voiceToUpdate.osc1Note.workletNode.parameters.get('detune');
                     let currentFreq = NaN;
 
-                    if (voiceToUpdate.osc1Note.toneOscillator) { // <<< Check Tone first
-                        oscFreqParam = voiceToUpdate.osc1Note.toneOscillator.frequency;
-                        oscDetuneParam = voiceToUpdate.osc1Note.toneOscillator.detune;
-                        try { currentFreq = oscFreqParam.value; } catch(e) { console.warn("Couldn't get current Tone freq (noteOff Legato)"); }
-                    } else if (voiceToUpdate.osc1Note.oscillator) { // <<< Fallback to native
-                        oscFreqParam = voiceToUpdate.osc1Note.oscillator.frequency;
-                        oscDetuneParam = voiceToUpdate.osc1Note.oscillator.detune;
-                        try { currentFreq = oscFreqParam.value; } catch(e) { console.warn("Couldn't get current native freq (noteOff Legato)"); }
-                    }
+                    if (oscFreqParam) {
+                        try { currentFreq = oscFreqParam.value; } // Get current frequency
+                        catch(e) { console.warn("Couldn't get current worklet freq (noteOff Legato)"); }
+                    } else { console.warn("Mono NoteOff (Legato): Osc frequency parameter missing."); }
 
-                    if (oscFreqParam && !isNaN(currentFreq)) {
+                    // <<< Check BOTH oscFreqParam and currentFreq validity >>>
+                    if (oscFreqParam && Number.isFinite(currentFreq)) {
                         try {
                             oscFreqParam.cancelScheduledValues(now);
                             console.log(`Mono NoteOff (Legato) Osc1 Glide PRE-RAMP: Now=${now.toFixed(3)}, CurrentFreq=${currentFreq.toFixed(2)}, TargetFreq=${targetFreq.toFixed(2)}, Duration=${glideDuration.toFixed(3)}`);
-                            oscFreqParam.setValueAtTime(currentFreq, now);
-                            oscFreqParam.linearRampToValueAtTime(targetFreq, now + glideDuration);
+                            oscFreqParam.setValueAtTime(currentFreq, now); // Start from current pitch
+                            oscFreqParam.linearRampToValueAtTime(targetFreq, now + glideDuration); // Glide to held note's pitch
                             console.log(`Mono NoteOff (Legato) Osc1 Glide RAMP SCHEDULED: ${currentFreq.toFixed(2)} -> ${targetFreq.toFixed(2)}`);
                             if (oscDetuneParam) { // Update detune smoothly
                                 oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
@@ -3028,10 +3169,12 @@ function noteOff(noteNumber) {
                             console.error(`Mono NoteOff (Legato) Osc1 Glide ERROR: ${e}. CurrentFreq was ${currentFreq}`);
                         }
                     } else {
-                         console.error("Mono NoteOff (Legato) Glide Error: Oscillator frequency parameter missing or invalid current frequency!");
+                         console.error(`Mono NoteOff (Legato) Glide Error: Oscillator frequency parameter missing or invalid current frequency! Param exists: ${!!oscFreqParam}, Freq finite: ${Number.isFinite(currentFreq)}`);
                     }
-                } else { console.log("Mono NoteOff (Legato): No oscillator note to glide."); }
+                } else { console.log("Mono NoteOff (Legato): No valid oscillator worklet node to glide."); } // This case should be caught by the initial validation
                 // --- END CORRECTED Osc1 Glide ---
+
+                // <<< DO NOT RELEASE OR KILL THE VOICE HERE >>>
             }
 
             // Update last played note for subsequent portamento calculations
@@ -3039,29 +3182,42 @@ function noteOff(noteNumber) {
 
         } else { // --- No notes left held ---
             console.log(`Mono NoteOff: No other notes held. Releasing current mono voice (Note ${noteNumber}).`);
-            const voiceToRelease = currentMonoVoice;
+            const voiceToRelease = currentMonoVoice; // Get the reference before nullifying
 
             // --- Store last actual pitch BEFORE nullifying/releasing ---
-            if (voiceToRelease?.samplerNote?.source) {
+            if (voiceToRelease?.samplerNote?.source?.playbackRate) { // <<< Check param exists
                  try { lastActualSamplerRate = voiceToRelease.samplerNote.source.playbackRate.value; } catch(e) {}
             } else { lastActualSamplerRate = null; }
-            if (voiceToRelease?.osc1Note?.oscillator) {
-                 try { lastActualOsc1Freq = voiceToRelease.osc1Note.oscillator.frequency.value; } catch(e) {}
+            if (voiceToRelease?.osc1Note?.workletNode) { // <<< Check workletNode
+                 try {
+                     const freqParam = voiceToRelease.osc1Note.workletNode.parameters.get('frequency');
+                     if (freqParam) lastActualOsc1Freq = freqParam.value;
+                 } catch(e) {}
             } else { lastActualOsc1Freq = null; }
             console.log(`Mono NoteOff: Stored last actual pitch - Rate: ${lastActualSamplerRate?.toFixed(4)}, Freq: ${lastActualOsc1Freq?.toFixed(2)}`);
             // --- End store last actual pitch ---
 
-            currentMonoVoice = null; // Nullify immediately
+            currentMonoVoice = null; // Nullify the global reference *now*
             console.log(`Mono NoteOff: currentMonoVoice set to null.`);
 
+            // --- Call release functions for the components ---
             if (voiceToRelease) {
-                 if (voiceToRelease.samplerNote) releaseSamplerNote(voiceToRelease.samplerNote);
-                 if (voiceToRelease.osc1Note) releaseOsc1Note(voiceToRelease.osc1Note);
+                 if (voiceToRelease.samplerNote) {
+                     console.log(`Mono NoteOff: Releasing sampler note ${voiceToRelease.samplerNote.id}`);
+                     releaseSamplerNote(voiceToRelease.samplerNote);
+                 }
+                 if (voiceToRelease.osc1Note) {
+                     console.log(`Mono NoteOff: Releasing osc1 note ${voiceToRelease.osc1Note.id}`);
+                     releaseOsc1Note(voiceToRelease.osc1Note);
+                 }
+                 // The activeVoices entry for the released note number should be cleaned up
+                 // by the kill functions called after the release ramp.
             } else {
                  console.warn(`Mono NoteOff: voiceToRelease was unexpectedly null when releasing last key for note ${noteNumber}.`);
-                 // Clear stored pitch if we couldn't get it
-                 lastActualSamplerRate = null;
+                 lastActualSamplerRate = null; // Clear stored pitch if we couldn't get it
                  lastActualOsc1Freq = null;
+                 // Manually delete the activeVoices entry as a fallback
+                 delete activeVoices[noteNumber];
             }
             // lastPlayedNoteNumber remains from the note that was just released
         }
@@ -3396,28 +3552,15 @@ if (osc1OctaveSelector) {
         // Update frequency of all active Osc1 notes immediately
         const now = audioCtx.currentTime;
         Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc1Note) { // Check if osc1Note exists
-                const targetFreq = noteToFrequency(voice.osc1Note.noteNumber, osc1OctaveOffset); // Calculate target freq with new offset
-                let freqParam = null;
-
-                // --- Find the correct frequency parameter ---
-                if (voice.osc1Note.toneOscillator) {
-                    freqParam = voice.osc1Note.toneOscillator.frequency;
-                    console.log(`Updating Tone Osc note ${voice.osc1Note.id} frequency to ${targetFreq.toFixed(2)} Hz`);
-                } else if (voice.osc1Note.oscillator) {
-                    freqParam = voice.osc1Note.oscillator.frequency;
-                    console.log(`Updating Native Osc note ${voice.osc1Note.id} frequency to ${targetFreq.toFixed(2)} Hz`);
-                }
-                // --- End Find parameter ---
-
-                // --- Apply smooth update ---
+            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
+                const targetFreq = noteToFrequency(voice.osc1Note.noteNumber, osc1OctaveOffset);
+                const freqParam = voice.osc1Note.workletNode.parameters.get('frequency');
                 if (freqParam) {
-                    // Use setTargetAtTime for a slightly smoother transition than immediate jump
-                    freqParam.setTargetAtTime(targetFreq, now, 0.01); // Short time constant (10ms)
+                    console.log(`Updating Worklet note ${voice.osc1Note.id} frequency to ${targetFreq.toFixed(2)} Hz`);
+                    freqParam.setTargetAtTime(targetFreq, now, 0.01);
                 } else {
                     console.warn(`Could not find frequency parameter for Osc1 note ${voice.osc1Note.id}`);
                 }
-                // --- End Apply update ---
             }
         });
     });
@@ -3431,110 +3574,74 @@ if (osc1OctaveSelector) {
 } else {
     console.warn("Oscillator 1 Octave Selector element not found!");
 }
+function updatePWMKnobState() {
+    const pwmKnobElement = D('osc1-pwm-knob');
+    const pwmKnobContainer = pwmKnobElement ? pwmKnobElement.closest('.knob-container') : null;
+    const isPulseOrSquare = (osc1Waveform === 'pulse' || osc1Waveform === 'square');
+
+    if (pwmKnobContainer) {
+        if (isPulseOrSquare) {
+            pwmKnobContainer.classList.remove('disabled');
+            pwmKnobElement.classList.remove('disabled');
+        } else {
+            pwmKnobContainer.classList.add('disabled');
+            pwmKnobElement.classList.add('disabled');
+            // Optionally hide tooltip if disabled
+            const tooltip = pwmKnobContainer.querySelector('.knob-tooltip');
+            if (tooltip) tooltip.style.opacity = '0';
+        }
+    }
+}
 // Initialize Oscillator 1 Wave Shape Selector
 const osc1WaveSelector = D('osc1-wave-selector');
 if (osc1WaveSelector) {
+
+    // <<< Updated map including pulse >>>
+    const waveMapSliderToName = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
+
     osc1WaveSelector.addEventListener('input', (event) => {
-        const sliderValue = parseInt(event.target.value, 10); // Value is 0-4
+        const sliderValue = parseInt(event.target.value, 10);
         const prevWaveform = osc1Waveform;
+        const selectedWave = waveMapSliderToName[sliderValue] || 'triangle';
 
-        const waveMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-        const selectedWave = waveMap[sliderValue] || 'triangle';
+        if (selectedWave === prevWaveform) return;
 
-        if (selectedWave === prevWaveform) return; // No change
-
+        console.log(`Osc1 Wave changed from ${prevWaveform} to ${selectedWave}`);
         osc1Waveform = selectedWave; // Update global state
-        console.log(`Osc1 Wave Selector value: ${sliderValue}, Waveform changed from ${prevWaveform} to: ${osc1Waveform}`);
 
-        // --- Update Active Notes (Complex: Replace Oscillator Structure) ---
+        // --- Update Active Notes ---
         const now = audioCtx.currentTime;
+        const targetWaveformType = waveMapNameToWorkletType[osc1Waveform] !== undefined ? waveMapNameToWorkletType[osc1Waveform] : 0;
+
         Object.values(activeVoices).forEach(voice => {
-            // Only update notes that are currently playing
-            if (voice && voice.osc1Note && voice.osc1Note.state === 'playing') {
+            // <<< Simplify: Only need to handle workletNode >>>
+            if (voice && voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.state === 'playing') {
                 const oscNote = voice.osc1Note;
-                console.log(`Updating active Osc1 note ${oscNote.id} from ${prevWaveform} to ${osc1Waveform}`);
-
                 try {
-                    // --- Get current state ---
-                    const currentGain = oscNote.gainNode.gain.value; // ADSR gain
-                    const currentLevel = oscNote.levelNode.gain.value; // Level gain
-                    let currentFreq = NaN;
-                    let currentDetune = NaN;
-
-                    if (oscNote.toneOscillator) {
-                        currentFreq = oscNote.toneOscillator.frequency.value;
-                        currentDetune = oscNote.toneOscillator.detune.value;
-                    } else if (oscNote.oscillator) {
-                        currentFreq = oscNote.oscillator.frequency.value;
-                        currentDetune = oscNote.oscillator.detune.value;
+                    // Update the waveformType parameter directly
+                    const waveformParam = oscNote.workletNode.parameters.get('waveformType');
+                    if (waveformParam) {
+                        // waveformType is k-rate, so setValueAtTime is appropriate
+                        waveformParam.setValueAtTime(targetWaveformType, now);
+                        console.log(`Updated active note ${oscNote.id} waveform type to ${targetWaveformType} (${osc1Waveform})`);
                     } else {
-                         throw new Error("Active note has no oscillator reference.");
+                        console.warn(`Could not find waveformType parameter for note ${oscNote.id}`);
                     }
 
-                    // --- Stop and disconnect old structure ---
-                    oscNote.gainNode.gain.cancelScheduledValues(now);
-                    oscNote.gainNode.gain.setValueAtTime(0, now); // Silence briefly
-
-                    if (oscNote.toneOscillator) {
-                        oscNote.toneOscillator.disconnect(oscNote.levelNode); // <<< Disconnect from levelNode
-                        oscNote.toneOscillator.dispose();
-                        oscNote.toneOscillator = null;
-                    } else if (oscNote.oscillator) {
-                        oscNote.oscillator.disconnect(oscNote.levelNode); // <<< Disconnect from levelNode
-                        try { oscNote.oscillator.stop(now); } catch(e){}
-                        oscNote.oscillator = null;
-                    }
-
-                    // --- Create and connect new structure ---
-                    let newNativeOscillator = null;
-                    let newToneOscillator = null;
-                    const targetFreq = noteToFrequency(oscNote.noteNumber, osc1OctaveOffset);
-
-                    if (osc1Waveform === 'pulse') {
-                        newToneOscillator = new Tone.PulseOscillator(targetFreq, 0.25);
-                        newToneOscillator.detune.value = currentDetune;
-                        newToneOscillator.connect(oscNote.levelNode); // <<< Connect to existing levelNode
-                        newToneOscillator.start(now);
-                        // Glide from previous frequency if needed (Portamento logic)
-                        if (isPortamentoOn && glideTime > 0.001 && !isNaN(currentFreq)) {
-                             newToneOscillator.frequency.setValueAtTime(currentFreq, now);
-                             newToneOscillator.frequency.linearRampToValueAtTime(targetFreq, now + glideTime);
-                        }
-                    } else {
-                        newNativeOscillator = audioCtx.createOscillator();
-                        newNativeOscillator.type = osc1Waveform;
-                        newNativeOscillator.frequency.setValueAtTime(targetFreq, now);
-                        newNativeOscillator.detune.setValueAtTime(currentDetune, now);
-                        newNativeOscillator.connect(oscNote.levelNode); // <<< Connect to existing levelNode
-                        newNativeOscillator.start(now);
-                         // Glide from previous frequency if needed (Portamento logic)
-                        if (isPortamentoOn && glideTime > 0.001 && !isNaN(currentFreq)) {
-                             newNativeOscillator.frequency.setValueAtTime(currentFreq, now);
-                             newNativeOscillator.frequency.linearRampToValueAtTime(targetFreq, now + glideTime);
-                        }
-                    }
-
-                    // Update note object
-                    oscNote.oscillator = newNativeOscillator;
-                    oscNote.toneOscillator = newToneOscillator;
-
-                    // No need to restore gain, levelNode and gainNode were untouched
-
-                    console.log(`Successfully updated active Osc1 note ${oscNote.id} to ${osc1Waveform}`);
+                    // --- NO NEED TO RECREATE NODE ---
+                    // The worklet handles different waveforms internally based on the parameter.
+                    // Glide logic is handled by frequency/detune parameter updates elsewhere.
 
                 } catch (e) {
-                    console.error(`Error updating active Osc1 note ${oscNote.id} waveform:`, e);
-                    killOsc1Note(oscNote); // Attempt to kill the note if update fails badly
+                    console.error(`Error updating active Osc1 note ${oscNote?.id} waveform type:`, e);
+                    // Consider killing note if update fails badly
+                    // killOsc1Note(oscNote);
                 }
             }
+            // <<< Remove handling for toneOscillator >>>
         });
     });
-
-    // Set initial waveform based on default slider value
-    const initialWaveValue = parseInt(osc1WaveSelector.value, 10);
-    const initialWaveMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-    osc1Waveform = initialWaveMap[initialWaveValue] || 'triangle';
-    console.log(`Osc1 Wave initial waveform: ${osc1Waveform}`);
 
 } else {
     console.warn("Oscillator 1 Wave Selector element not found!");
