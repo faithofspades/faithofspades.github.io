@@ -185,14 +185,24 @@
   background-color: #BA5446;
   box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
 }
-
+/* Red knobs: Pitch and Gain - USE CORRECT IDs */
+.oscillator-module #osc2-pitch-knob,
+.oscillator-module #osc2-gain-knob {
+  background-color: #BA5446;
+  box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;
+}
 /* Blue knobs: PWM and Quantize - USE CORRECT IDs */
 .oscillator-module #osc1-pwm-knob,
 .oscillator-module #osc1-quantize-knob {
   background-color: #4E658B;
   box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
 }
-
+/* Blue knobs: PWM and Quantize - USE CORRECT IDs */
+.oscillator-module #osc2-pwm-knob,
+.oscillator-module #osc2-quantize-knob {
+  background-color: #4E658B;
+  box-shadow: 0 0 0 4.2px #4E658B, 0 0 0 6px #35100B;
+}
 /* Green knob: FM - USE CORRECT ID (already default, but explicit is fine) */
 .oscillator-module #osc1-fm-knob {
   background-color: #6B8F53;
@@ -321,7 +331,7 @@
     content: '';
     position: absolute;
     top: calc(25% - 1px); /* Align with top line */
-    right: -12px; /* Position at the end of the horizontal lines */
+    right: -7px; /* Position at the end of the horizontal lines */
     width: 2px;
     height: calc(23% + 2px); /* Connect between top and bottom lines */
     background-color: #35100B;
@@ -332,7 +342,7 @@
     content: '';
     position: absolute;
     top: 34%; /* Center vertically */
-    right: -42px; /* Extend to the FM knob */
+    right: -36px; /* Extend to the FM knob */
     width: 30px; /* Length of line to reach FM knob */
     height: 2px;
     background-color: #35100B;
@@ -342,7 +352,7 @@
     content: '';
     position: absolute;
     top: 25%; /* Position in upper half when inactive */
-    right: -13.7px;
+    right: -13.2px;
     width: 13px;
     height: 2px;
     background-color: #35100B;

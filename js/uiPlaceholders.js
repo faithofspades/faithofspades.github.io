@@ -374,19 +374,19 @@ console.log('LFO Delay:', delaySlider.value);
     // ----------------------------------------
     //  Oscillator FM Source Switches
     // ----------------------------------------
-    const oscSwitches = document.querySelectorAll('.osc-vertical-switch');
-    oscSwitches.forEach((switchEl, index) => {
-        if (!switchEl.id) { switchEl.id = `fm-source-switch-${index + 1}`; }
-        const newSwitch = switchEl.cloneNode(true); switchEl.parentNode.replaceChild(newSwitch, switchEl); switchEl = newSwitch;
-        let isActive = false;
-        switchEl.addEventListener('click', function() {
-            isActive = !isActive; this.classList.toggle('active', isActive);
-            const switchNum = this.id.includes('2') ? 2 : 1; console.log(`Oscillator ${switchNum} FM Source changed to:`, isActive ? 'Osc 2' : 'Noise');
-        });
-        switchEl.addEventListener('touchstart', function(e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
-        switchEl.addEventListener('touchend', function(e) { this.click(); e.preventDefault(); e.stopPropagation(); }, { passive: false });
-        switchEl.style.cursor = 'pointer';
-    });
+    // const oscSwitches = document.querySelectorAll('.osc-vertical-switch');
+    // oscSwitches.forEach((switchEl, index) => {
+    //     if (!switchEl.id) { switchEl.id = `fm-source-switch-${index + 1}`; }
+    //     const newSwitch = switchEl.cloneNode(true); switchEl.parentNode.replaceChild(newSwitch, switchEl); switchEl = newSwitch;
+    //     let isActive = false;
+    //     switchEl.addEventListener('click', function() {
+    //         isActive = !isActive; this.classList.toggle('active', isActive);
+    //         const switchNum = this.id.includes('2') ? 2 : 1; console.log(`Oscillator ${switchNum} FM Source changed to:`, isActive ? 'Osc 2' : 'Noise');
+    //     });
+    //     switchEl.addEventListener('touchstart', function(e) { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    //     switchEl.addEventListener('touchend', function(e) { this.click(); e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    //     switchEl.style.cursor = 'pointer';
+    // });
 
      // ----------------------------------------
     //  Mod Select Button
