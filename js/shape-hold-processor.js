@@ -1,12 +1,13 @@
 class ShapeHoldProcessor extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [
-            // <<< CHANGE frequency automationRate >>>
-            { name: 'frequency', defaultValue: 440, minValue: 20, maxValue: 20000, automationRate: 'a-rate' },
+            // Frequency is modulated for Linear TZFM
+            { name: 'frequency', defaultValue: 440, minValue: -20000, maxValue: 20000, automationRate: 'a-rate' }, // Allow negative target
             { name: 'detune', defaultValue: 0, minValue: -1200, maxValue: 1200, automationRate: 'k-rate' },
             { name: 'holdAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'quantizeAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 }
+            // No separate phaseModulation parameter needed for this approach
         ];
     }
 
@@ -14,50 +15,64 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
         super(options);
         this.phase = 0;
         this.sampleRate = sampleRate;
-        // <<< Add start value for pulse >>>
-        this._holdValues = [ 0.0, -1.0, 0.0, 1.0, 1.0 ]; // sine, saw, tri, square, pulse start values
+        this._holdValues = [ 0.0, -1.0, 0.0, 1.0, 1.0 ];
     }
 
     process(inputs, outputs, parameters) {
         const output = outputs[0];
         const outputChannel = output[0];
 
-        const frequencyValues = parameters.frequency;
+        const frequencyValues = parameters.frequency; // This now includes the FM signal
         const detuneValues = parameters.detune;
         const holdAmountValues = parameters.holdAmount;
-        const quantizeAmountValues = parameters.quantizeAmount; // <<< Get quantize values
+        const quantizeAmountValues = parameters.quantizeAmount;
         const waveformTypeValues = parameters.waveformType;
 
         const waveformType = waveformTypeValues[0];
         const holdValue = this._holdValues[waveformType] !== undefined ? this._holdValues[waveformType] : 0.0;
 
         for (let i = 0; i < outputChannel.length; ++i) {
-            const freq = frequencyValues.length > 1 ? frequencyValues[i] : frequencyValues[0];
+            // --- Calculate Instantaneous Frequency ---
+            const baseFreq = frequencyValues.length > 1 ? frequencyValues[i] : frequencyValues[0]; // Base freq + FM modulation
             const detune = detuneValues.length > 1 ? detuneValues[i] : detuneValues[0];
             const holdAmount = holdAmountValues.length > 1 ? holdAmountValues[i] : holdAmountValues[0];
-            const quantizeAmount = quantizeAmountValues.length > 1 ? quantizeAmountValues[i] : quantizeAmountValues[0]; // <<< Read quantize amount
+            const quantizeAmount = quantizeAmountValues.length > 1 ? quantizeAmountValues[i] : quantizeAmountValues[0];
 
-            const effectiveFreq = freq * Math.pow(2, detune / 1200);
-            const phaseIncrement = effectiveFreq / this.sampleRate;
+            // Apply detune AFTER getting the modulated frequency
+            const instantaneousFreq = baseFreq * Math.pow(2, detune / 1200);
+            // --- End Instantaneous Frequency ---
 
+            // <<< Calculate Phase Increment based on ABSOLUTE frequency >>>
+            // The increment magnitude is always positive
+            const phaseIncrementMagnitude = Math.abs(instantaneousFreq) / this.sampleRate;
+
+            // <<< Determine Phase Direction >>>
+            // If instantaneous frequency is negative, phase moves backward
+            const phaseDirection = Math.sign(instantaneousFreq); // 1 if positive/zero, -1 if negative
+
+            // Apply phase increment (magnitude * direction)
+            this.phase += phaseIncrementMagnitude * phaseDirection;
+
+            // Wrap phase (handle both positive and negative overflow)
+            this.phase = this.phase - Math.floor(this.phase); // Wraps phase to 0.0 - <1.0 range
+
+            // --- Waveform Generation (uses the wrapped phase) ---
+            const currentPhase = this.phase; // Use the potentially reversed phase
             const clampedHoldAmount = Math.max(0.0, Math.min(1.0, holdAmount));
             const activeRatio = 1.0 - clampedHoldAmount;
-
-            let sample = 0; // Initialize sample value
+            let sample = 0;
 
             if (activeRatio <= 1e-6) {
-                sample = holdValue; // Output only the hold value if fully held
-            } else if (this.phase < activeRatio) {
-                const squeezedPhase = this.phase / activeRatio;
-
-                switch (waveformType) {
+                sample = holdValue;
+            } else if (currentPhase < activeRatio) {
+                const squeezedPhase = currentPhase / activeRatio;
+                // ... (Waveform switch cases remain the same, using squeezedPhase) ...
+                 switch (waveformType) {
                     case 0: sample = Math.sin(squeezedPhase * 2 * Math.PI); break; // Sine
                     case 1: sample = (squeezedPhase * 2) - 1; break; // Saw
                     case 2: sample = 1 - 4 * Math.abs(Math.round(squeezedPhase - 0.25) - (squeezedPhase - 0.25)); break; // Tri
                     case 3: sample = squeezedPhase < 0.5 ? 1 : -1; break; // Square (50% duty)
-                    // <<< ADD case 4 for Pulse >>>
                     case 4: {
-                        // Map holdAmount (0-1) to duty cycle (0.25-1.0) for pulse wave
                         const dutyCycle = 0.25 + (clampedHoldAmount * 0.75);
                         sample = squeezedPhase < dutyCycle ? 1 : -1;
                         break;
@@ -65,51 +80,28 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
                     default: sample = Math.sin(squeezedPhase * 2 * Math.PI); // Sine fallback
                 }
             } else {
-                // Hold phase
                 sample = holdValue;
             }
+            // --- End Waveform Generation ---
 
-            // <<< APPLY QUANTIZATION >>>
-            const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
-            if (clampedQuantize > 0.005) { // Only apply if amount is significant
-
-                // <<< ADJUSTED MAPPING: Map quantizeAmount (0-1) to steps (256 down to 4) >>>
-                // Use power curve (pow(2)) on the inverse amount for smoother transition
-                const factor = Math.pow(1 - clampedQuantize, 2); // Curve factor (1 down to 0)
-
-                // Linearly interpolate steps between 4 (min) and 256 (max) using the factor
-                // When factor = 1 (quantize=0), steps = 4 + 252 * 1 = 256
-                // When factor = 0 (quantize=1), steps = 4 + 252 * 0 = 4
-                const calculatedSteps = 4 + (256 - 4) * factor; // Interpolate between 4 and 256
-
-                // Use floor for integer steps and ensure minimum of 4
-                const steps = Math.max(4, Math.floor(calculatedSteps)); // Ensure minimum is 4
-                // <<< END ADJUSTED MAPPING >>>
-
-                // Avoid quantizing if steps are effectively 256 (or very close)
-                if (steps < 256) { // Check against 256 now
-                   // <<< USE STANDARD QUANTIZATION FORMULA with FLOOR for harshness >>>
-                   // 1. Normalize sample from [-1, 1] to [0, 1]
+            // ... (Quantization logic remains the same) ...
+             const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
+            if (clampedQuantize > 0.005) {
+                const factor = Math.pow(1 - clampedQuantize, 2);
+                const calculatedSteps = 4 + (256 - 4) * factor;
+                const steps = Math.max(4, Math.floor(calculatedSteps));
+                if (steps < 256) {
                    const normalizedSample = (sample + 1) / 2;
-                   // 2. Scale by (steps - 1), apply floor
                    const quantizedScaled = Math.floor(normalizedSample * (steps - 1));
-                   // 3. Divide by (steps - 1) to get quantized normalized value
                    const quantizedNormalized = (steps > 1) ? quantizedScaled / (steps - 1) : quantizedScaled;
-                   // 4. Denormalize back to [-1, 1]
                    sample = quantizedNormalized * 2 - 1;
-                   // <<< END STANDARD QUANTIZATION FORMULA >>>
                 }
             }
-            // <<< END QUANTIZATION >>>
 
 
-            outputChannel[i] = sample; // Output the potentially modified sample
+            outputChannel[i] = sample;
 
-            // Increment and wrap phase
-            this.phase += phaseIncrement;
-            if (this.phase >= 1.0) {
-                this.phase -= 1.0;
-            }
+            // Phase increment/wrapping is now handled earlier based on instantaneous frequency
         }
         return true;
     }

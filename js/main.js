@@ -168,7 +168,7 @@ let osc1PWMValue = 0.0; // 0.0 to 1.0. Interpreted as Duty Cycle (Pulse/Square) 
 let osc1QuantizeValue = 0.0; // <<< ADD: Quantization amount 0.0 to 1.0
 let osc1FMAmount = 0.0; // 0.0 to 1.0
 let osc1FMSource = 'sampler'; // 'sampler' or 'osc2'
-const osc1FMDepthScale = 20000; // Max frequency deviation in Hz
+const osc1FMDepthScale = 22000; // Max frequency deviation in Hz
 
 
 
@@ -228,13 +228,13 @@ const knobDefaults = {
  */
 function updateOsc1FmModulatorParameters(osc1Note, now) {
     // --- Prerequisites Check ---
-    // <<< ADD: More robust check at the start >>>
-    const freqParam = osc1Note?.workletNode?.parameters.get('frequency'); // Safely access
+    // <<< CHECK frequency PARAMETER >>>
+    const freqParam = osc1Note?.workletNode?.parameters.get('frequency');
     const prerequisitesMet = osc1Note &&
                               osc1FMSource === 'sampler' &&
                               audioBuffer &&
                               osc1Note.workletNode &&
-                              freqParam;
+                              freqParam; // <<< Check frequency parameter
 
     if (!prerequisitesMet) {
         const reason = !osc1Note ? "no osc1Note" :
@@ -255,13 +255,13 @@ function updateOsc1FmModulatorParameters(osc1Note, now) {
             } catch(e) {}
             osc1Note.fmModulatorSource = null;
         }
-        // Disconnect and nullify old depth gain if it exists
+        // Disconnect from frequency parameter if disconnecting gain
         if (osc1Note?.fmDepthGain) {
             try {
-                // Try disconnecting from param first if it was found initially
+                // <<< CHECK frequency PARAMETER >>>
                 const oldFreqParam = osc1Note.workletNode?.parameters.get('frequency');
                 if (oldFreqParam) osc1Note.fmDepthGain.disconnect(oldFreqParam);
-                osc1Note.fmDepthGain.disconnect(); // Disconnect from anything else
+                osc1Note.fmDepthGain.disconnect();
             } catch(e) {}
             console.log(`updateOsc1FmModulatorParameters [${osc1Note?.id}]: Nullifying fmDepthGain due to unmet prerequisites (${reason}).`);
             osc1Note.fmDepthGain = null; // <<< Ensure nullified
@@ -289,6 +289,7 @@ function updateOsc1FmModulatorParameters(osc1Note, now) {
     if (osc1Note.fmDepthGain) {
         try {
             // freqParam is guaranteed to exist here due to prerequisite check
+            // <<< DISCONNECT FROM frequency PARAMETER >>>
             osc1Note.fmDepthGain.disconnect(freqParam);
             osc1Note.fmDepthGain.disconnect(); // Disconnect from others
             console.log(`updateOsc1FmModulatorParameters [${noteId}]: Disconnected old FM depth gain connections.`);
@@ -304,10 +305,9 @@ function updateOsc1FmModulatorParameters(osc1Note, now) {
         } else {
              console.log(`updateOsc1FmModulatorParameters [${noteId}]: Reusing existing FM depth gain.`);
         }
-        // Set initial gain value (will be targeted by knob callback)
+        // Set initial gain value (using REVERTED scale)
         const scaledDepth = osc1FMAmount * osc1FMDepthScale;
         osc1Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
-
 
         const newFmSource = audioCtx.createBufferSource();
 
@@ -373,11 +373,11 @@ function updateOsc1FmModulatorParameters(osc1Note, now) {
        // --- Connect and Start ---
         // Prerequisites (freqParam, fmDepthGain) are guaranteed here unless buffer was invalid
         newFmSource.connect(osc1Note.fmDepthGain);
-        osc1Note.fmDepthGain.connect(freqParam); // Connect gain to parameter
+        // <<< CONNECT TO frequency PARAMETER >>>
+        osc1Note.fmDepthGain.connect(freqParam); // Connect gain to frequency parameter
         newFmSource.start(now);
-        osc1Note.fmModulatorSource = newFmSource; // Store the new source
-        console.log(`updateOsc1FmModulatorParameters [${noteId}]: Started and connected new FM modulator source.`);
-
+        osc1Note.fmModulatorSource = newFmSource;
+        console.log(`updateOsc1FmModulatorParameters [${noteId}]: Started and connected new FM modulator source to frequency.`);
 
     } catch (error) {
         console.error(`updateOsc1FmModulatorParameters [${noteId}]: Error creating/starting new FM source:`, error);
@@ -828,41 +828,47 @@ const knobInitializations = {
         console.log('Osc1 Detune:', osc1Detune.toFixed(2));
     },
     'osc1-fm-knob': (value) => {
-        // const prevFMAmount = osc1FMAmount; // No longer needed
-        osc1FMAmount = value; // Update global amount
+        // Apply exponential curve
+        const curvedValue = value * value;
+        const prevFMAmount = osc1FMAmount; // Store previous amount
+        osc1FMAmount = curvedValue; // Update global curved value
 
+        // Calculate scaled depth (Hz)
         const scaledDepth = osc1FMAmount * osc1FMDepthScale;
         const now = audioCtx.currentTime;
-        const isNowOn = osc1FMAmount > 0.001; // Check if FM should be on
+        const isNowOn = osc1FMAmount > 0.001;
+        const wasPreviouslyOff = prevFMAmount <= 0.001;
 
+        // Update tooltip
         const tooltip = createTooltipForKnob('osc1-fm-knob', value);
         tooltip.textContent = `FM: ${(scaledDepth).toFixed(0)}Hz`;
         tooltip.style.opacity = '1';
 
-        // --- UPDATE Per-Voice FM ---
+        // --- UPDATE Per-Voice ---
         Object.values(activeVoices).forEach(voice => {
             if (voice && voice.osc1Note) {
-                // <<< SIMPLIFIED LOGIC >>>
-                if (isNowOn) {
-                    // If FM should be on, ensure the modulator is running/updated.
-                    // This function now handles creating/connecting/setting initial gain if needed.
-                    updateOsc1FmModulatorParameters(voice.osc1Note, now);
-                }
-                // Always try to set the target gain.
-                // updateOsc1FmModulatorParameters should have created fmDepthGain if isNowOn was true.
-                // If isNowOn is false, this ramps the gain to 0.
+                // Check if the fmDepthGain node exists for this voice.
                 if (voice.osc1Note.fmDepthGain) {
-                    voice.osc1Note.fmDepthGain.gain.setTargetAtTime(scaledDepth, now, 0.015);
+                    // <<< Node exists: Just update gain smoothly >>>
+                    const timeConstant = 0.020; // 20ms time constant
+                    voice.osc1Note.fmDepthGain.gain.setTargetAtTime(scaledDepth, now, timeConstant);
                 } else if (isNowOn) {
-                    // Log if gain node is missing even though FM should be on
-                    console.warn(`osc1-fm-knob: fmDepthGain missing for note ${voice.osc1Note.id} after update call.`);
+                    // <<< Node MISSING, but FM should be ON now >>>
+                    // This happens if the note started while FM knob was at 0.
+                    // Call updateOsc1FmModulatorParameters to create/connect nodes.
+                    console.log(`osc1-fm-knob: FM turned on for note ${voice.osc1Note.id}. Initializing FM nodes.`);
+                    updateOsc1FmModulatorParameters(voice.osc1Note, now);
+                    // updateOsc1FmModulatorParameters sets the initial gain,
+                    // so no need to setTargetAtTime immediately after.
                 }
-                // <<< END SIMPLIFIED LOGIC >>>
+                // <<< If !isNowOn and node missing, do nothing (FM is off) >>>
+                // <<< If !isNowOn and node exists, the gain ramp above will handle turning it down >>>
             }
         });
         // --- END UPDATE ---
 
-        console.log(`Osc1 FM Amount: ${osc1FMAmount.toFixed(2)}, Depth: ${scaledDepth.toFixed(1)} Hz`);
+        // Log values
+        console.log(`Osc1 FM Knob Raw: ${value.toFixed(3)}, Curved: ${osc1FMAmount.toFixed(3)}, Depth: ${scaledDepth.toFixed(1)} Hz`);
     },
     'sample-start-knob': (value) => {
         const minLoopFractionRequired = 0.001; // Minimum gap always required
@@ -2767,6 +2773,8 @@ function startOsc1Note(noteNumber, audioCtx, destination) {
     let fmDepthGain = null;     // <<< ADD: For per-voice FM depth
 
     const now = audioCtx.currentTime;
+    // Base frequency for the note (before FM is applied via parameter)
+    const baseFreq = noteToFrequency(noteNumber, osc1OctaveOffset);
     const targetFreq = noteToFrequency(noteNumber, osc1OctaveOffset);
     const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
 
@@ -2778,7 +2786,7 @@ function startOsc1Note(noteNumber, audioCtx, destination) {
 
         workletNode = new AudioWorkletNode(audioCtx, 'shape-hold-processor', {
             parameterData: {
-                frequency: targetFreq,
+                frequency: baseFreq, // <<< Set BASE frequency here
                 detune: osc1Detune,
                 holdAmount: holdAmountValue,
                 quantizeAmount: quantizeValue,
@@ -2788,10 +2796,11 @@ function startOsc1Note(noteNumber, audioCtx, destination) {
 
         // --- ADD: Per-Voice FM Setup ---
         if (osc1FMSource === 'sampler' && audioBuffer && osc1FMAmount > 0.001) {
-            console.log(`startOsc1Note [${noteId}]: Setting up Sampler FM.`);
+            console.log(`startOsc1Note [${noteId}]: Setting up Sampler FM (Linear TZFM).`); // Indicate Linear TZFM
             fmDepthGain = audioCtx.createGain();
+            // Use the REVERTED osc1FMDepthScale (Hz)
             const scaledDepth = osc1FMAmount * osc1FMDepthScale;
-            fmDepthGain.gain.value = scaledDepth; // Set initial depth
+            fmDepthGain.gain.value = scaledDepth;
 
             fmModulatorSource = audioCtx.createBufferSource();
 
@@ -2852,13 +2861,14 @@ function startOsc1Note(noteNumber, audioCtx, destination) {
                 console.log(`startOsc1Note FM [${noteId}]: Loop=${fmModulatorSource.loop}, Start=${fmModulatorSource.loopStart.toFixed(3)}, End=${fmModulatorSource.loopEnd.toFixed(3)}`);
 
                 // --- Connect FM Chain ---
-                const freqParam = workletNode.parameters.get('frequency');
-                if (freqParam) {
-                    fmModulatorSource.connect(fmDepthGain);
-                    fmDepthGain.connect(freqParam);
-                    console.log(`startOsc1Note FM [${noteId}]: Connected FM chain to frequency parameter.`);
-                    fmModulatorSource.start(now); // Start the modulator
-                } else {
+            // <<< CONNECT TO frequency PARAMETER >>>
+            const freqParam = workletNode.parameters.get('frequency');
+            if (freqParam) {
+                fmModulatorSource.connect(fmDepthGain);
+                fmDepthGain.connect(freqParam); // <<< Connect FM signal to frequency param
+                console.log(`startOsc1Note FM [${noteId}]: Connected FM chain to frequency parameter.`);
+                fmModulatorSource.start(now);
+            } else {
                     console.warn(`startOsc1Note FM [${noteId}]: Could not find frequency parameter on worklet. FM disconnected.`);
                     fmModulatorSource = null; // Nullify if connection failed
                     fmDepthGain = null;
@@ -2982,6 +2992,7 @@ function killOsc1Note(note) {
             // Disconnect from parameter first if possible
             if (note.workletNode) {
                  try {
+                     // <<< DISCONNECT FROM frequency PARAMETER >>>
                      const freqParam = note.workletNode.parameters.get('frequency');
                      if (freqParam) note.fmDepthGain.disconnect(freqParam);
                  } catch(e) {}
