@@ -1,13 +1,12 @@
 class ShapeHoldProcessor extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [
-            { name: 'frequency', defaultValue: 440, minValue: 20, maxValue: 20000, automationRate: 'k-rate' },
+            // <<< CHANGE frequency automationRate >>>
+            { name: 'frequency', defaultValue: 440, minValue: 20, maxValue: 20000, automationRate: 'a-rate' },
             { name: 'detune', defaultValue: 0, minValue: -1200, maxValue: 1200, automationRate: 'k-rate' },
-            { name: 'holdAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' }, // Controls shape/PWM
-            // <<< ADD quantizeAmount parameter >>>
+            { name: 'holdAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'quantizeAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
-            // <<< Extend waveformType range >>>
-            { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 } // 0:sine, 1:saw, 2:tri, 3:square, 4:pulse
+            { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 }
         ];
     }
 
@@ -73,13 +72,36 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
             // <<< APPLY QUANTIZATION >>>
             const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
             if (clampedQuantize > 0.005) { // Only apply if amount is significant
-                // Map 0-1 quantize amount to steps (e.g., 256 down to 2)
-                // Use exponential mapping for smoother control at low quantization levels
-                const steps = Math.max(2, Math.floor(Math.pow(2, 8 * (1 - clampedQuantize))));
-                if (steps < 256) { // Avoid quantizing if steps are too high
-                   sample = Math.round(sample * steps) / steps;
+
+                // <<< ADJUSTED MAPPING: Map quantizeAmount (0-1) to steps (256 down to 4) >>>
+                // Use power curve (pow(2)) on the inverse amount for smoother transition
+                const factor = Math.pow(1 - clampedQuantize, 2); // Curve factor (1 down to 0)
+
+                // Linearly interpolate steps between 4 (min) and 256 (max) using the factor
+                // When factor = 1 (quantize=0), steps = 4 + 252 * 1 = 256
+                // When factor = 0 (quantize=1), steps = 4 + 252 * 0 = 4
+                const calculatedSteps = 4 + (256 - 4) * factor; // Interpolate between 4 and 256
+
+                // Use floor for integer steps and ensure minimum of 4
+                const steps = Math.max(4, Math.floor(calculatedSteps)); // Ensure minimum is 4
+                // <<< END ADJUSTED MAPPING >>>
+
+                // Avoid quantizing if steps are effectively 256 (or very close)
+                if (steps < 256) { // Check against 256 now
+                   // <<< USE STANDARD QUANTIZATION FORMULA with FLOOR for harshness >>>
+                   // 1. Normalize sample from [-1, 1] to [0, 1]
+                   const normalizedSample = (sample + 1) / 2;
+                   // 2. Scale by (steps - 1), apply floor
+                   const quantizedScaled = Math.floor(normalizedSample * (steps - 1));
+                   // 3. Divide by (steps - 1) to get quantized normalized value
+                   const quantizedNormalized = (steps > 1) ? quantizedScaled / (steps - 1) : quantizedScaled;
+                   // 4. Denormalize back to [-1, 1]
+                   sample = quantizedNormalized * 2 - 1;
+                   // <<< END STANDARD QUANTIZATION FORMULA >>>
                 }
             }
+            // <<< END QUANTIZATION >>>
+
 
             outputChannel[i] = sample; // Output the potentially modified sample
 
