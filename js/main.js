@@ -425,130 +425,101 @@ function findAvailableVoice() {
     // 1. Try to find an inactive voice (round-robin starting from nextVoiceIndex)
     for (let i = 0; i < voicePool.length; i++) {
         const index = (nextVoiceIndex + i) % voicePool.length;
-        if (voicePool[index].state === 'inactive') {
-            console.log(`findAvailableVoice: Found inactive voice ${index}`);
-            nextVoiceIndex = (index + 1) % voicePool.length; // Update for next search
-            return voicePool[index];
+        const voice = voicePool[index];
+        if (voice.state === 'inactive') {
+            console.log(`findAvailableVoice: Found inactive voice ${voice.index}`);
+            nextVoiceIndex = (index + 1) % voicePool.length;
+            return voice;
         }
     }
 
-    // 2. No inactive voice found, steal the oldest voice (FIFO based on startTime)
-    let oldestVoice = voicePool[0];
-    for (let i = 1; i < voicePool.length; i++) {
-        // Prioritize stealing releasing voices over playing ones if start times are close
-        const isCurrentOldestReleasing = oldestVoice.state === 'releasing';
-        const isCandidateReleasing = voicePool[i].state === 'releasing';
-
-        if (isCandidateReleasing && !isCurrentOldestReleasing) {
-            oldestVoice = voicePool[i]; // Prefer stealing releasing voice
-        } else if (isCandidateReleasing === isCurrentOldestReleasing && voicePool[i].startTime < oldestVoice.startTime) {
-            oldestVoice = voicePool[i]; // Steal older voice if states are same
-        } else if (!isCandidateReleasing && !isCurrentOldestReleasing && voicePool[i].startTime < oldestVoice.startTime) {
-             oldestVoice = voicePool[i]; // Steal older playing voice
+    // 2. No inactive voice found. Try to find the oldest releasing voice.
+    let oldestReleasingVoice = null;
+    for (const voice of voicePool) {
+        if (voice.state === 'releasing') {
+            if (!oldestReleasingVoice || voice.startTime < oldestReleasingVoice.startTime) {
+                oldestReleasingVoice = voice;
+            }
         }
     }
 
-    console.warn(`findAvailableVoice: No inactive voices. Stealing voice ${oldestVoice.index} (Note: ${oldestVoice.noteNumber}, State: ${oldestVoice.state})`);
+    if (oldestReleasingVoice) {
+        console.warn(`findAvailableVoice: No inactive voices. Stealing oldest RELEASING voice ${oldestReleasingVoice.index} (Note: ${oldestReleasingVoice.noteNumber})`);
+        // --- Force immediate cleanup of the stolen releasing voice ---
+        clearScheduledEventsForVoice(oldestReleasingVoice); // Clear any pending kill timers etc.
+        const now = audioCtx.currentTime;
+        const veryShortFade = 0.005; // Use a very short fade for already releasing notes
 
-    // --- Force immediate cleanup of the stolen voice ---
-    clearScheduledEventsForVoice(oldestVoice); // Clear pending kill timers
+        // --- Immediate Cleanup (quick fade) ---
+        if (oldestReleasingVoice.samplerNote) { quickFadeOutAndStop(oldestReleasingVoice.samplerNote, veryShortFade); }
+        if (oldestReleasingVoice.osc1Note) { quickFadeOutAndStop(oldestReleasingVoice.osc1Note, veryShortFade); }
+        if (oldestReleasingVoice.osc2Note) { quickFadeOutAndStop(oldestReleasingVoice.osc2Note, veryShortFade); }
+        // --- End Force Cleanup ---
 
+        // Mark voice as inactive *immediately*
+        oldestReleasingVoice.state = 'inactive';
+        oldestReleasingVoice.noteNumber = null;
+
+        // Schedule delayed disconnect (redundant? quickFadeOutAndStop might handle it, but safe)
+        const disconnectDelay = veryShortFade + 0.002;
+        trackSetTimeout(() => {
+            try { oldestReleasingVoice.samplerNote?.gainNode?.disconnect(); } catch(e){}
+            try { oldestReleasingVoice.osc1Note?.gainNode?.disconnect(); } catch(e){}
+            try { oldestReleasingVoice.osc2Note?.gainNode?.disconnect(); } catch(e){}
+        }, disconnectDelay * 1000);
+
+        nextVoiceIndex = (oldestReleasingVoice.index + 1) % voicePool.length;
+        return oldestReleasingVoice;
+    }
+
+    // 3. No inactive or releasing voices found. Steal the oldest playing voice (FIFO).
+    let oldestPlayingVoice = null; // Changed variable name for clarity
+    for (const voice of voicePool) {
+        // Ensure we only consider 'playing' voices here
+        if (voice.state === 'playing') {
+             if (!oldestPlayingVoice || voice.startTime < oldestPlayingVoice.startTime) {
+                oldestPlayingVoice = voice;
+            }
+        }
+    }
+
+    // If oldestPlayingVoice is still null here, something is wrong (e.g., all voices are stuck?)
+    if (!oldestPlayingVoice) {
+        console.error("findAvailableVoice: CRITICAL ERROR! No inactive, releasing, or playing voices found to steal. Pool state:", voicePool.map(v => ({id: v.id, state: v.state, note: v.noteNumber})));
+        // As a last resort, just grab the first voice and force kill it.
+        oldestPlayingVoice = voicePool[0];
+        console.warn(`findAvailableVoice: Forcing steal of voice ${oldestPlayingVoice.index} as a fallback.`);
+    }
+
+
+    console.warn(`findAvailableVoice: No inactive or releasing voices. Stealing oldest PLAYING voice ${oldestPlayingVoice.index} (Note: ${oldestPlayingVoice.noteNumber}, State: ${oldestPlayingVoice.state})`);
+
+    // --- Force immediate cleanup of the stolen playing voice ---
+    clearScheduledEventsForVoice(oldestPlayingVoice);
     const now = audioCtx.currentTime;
-    const veryShortFade = 0.005; // 5ms fade to prevent clicks
+    const veryShortFade = 0.005; // Quick fade for abrupt stop
 
-    // --- Immediate Cleanup for Sampler ---
-    if (oldestVoice.samplerNote) {
-        const note = oldestVoice.samplerNote;
-        note.state = 'killed'; // Mark component state
-        try {
-            if (note.source) {
-                note.source.stop(now + veryShortFade); // Stop slightly after fade
-                // Disconnect source later or let noteOn handle it
-            }
-            if (note.gainNode) { // ADSR Gain
-                note.gainNode.gain.cancelScheduledValues(now);
-                // <<< USE SHORT RAMP DOWN instead of setValueAtTime(0) >>>
-                note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now); // Start ramp from current value
-                note.gainNode.gain.linearRampToValueAtTime(0, now + veryShortFade);
-                // Disconnect from master later or let noteOn handle it
-            }
-            // Disconnect internal nodes later or let noteOn handle it
-            // if (note.sampleNode) { ... }
-
-            // Nullify the source reference on the note object as noteOn creates a new one anyway
-            // note.source = null; // Let noteOn handle this overwrite
-        } catch (e) { console.warn(`Error during immediate sampler cleanup for stolen voice ${oldestVoice.id}:`, e); }
-    }
-
-    // --- Immediate Cleanup for Osc1 ---
-    if (oldestVoice.osc1Note) {
-        const note = oldestVoice.osc1Note;
-        note.state = 'killed'; // Mark component state
-        try {
-            if (note.gainNode) { // ADSR Gain
-                note.gainNode.gain.cancelScheduledValues(now);
-                // <<< USE SHORT RAMP DOWN instead of setValueAtTime(0) >>>
-                note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now); // Start ramp from current value
-                note.gainNode.gain.linearRampToValueAtTime(0, now + veryShortFade);
-                // Disconnect from master later or let noteOn handle it
-            }
-            // Disconnect FM chain if it exists
-            if (note.fmModulatorSource && note.fmDepthGain) {
-                note.fmModulatorSource.stop(now + veryShortFade); // Stop slightly after fade
-                // Disconnect later or let noteOn handle it
-            }
-            // Worklet node and level node remain connected internally for reuse
-        } catch (e) { console.warn(`Error during immediate osc1 cleanup for stolen voice ${oldestVoice.id}:`, e); }
-    }
-
-    // --- Immediate Cleanup for Osc2 ---
-    if (oldestVoice.osc2Note) {
-        const note = oldestVoice.osc2Note;
-        note.state = 'killed'; // Mark component state
-        try {
-            if (note.gainNode) { // ADSR Gain
-                note.gainNode.gain.cancelScheduledValues(now);
-                // <<< USE SHORT RAMP DOWN instead of setValueAtTime(0) >>>
-                note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now); // Start ramp from current value
-                note.gainNode.gain.linearRampToValueAtTime(0, now + veryShortFade);
-                // Disconnect from master later or let noteOn handle it
-            }
-            // Disconnect FM chain if it exists
-            if (note.fmModulatorSource && note.fmDepthGain) {
-                note.fmModulatorSource.stop(now + veryShortFade); // Stop slightly after fade
-                // Disconnect later or let noteOn handle it
-            }
-            // Worklet node and level node remain connected internally for reuse
-        } catch (e) { console.warn(`Error during immediate osc2 cleanup for stolen voice ${oldestVoice.id}:`, e); }
-    }
+    // --- Immediate Cleanup (using quickFadeOutAndStop) ---
+    if (oldestPlayingVoice.samplerNote) { quickFadeOutAndStop(oldestPlayingVoice.samplerNote, veryShortFade); }
+    if (oldestPlayingVoice.osc1Note) { quickFadeOutAndStop(oldestPlayingVoice.osc1Note, veryShortFade); }
+    if (oldestPlayingVoice.osc2Note) { quickFadeOutAndStop(oldestPlayingVoice.osc2Note, veryShortFade); }
     // --- End Force Cleanup ---
 
-    // Mark voice as inactive *immediately* so it can be reused now
-    oldestVoice.state = 'inactive';
-    oldestVoice.noteNumber = null; // Clear note number
+    // Mark voice as inactive *immediately*
+    oldestPlayingVoice.state = 'inactive';
+    oldestPlayingVoice.noteNumber = null;
 
-    // Do NOT nullify component references (osc1Note, osc2Note, samplerNote) - noteOn needs them
-
-    // Schedule a slightly delayed disconnect of the main gain nodes from masterGain
-    // This ensures the short ramp completes before noteOn potentially reconnects.
-    const disconnectDelay = veryShortFade + 0.002; // 7ms total
+    // Schedule delayed disconnect
+    const disconnectDelay = veryShortFade + 0.002;
     trackSetTimeout(() => {
-        try { oldestVoice.samplerNote?.gainNode?.disconnect(masterGain); } catch(e){}
-        try { oldestVoice.osc1Note?.gainNode?.disconnect(masterGain); } catch(e){}
-        try { oldestVoice.osc2Note?.gainNode?.disconnect(masterGain); } catch(e){}
-        // Also disconnect internal sampler node
-        try { oldestVoice.samplerNote?.sampleNode?.disconnect(oldestVoice.samplerNote?.gainNode); } catch(e){}
-        // Disconnect FM sources/gains fully
-        try { oldestVoice.osc1Note?.fmModulatorSource?.disconnect(); } catch(e){}
-        try { oldestVoice.osc1Note?.fmDepthGain?.disconnect(); } catch(e){}
-        try { oldestVoice.osc2Note?.fmModulatorSource?.disconnect(); } catch(e){}
-        try { oldestVoice.osc2Note?.fmDepthGain?.disconnect(); } catch(e){}
-        console.log(`findAvailableVoice: Delayed disconnect for stolen voice ${oldestVoice.id}`);
+        try { oldestPlayingVoice.samplerNote?.gainNode?.disconnect(); } catch(e){}
+        try { oldestPlayingVoice.osc1Note?.gainNode?.disconnect(); } catch(e){}
+        try { oldestPlayingVoice.osc2Note?.gainNode?.disconnect(); } catch(e){}
     }, disconnectDelay * 1000);
 
 
-    nextVoiceIndex = (oldestVoice.index + 1) % voicePool.length; // Update for next search
-    return oldestVoice;
+    nextVoiceIndex = (oldestPlayingVoice.index + 1) % voicePool.length;
+    return oldestPlayingVoice;
 }
 /**
  * Clears scheduled timeouts and potentially other events for all components of a voice.
