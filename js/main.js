@@ -8,6 +8,8 @@ import { initializeUiPlaceholders } from './uiPlaceholders.js';
 
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
+const STANDARD_FADE_TIME = 0.015; // 15ms standard fade time
+const VOICE_STEAL_SAFETY_BUFFER = 0.008; // 8ms safety buffer for voice stealing
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 Tone.setContext(audioCtx); // <<< ADD THIS LINE
 const masterGain = audioCtx.createGain();
@@ -101,15 +103,17 @@ function checkReleasingNotesOnResume() {
             // Check Sampler Note
             const samplerNote = voice.samplerNote;
             // Force gain to 0 and kill if state was 'releasing' and timer was cleared
-            if (samplerNote && !samplerNote.killTimerId && !noteHasActiveTimeout(samplerNote)) { // Check for active tracked timer
-                console.log(`Forcing gain to 0 and killing sampler note ${samplerNote.id} immediately on resume (was releasing when focus lost).`);
-                try {
-                    samplerNote.gainNode.gain.cancelScheduledValues(now);
-                    samplerNote.gainNode.gain.setValueAtTime(0, now);
-                } catch (e) { console.warn("Error setting gain to 0 on resume:", e); }
-                killSamplerNote(samplerNote); // Use existing kill function
-                notesKilledOnResume++;
-            }
+            if (samplerNote && !samplerNote.killTimerId && !noteHasActiveTimeout(samplerNote)) {
+    console.log(`Forcing gain to 0 and killing sampler note ${samplerNote.id} immediately on resume (was releasing when focus lost).`);
+    try {
+        samplerNote.gainNode.gain.cancelScheduledValues(now);
+        // Add tiny ramp instead of immediate value
+        samplerNote.gainNode.gain.setValueAtTime(samplerNote.gainNode.gain.value, now);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(0, now + STANDARD_FADE_TIME);
+        setTimeout(() => killSamplerNote(samplerNote), STANDARD_FADE_TIME * 1000 + 5);
+    } catch (e) { console.warn("Error setting gain to 0 on resume:", e); }
+    notesKilledOnResume++;
+}
 
             // Check Osc1 Note
             const osc1Note = voice.osc1Note;
@@ -269,10 +273,11 @@ function createVoice(ctx, index) {
         index: index,
         noteNumber: null, // MIDI note number currently playing
         startTime: 0,     // Context time when the note started
-        state: 'inactive', // 'inactive', 'playing', 'releasing'
+        state: 'inactive', // 'inactive', 'playing', 'releasing', 'resetting'
         samplerNote: null,
         osc1Note: null,
         osc2Note: null,
+        stolenFrom: null,  // NEW: Track which note this voice was stolen from
     };
 
     // --- Create Sampler Nodes ---
@@ -416,13 +421,18 @@ function isVoiceFullyInactive(voice) {
  * Prefers inactive voices, otherwise steals the oldest playing/releasing voice.
  * @returns {object|null} The found voice object or null if pool is empty.
  */
+/**
+ * Finds an available voice in the pool.
+ * Prefers inactive voices, otherwise steals the oldest playing/releasing voice.
+ * @returns {object|null} The found voice object or null if pool is empty.
+ */
 function findAvailableVoice() {
     if (voicePool.length === 0) {
         console.error("findAvailableVoice: Voice pool is empty!");
         return null;
     }
 
-    // 1. Try to find an inactive voice (round-robin starting from nextVoiceIndex)
+    // 1. Try to find an inactive voice
     for (let i = 0; i < voicePool.length; i++) {
         const index = (nextVoiceIndex + i) % voicePool.length;
         const voice = voicePool[index];
@@ -433,7 +443,7 @@ function findAvailableVoice() {
         }
     }
 
-    // 2. No inactive voice found. Find the oldest voice to steal (can be 'releasing' or 'playing').
+    // 2. No inactive voice found. Force-steal oldest voice
     let voiceToSteal = null;
     for (const voice of voicePool) {
         if (!voiceToSteal || voice.startTime < voiceToSteal.startTime) {
@@ -442,32 +452,24 @@ function findAvailableVoice() {
     }
 
     if (!voiceToSteal) {
-        console.error("findAvailableVoice: CRITICAL ERROR! Could not find any voice to steal. Pool state:", voicePool.map(v => ({id: v.id, state: v.state, note: v.noteNumber})));
-        voiceToSteal = voicePool[0]; // Fallback to stealing the first voice
+        console.error("findAvailableVoice: Could not find any voice to steal.");
+        return null;
     }
 
-console.warn(`findAvailableVoice: No inactive voices. Stealing oldest voice ${voiceToSteal.index} (Note: ${voiceToSteal.noteNumber}, State: ${voiceToSteal.state}). Performing hard reset.`);
+    console.warn(`findAvailableVoice: Stealing oldest voice ${voiceToSteal.index} (Note: ${voiceToSteal.noteNumber}, State: ${voiceToSteal.state})`);
 
-    // --- NEW: Use a dedicated, synchronous hard reset function ---
+    // Record the note number being stolen from before resetting
+    const stolenNoteNumber = voiceToSteal.noteNumber;
+    
+    // CRITICAL FIX: Mark the voice as being stolen BEFORE resetting
+    voiceToSteal.stolenFrom = stolenNoteNumber;
+    
+    // Hard reset the voice and its components
     hardResetVoice(voiceToSteal);
-    // --- END NEW ---
-
-    // --- OLD LOGIC (to be removed) ---
-// ...existing code...
-    // --- END OLD LOGIC ---
-
-    // Mark voice as inactive *immediately* after cleanup
-    voiceToSteal.state = 'inactive';
-    voiceToSteal.noteNumber = null;
-    voiceToSteal.startTime = 0;
-    // --- FIX: REMOVE THE FOLLOWING LINES ---
-    // These lines were incorrectly destroying the references needed for node re-use.
-    // voiceToSteal.samplerNote = null;
-    // voiceToSteal.osc1Note = null;
-    // voiceToSteal.osc2Note = null;
-    // --- END FIX ---
-
-
+    
+    // CRITICAL FIX: Do NOT force state to inactive immediately!
+    // The voice is now in 'resetting' state, which is handled in noteOn()
+    
     nextVoiceIndex = (voiceToSteal.index + 1) % voicePool.length;
     return voiceToSteal;
 }
@@ -494,14 +496,20 @@ if (voice.osc2Note) clearScheduledEventsForNote(voice.osc2Note);
 function hardResetVoice(voice) {
     if (!voice) return;
     console.log(`hardResetVoice: Force-killing all components of voice ${voice.id}`);
-
-    // 1. Clear any pending setTimeout-based kill functions for the entire voice.
+    
+    // CRITICAL FIX: Mark as resetting BEFORE clearing scheduled events
+    voice.state = 'resetting';
+    
+    // Clear any pending setTimeout-based kill functions for the entire voice.
     clearScheduledEventsForVoice(voice);
 
-    // 2. Reset all components of the voice using the dedicated component resetter.
+    // Reset all components of the voice using the dedicated component resetter.
     hardResetVoiceComponent(voice.samplerNote);
     hardResetVoiceComponent(voice.osc1Note);
     hardResetVoiceComponent(voice.osc2Note);
+    
+    // CRITICAL FIX: Don't set to inactive immediately
+    // voice.state = 'inactive' is set by the component resetters
 }
 /**
  * Performs an immediate, synchronous, and clean reset of a single voice component (sampler, osc1, or osc2).
@@ -512,20 +520,26 @@ function hardResetVoiceComponent(component) {
     if (!component || component.state === 'inactive') return;
 
     const now = audioCtx.currentTime;
-    const fadeTime = 0.015; // 15ms fade time
+    const fadeTime = STANDARD_FADE_TIME; // Use global constant
+    
+    // 1. Mark as being reset
+    component.state = 'resetting';
 
-    // 1. Mark as being reset - DON'T mark as killed yet
-    component.state = 'resetting'; // New intermediate state
-
-    // 2. Clear any scheduled events specifically for this component.
+    // 2. Clear any scheduled events
     clearScheduledEventsForNote(component);
 
-    // 3. Apply immediate gain cut with fade to prevent clicks
+    // 3. Apply improved fade out with exponential ramp for smoother transition
     if (component.gainNode) {
         try {
             const gainParam = component.gainNode.gain;
             gainParam.cancelScheduledValues(now);
-            gainParam.setValueAtTime(Math.max(0.001, gainParam.value), now);
+            
+            // CRITICAL FIX: Get current gain value and handle silence case
+            let currentGain = gainParam.value;
+            if (currentGain < 0.001) currentGain = 0.001; // Minimum for exponential ramp
+            
+            // SIMPLER APPROACH: Two-stage fade instead of three
+            gainParam.setValueAtTime(currentGain, now);
             gainParam.exponentialRampToValueAtTime(0.001, now + fadeTime);
             gainParam.setValueAtTime(0, now + fadeTime + 0.001);
         } catch (e) {
@@ -533,49 +547,37 @@ function hardResetVoiceComponent(component) {
         }
     }
 
-    // 4. Stop and destroy disposable sources immediately after fade
-    const stopTime = now + fadeTime + 0.002;
+    // CRITICAL FIX: Keep other nodes connected until AFTER fade completes
+    const disconnectTime = now + fadeTime + 0.005; // 5ms safety buffer
+
+    // 4. Schedule source cleanup AFTER fade is complete
     if (component.source && typeof component.source.stop === 'function') {
-        try { component.source.stop(stopTime); } catch (e) {}
-        try { component.source.disconnect(); } catch (e) {}
-        component.source = null;
+        try { 
+            component.source.stop(disconnectTime); 
+        } catch(e) {}
     }
-    if (component.fmModulatorSource && typeof component.fmModulatorSource.stop === 'function') {
-        try { component.fmModulatorSource.stop(stopTime); } catch (e) {}
-        try { component.fmModulatorSource.disconnect(); } catch (e) {}
-        component.fmModulatorSource = null;
-    }
-
-    // 5. Reset AudioWorkletNode state without destroying it.
-    if (component.workletNode) {
-        try {
-            const freqParam = component.workletNode.parameters.get('frequency');
-            const detuneParam = component.workletNode.parameters.get('detune');
-            const phaseResetParam = component.workletNode.parameters.get('phaseReset');
-            
-            if (freqParam) freqParam.cancelScheduledValues(now);
-            if (detuneParam) detuneParam.cancelScheduledValues(now);
-            
-            // Schedule phase reset AFTER the fade is complete
-            if (phaseResetParam) {
-                phaseResetParam.setValueAtTime(1, now + fadeTime + 0.003);
-                phaseResetParam.setValueAtTime(0, now + fadeTime + 0.004);
-            }
-            
-            const holdParam = component.workletNode.parameters.get('holdAmount');
-            const quantizeParam = component.workletNode.parameters.get('quantizeAmount');
-            if (holdParam) holdParam.cancelScheduledValues(now);
-            if (quantizeParam) quantizeParam.cancelScheduledValues(now);
-        } catch (e) {
-            console.error(`hardResetVoiceComponent [${component.id}]: Error resetting worklet params:`, e);
-        }
-    }
-
-    // 6. CRITICAL FIX: Set component state to 'inactive' IMMEDIATELY
-    // Don't wait for a timer that might get cleared!
+    
+    // CRITICAL FIX: Do not disconnect nodes immediately in the timeout
+    // Instead, create new nodes and leave the old ones to be garbage collected
+    // Set state to inactive immediately so new nodes can be created in noteOn
     component.state = 'inactive';
-    component.noteNumber = null;
-    component.startTime = 0;
+    
+    // Schedule cleanup of old references only, without disconnecting
+    trackSetTimeout(() => {
+        try { 
+            // JUST NULL THE REFERENCES, don't disconnect
+            if (component.source) {
+                component.source = null;
+            }
+            // No need to disconnect gainNode, levelNode etc.
+            // Just let them be garbage collected
+            
+            if (component.fmModulatorSource) {
+                try { component.fmModulatorSource.stop(0); } catch(e) {}
+                component.fmModulatorSource = null;
+            }
+        } catch (e) {}
+    }, (fadeTime + 0.010) * 1000);
 }
 
 /**
@@ -625,14 +627,14 @@ function quickFadeOutAndStop(noteComponent, fadeTime) {
 
         // Disconnect all nodes after delay
         setTimeout(() => {
-            try { noteComponent.gainNode?.disconnect(); } catch(e) {}
-            try { noteComponent.levelNode?.disconnect(); } catch(e) {}
-            try { noteComponent.sampleNode?.disconnect(); } catch(e) {}
-            try { noteComponent.source?.disconnect(); } catch(e) {}
-            try { noteComponent.workletNode?.disconnect(); } catch(e) {}
-            try { noteComponent.fmModulatorSource?.disconnect(); } catch(e) {}
-            try { noteComponent.fmDepthGain?.disconnect(); } catch(e) {}
-        }, (fadeTime * 1000) + 10); // Use a raw timeout to avoid tracking complexity
+    try { noteComponent.gainNode?.disconnect(); } catch(e) {}
+    try { noteComponent.levelNode?.disconnect(); } catch(e) {}
+    try { noteComponent.sampleNode?.disconnect(); } catch(e) {}
+    try { noteComponent.source?.disconnect(); } catch(e) {}
+    try { noteComponent.workletNode?.disconnect(); } catch(e) {}
+    try { noteComponent.fmModulatorSource?.disconnect(); } catch(e) {}
+    try { noteComponent.fmDepthGain?.disconnect(); } catch(e) {}
+}, (fadeTime * 1000) + 20); // Increase from 10ms to 20ms safety buffer
 
     } catch (e) {
         console.error(`Error during quickFadeOutAndStop for ${noteId}:`, e);
@@ -914,10 +916,8 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
         // Set initial gain value
         const scaledDepth = osc1FMAmount * osc1FMDepthScale;
         osc1Note.fmDepthGain.gain.cancelScheduledValues(now); // Cancel ramps before setting
-        osc1Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
-
+        osc1Note.fmDepthGain.gain.setTargetAtTime(scaledDepth, now, STANDARD_FADE_TIME / 3); // Use fraction of standard time
         let newFmSource = null; // <<< Initialize newFmSource >>>
-
         // --- Create Modulator Based on Source ---
         if (osc1FMSource === 'sampler') {
             // <<< Check sampler-specific prerequisites >>>
@@ -1023,13 +1023,15 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
 
        // --- Connect and Start ---
        // Prerequisites (freqParam, fmDepthGain) are guaranteed here unless buffer/osc2 was invalid
-       if (newFmSource && osc1Note.fmDepthGain && freqParam) { // <<< Check newFmSource exists >>>
-            newFmSource.connect(osc1Note.fmDepthGain);
-            osc1Note.fmDepthGain.connect(freqParam); // Connect gain to frequency parameter
-            newFmSource.start(now);
-            osc1Note.fmModulatorSource = newFmSource; // <<< Store the new source >>>
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Started and connected new FM modulator source (${osc1FMSource}) to frequency.`);
-       } else {
+       if (newFmSource && osc1Note.fmDepthGain && freqParam) {
+    newFmSource.connect(osc1Note.fmDepthGain);
+    osc1Note.fmDepthGain.connect(freqParam);
+    // Start at precise time to avoid clicks
+    const startTime = now + (STANDARD_FADE_TIME / 10); // Small offset for clean start
+    newFmSource.start(startTime);
+    osc1Note.fmModulatorSource = newFmSource;
+    console.log(`FM modulator source started and connected at ${startTime.toFixed(5)}`);
+} else {
             console.warn(`updateOsc1FmModulatorParameters [${noteId}]: Failed to create or connect new FM source (${osc1FMSource}). FM will be inactive.`);
             // Ensure gain node is cleaned up if source creation/connection failed
             if (osc1Note.fmDepthGain) {
@@ -1295,9 +1297,8 @@ function handleRecordingComplete(recordedBuffer) {
   // Apply reverse if needed
   if (isSampleReversed) {
     reverseBufferIfNeeded(false); // Reverse if needed, don't trigger FM update yet
-}
-updateSampleProcessing();
-
+  }
+  updateSampleProcessing();
 
   // 4) Reset crossfade data
   cachedCrossfadedBuffer = null;
@@ -1338,35 +1339,35 @@ updateSampleProcessing();
           lastCachedCrossfade = sampleCrossfadeAmount;
       }
   }
-// <<< ADD: Update active Osc1/Osc2 FM modulators AFTER buffer processing >>>
-const nowRec = audioCtx.currentTime;
-// <<< CHANGE: Iterate over voicePool >>>
-voicePool.forEach(voice => {
-    if (voice.state !== 'inactive') {
-        if (voice.osc1Note) {
-            updateOsc1FmModulatorParameters(voice.osc1Note, nowRec, voice);
-        }
-        if (voice.osc2Note) { // <<< Also update Osc2 FM >>>
-            updateOsc2FmModulatorParameters(voice.osc2Note, nowRec, voice);
-        }
-    }
-});
-// <<< END CHANGE >>>
-// <<< END ADD >>>
-  // 8) Update any active notes to use the new buffer
+  
+  // UPDATE FM modulators with proper delay to avoid clicks
+  const nowRec = audioCtx.currentTime;
+  // Use trackSetTimeout with standard delay for consistency
+  trackSetTimeout(() => {
+      voicePool.forEach(voice => {
+          if (voice.state !== 'inactive') {
+              if (voice.osc1Note && osc1FMSource === 'sampler') {
+                  updateOsc1FmModulatorParameters(voice.osc1Note, nowRec, voice);
+              }
+              if (voice.osc2Note && osc2FMSource === 'sampler') {
+                  updateOsc2FmModulatorParameters(voice.osc2Note, nowRec, voice);
+              }
+          }
+      });
+  }, STANDARD_FADE_TIME * 1000); // Use standard fade time for consistent timing
+
+  // 8) Update any active notes using updateSamplePlaybackParameters
   voicePool.forEach(voice => {
     if (voice.state !== 'inactive' && voice.samplerNote) {
-        const note = voice.samplerNote; // Get the samplerNote component
-        // Skip held notes
-        if (heldNotes.includes(voice.noteNumber)) { // Check voice.noteNumber
+        const note = voice.samplerNote;
+        if (heldNotes.includes(voice.noteNumber)) {
             console.log(`Sampler note ${note.id} (Voice ${voice.id}) is held; will update on release.`);
             return;
         }
         console.log(`Updating sampler note ${note.id} (Voice ${voice.id}) to use recorded sample`);
-        // Call updateSamplePlaybackParameters which handles buffer switching etc.
         updateSamplePlaybackParameters(note);
     }
-});
+  });
 }
 function preventScrollOnControls() {
 // More targeted approach - add touch event handlers to each UI control type individually
@@ -2113,9 +2114,10 @@ function updateSamplePlaybackParameters(note) {
         newSource.start(now); // Start immediately
 
         // Restore gain smoothly to the level it was at before replacement
-        note.gainNode.gain.cancelScheduledValues(now);
-        note.gainNode.gain.setValueAtTime(0, now); // Start at 0
-        note.gainNode.gain.linearRampToValueAtTime(currentGainValue, now + 0.02); // Quick ramp (20ms)
+note.gainNode.gain.cancelScheduledValues(now);
+note.gainNode.gain.setValueAtTime(0, now); // Start at 0
+note.gainNode.gain.exponentialRampToValueAtTime(Math.max(0.001, currentGainValue), now + STANDARD_FADE_TIME * 2); // Use 2x standard time for smoother transitions
+
 
         // Schedule stop if not looping
         if (!note.looping) {
@@ -2441,24 +2443,18 @@ audioCtx.decodeAudioData(arrayBuffer).then(buffer => {
         }
         // <<< ADD: Update active FM modulators AFTER buffer processing >>>
         const nowFile = audioCtx.currentTime;
-        // <<< CHANGE: Iterate over voicePool >>>
-        voicePool.forEach(voice => {
-            if (voice.state !== 'inactive') {
-                // Update Osc1 FM if sampler is the source
-                if (voice.osc1Note && osc1FMSource === 'sampler') {
-                    console.log(`handleFileSelect: Triggering Osc1 FM update for voice ${voice.id} because sampler changed.`);
-                    updateOsc1FmModulatorParameters(voice.osc1Note, nowFile, voice);
-                }
-                // Update Osc2 FM if sampler is the source
-                if (voice.osc2Note && osc2FMSource === 'sampler') {
-                    console.log(`handleFileSelect: Triggering Osc2 FM update for voice ${voice.id} because sampler changed.`);
-                    updateOsc2FmModulatorParameters(voice.osc2Note, nowFile, voice);
-                }
+trackSetTimeout(() => {
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            if (voice.osc1Note && osc1FMSource === 'sampler') {
+                updateOsc1FmModulatorParameters(voice.osc1Note, nowFile, voice);
             }
-        });
-        // <<< END CHANGE >>>
-        // <<< END ADD >>>
-
+            if (voice.osc2Note && osc2FMSource === 'sampler') {
+                updateOsc2FmModulatorParameters(voice.osc2Note, nowFile, voice);
+            }
+        }
+    });
+}, STANDARD_FADE_TIME * 1000); // Use standard time instead of arbitrary 20ms
         // Update any active sampler notes to use the new buffer
         // <<< CHANGE: Iterate over voicePool >>>
         voicePool.forEach(voice => {
@@ -2809,120 +2805,113 @@ dropdown.classList.remove('show');
 
 // Function to load preset samples
 function loadPresetSample(filename) {
-console.log(`Loading preset sample: ${filename}`);
+    console.log(`Loading preset sample: ${filename}`);
 
-// Build the URL to the sample file
-const sampleUrl = `samples/${filename}`;
+    // Build the URL to the sample file
+    const sampleUrl = `samples/${filename}`;
 
-// Fetch the sample file
-fetch(sampleUrl)
-.then(response => {
-if (!response.ok) {
-throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
-}
-return response.arrayBuffer();
-})
-.then(arrayBuffer => {
-// Decode the audio data
-return audioCtx.decodeAudioData(arrayBuffer);
-})
-.then(buffer => {
-// Use the buffer as the sample
-audioBuffer = buffer;
-originalBuffer = buffer.slice(); // Store the original buffer
-
-// Apply reverse if needed
-if (isSampleReversed) {
-reverseBufferIfNeeded();
-}
-// Process fades and crossfades whenever a new preset is loaded
-updateSampleProcessing();
-
-
-// Reset cached crossfade buffer when loading a new sample
-cachedCrossfadedBuffer = null;
-lastCachedStartPos = null;
-lastCachedEndPos = null;
-lastCachedCrossfade = null;
-
-// Create new source node
-if (sampleSource) {
-sampleSource.stop();
-}
-sampleSource = audioCtx.createBufferSource();
-sampleSource.buffer = buffer;
-
-// Connect the audio chain
-sampleSource.connect(sampleGainNode);
-sampleSource.start();
-
-// Update the label to show the loaded sample name
-const fileLabel = document.querySelector('label[for="audio-file"]');
-if (fileLabel) {
-fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
-}
-
-// Create crossfaded buffer if needed
-if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
-console.log("Creating crossfaded buffer for preset sample");
-const result = createCrossfadedBuffer(
-  audioCtx,
-  buffer, 
-  sampleStartPosition, 
-  sampleEndPosition, 
-  sampleCrossfadeAmount
-);
-
-if (result && result.buffer) {
-  console.log("Successfully created crossfaded buffer for preset sample");
-  cachedCrossfadedBuffer = result.buffer;
-  lastCachedStartPos = sampleStartPosition;
-  lastCachedEndPos = sampleEndPosition;
-  lastCachedCrossfade = sampleCrossfadeAmount;
-}
-}
-// <<< ADD: Update active FM modulators AFTER buffer processing >>>
-const nowPreset = audioCtx.currentTime;
-// <<< CHANGE: Iterate over voicePool >>>
-voicePool.forEach(voice => {
-    if (voice.state !== 'inactive') {
-        // Update Osc1 FM if sampler is the source
-        if (voice.osc1Note && osc1FMSource === 'sampler') {
-            console.log(`loadPresetSample: Triggering Osc1 FM update for voice ${voice.id} because sampler changed.`);
-            updateOsc1FmModulatorParameters(voice.osc1Note, nowPreset, voice);
+    // Fetch the sample file
+    fetch(sampleUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
         }
-        // Update Osc2 FM if sampler is the source
-        if (voice.osc2Note && osc2FMSource === 'sampler') {
-            console.log(`loadPresetSample: Triggering Osc2 FM update for voice ${voice.id} because sampler changed.`);
-            updateOsc2FmModulatorParameters(voice.osc2Note, nowPreset, voice);
-        }
-    }
-});
-// <<< END CHANGE >>>
-// <<< END ADD >>>
+        return response.arrayBuffer();
+    })
+    .then(arrayBuffer => {
+        // Decode the audio data
+        return audioCtx.decodeAudioData(arrayBuffer);
+    })
+    .then(buffer => {
+        // Use the buffer as the sample
+        audioBuffer = buffer;
+        originalBuffer = buffer.slice(); // Store the original buffer
 
-// Update any active sampler notes to use the new buffer
-// <<< CHANGE: Iterate over voicePool >>>
-voicePool.forEach(voice => {
-    if (voice.state !== 'inactive' && voice.samplerNote) {
-        const note = voice.samplerNote; // Get the samplerNote component
-        // Skip held notes to avoid interruption
-        if (heldNotes.includes(voice.noteNumber)) { // Check voice.noteNumber
-            console.log(`Sampler note ${note.id} (Voice ${voice.id}) is held; will update on release.`);
-            return;
+        // Apply reverse if needed
+        if (isSampleReversed) {
+            reverseBufferIfNeeded(false); // Don't trigger FM update yet
+        }
+        // Process fades and crossfades whenever a new preset is loaded
+        updateSampleProcessing();
+
+        // Reset cached crossfade buffer when loading a new sample
+        cachedCrossfadedBuffer = null;
+        lastCachedStartPos = null;
+        lastCachedEndPos = null;
+        lastCachedCrossfade = null;
+
+        // Create new source node
+        if (sampleSource) {
+            sampleSource.stop();
+        }
+        sampleSource = audioCtx.createBufferSource();
+        sampleSource.buffer = buffer;
+
+        // Connect the audio chain
+        sampleSource.connect(sampleGainNode);
+        sampleSource.start();
+
+        // Update the label to show the loaded sample name
+        const fileLabel = document.querySelector('label[for="audio-file"]');
+        if (fileLabel) {
+            fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
         }
 
-        console.log(`Updating sampler note ${note.id} (Voice ${voice.id}) to use new preset sample`);
-        // Call updateSamplePlaybackParameters which handles buffer switching etc.
-        updateSamplePlaybackParameters(note);
-    }
-});
-// <<< END CHANGE >>>
-})
-.catch(error => {
-console.error('Error loading preset sample:', error);
-alert(`Failed to load sample: ${filename}`);
-});
+        // Create crossfaded buffer if needed
+        if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+            console.log("Creating crossfaded buffer for preset sample");
+            const result = createCrossfadedBuffer(
+              audioCtx,
+              buffer, 
+              sampleStartPosition, 
+              sampleEndPosition, 
+              sampleCrossfadeAmount
+            );
+
+            if (result && result.buffer) {
+                console.log("Successfully created crossfaded buffer for preset sample");
+                cachedCrossfadedBuffer = result.buffer;
+                lastCachedStartPos = sampleStartPosition;
+                lastCachedEndPos = sampleEndPosition;
+                lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+        }
+        
+        // Update FM modulators with proper delay to avoid clicks
+        const nowPreset = audioCtx.currentTime;
+        // Use trackSetTimeout with standard fade time for consistency
+        trackSetTimeout(() => {
+            voicePool.forEach(voice => {
+                if (voice.state !== 'inactive') {
+                    if (voice.osc1Note && osc1FMSource === 'sampler') {
+                        console.log(`loadPresetSample: Triggering Osc1 FM update for voice ${voice.id}`);
+                        updateOsc1FmModulatorParameters(voice.osc1Note, nowPreset, voice);
+                    }
+                    if (voice.osc2Note && osc2FMSource === 'sampler') {
+                        console.log(`loadPresetSample: Triggering Osc2 FM update for voice ${voice.id}`);
+                        updateOsc2FmModulatorParameters(voice.osc2Note, nowPreset, voice);
+                    }
+                }
+            });
+        }, STANDARD_FADE_TIME * 1000); // Use standard fade time for consistent timing
+
+        // Update active notes with proper timing
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.samplerNote) {
+                const note = voice.samplerNote;
+                if (heldNotes.includes(voice.noteNumber)) {
+                    console.log(`Sampler note ${note.id} (Voice ${voice.id}) is held; will update on release.`);
+                    return;
+                }
+                console.log(`Updating sampler note ${note.id} (Voice ${voice.id}) to use new preset sample`);
+                updateSamplePlaybackParameters(note);
+            }
+        });
+    })
+    .catch(error => {
+        console.error('Error loading preset sample:', error);
+        alert(`Failed to load sample: ${filename}`);
+    });
 }
 
 // In your processBufferWithFades function:
@@ -3277,7 +3266,7 @@ function releaseOsc1Note(note) {
     clearScheduledEventsForNote(note);
 
     // Apply release envelope
-    const release = Math.max(0.01, parseFloat(D('release').value)); // Ensure minimum release time
+    const release = Math.max(STANDARD_FADE_TIME, parseFloat(D('release').value));
     const now = audioCtx.currentTime;
     note.gainNode.gain.cancelScheduledValues(now);
     const currentGain = Math.max(0.001, note.gainNode.gain.value); // Ensure non-zero gain
@@ -3406,7 +3395,7 @@ function releaseOsc2Note(note) {
     clearScheduledEventsForNote(note);
 
     // Apply release envelope
-    const release = Math.max(0.01, parseFloat(D('release').value)); // Ensure minimum release time
+    const release = Math.max(STANDARD_FADE_TIME, parseFloat(D('release').value));
     const now = audioCtx.currentTime;
     note.gainNode.gain.cancelScheduledValues(now);
     const currentGain = Math.max(0.001, note.gainNode.gain.value); // Ensure non-zero gain
@@ -3573,7 +3562,7 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
         }
         const scaledDepth = osc2FMAmount * osc2FMDepthScale; // Use Osc2 scale
         osc2Note.fmDepthGain.gain.cancelScheduledValues(now);
-        osc2Note.fmDepthGain.gain.setTargetAtTime(scaledDepth, now, 0.015);
+        osc2Note.fmDepthGain.gain.setTargetAtTime(scaledDepth, now, STANDARD_FADE_TIME / 3); // Use fraction of standard time
 
         // --- 2. Manage Source Node ---
         const currentSource = osc2Note.fmModulatorSource;
@@ -3693,11 +3682,15 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
         }
 
         // --- 3. Connect Nodes ---
-        if (osc2Note.fmDepthGain && newFmSource) {
-            newFmSource.connect(osc2Note.fmDepthGain);
-            osc2Note.fmDepthGain.connect(freqParam);
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Connected FM chain.`);
-        } else {
+        if (newFmSource && osc2Note.fmDepthGain && freqParam) {
+    newFmSource.connect(osc2Note.fmDepthGain);
+    osc2Note.fmDepthGain.connect(freqParam);
+    // Start at precise time to avoid clicks
+    const startTime = now + (STANDARD_FADE_TIME / 10); // Small offset for clean start
+    newFmSource.start(startTime);
+    osc2Note.fmModulatorSource = newFmSource;
+    console.log(`FM modulator source started and connected at ${startTime.toFixed(5)}`);
+} else {
              console.warn(`updateOsc2FmModulatorParameters [${noteId}]: Could not connect FM chain (gain or source missing).`);
              if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e) {} osc2Note.fmDepthGain = null; }
              if (newFmSource) { try { newFmSource.disconnect(); } catch(e) {} }
@@ -3778,14 +3771,13 @@ function noteOn(noteNumber) {
         updateKeyboardDisplay_Pool();
         return;
     }
-
     // CRITICAL: If voice was stolen, calculate the delay needed for fade-out
-    if (wasStolen && voice.state !== 'inactive') {
-        const FADE_TIME = 0.015; // 15ms - must match hardResetVoiceComponent
-        voiceStartDelay = FADE_TIME + 0.005; // Add small buffer for safety
-        console.log(`Voice stealing detected - delaying new note start by ${voiceStartDelay * 1000}ms`);
-    }
-
+if (wasStolen && voice.state !== 'inactive') {
+    // CRITICAL FIX: Use SHORTER fade time for voice stealing
+    const FADE_TIME = STANDARD_FADE_TIME; // Use standard fade time (0.015)
+    voiceStartDelay = FADE_TIME + 0.010; // Reduce from 0.020 to 0.010 safety buffer
+    console.log(`Voice stealing detected - delaying new note start by ${voiceStartDelay * 1000}ms`);
+}
     // Calculate the actual start time for the new note
     const noteStartTime = now + voiceStartDelay;
 
@@ -3946,71 +3938,84 @@ function noteOn(noteNumber) {
         console.log(`NoteOn [Voice ${voice.id}]: No audioBuffer loaded, skipping sampler component.`);
     }
 // --- Configure Osc1 Component ---
-    if (isWorkletReady) {
-        let osc1Note = voice.osc1Note;
-        
-        // Reset state for re-use
-        osc1Note.noteNumber = noteNumber;
-        osc1Note.startTime = noteStartTime; // Use delayed start time
-        osc1Note.state = 'playing';
-        clearScheduledEventsForNote(osc1Note);
+if (isWorkletReady) {
+    let osc1Note = voice.osc1Note;
+    
+    // Reset state for re-use
+    osc1Note.noteNumber = noteNumber;
+    osc1Note.startTime = noteStartTime; // Use delayed start time
+    osc1Note.state = 'playing';
+    clearScheduledEventsForNote(osc1Note);
 
-        // Phase reset - SCHEDULE AT noteStartTime
-        const phaseResetParam = osc1Note.workletNode.parameters.get('phaseReset');
-        if (phaseResetParam) {
-            phaseResetParam.setValueAtTime(1, noteStartTime);
-            phaseResetParam.setValueAtTime(0, noteStartTime + 0.001);
-        }
+    // Phase reset - SCHEDULE AT noteStartTime
+const phaseResetParam = osc1Note.workletNode.parameters.get('phaseReset');
+if (phaseResetParam) {
+    // SIMPLER IMPLEMENTATION: Single reset at noteStartTime
+    phaseResetParam.setValueAtTime(0, noteStartTime - 0.001); // Ensure it's 0 just before
+    phaseResetParam.setValueAtTime(1, noteStartTime); // Immediate reset at start time
+    phaseResetParam.setValueAtTime(0, noteStartTime + 0.001); // Back to 0 immediately after
+}
+    // Clean slate for gain - SCHEDULE AT noteStartTime
+    const osc1GainParam = osc1Note.gainNode.gain;
+    osc1GainParam.cancelScheduledValues(noteStartTime);
+    osc1GainParam.setValueAtTime(0, noteStartTime);
 
-        // Clean slate for gain - SCHEDULE AT noteStartTime
-        const osc1GainParam = osc1Note.gainNode.gain;
-        osc1GainParam.cancelScheduledValues(noteStartTime);
-        osc1GainParam.setValueAtTime(0, noteStartTime);
-
-        // Set worklet parameters - SCHEDULE AT noteStartTime
-        const targetFreqOsc1 = noteToFrequency(noteNumber, osc1OctaveOffset);
-        const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
-        
-        const freqParam1 = osc1Note.workletNode.parameters.get('frequency');
-        const detuneParam1 = osc1Note.workletNode.parameters.get('detune');
-        
-        if (freqParam1) {
-            freqParam1.cancelScheduledValues(noteStartTime);
-            freqParam1.setValueAtTime(targetFreqOsc1, noteStartTime);
-        }
-        if (detuneParam1) {
-            detuneParam1.cancelScheduledValues(noteStartTime);
-            detuneParam1.setValueAtTime(osc1Detune, noteStartTime);
-        }
-
-        osc1Note.workletNode.parameters.get('holdAmount').setValueAtTime(osc1PWMValue, noteStartTime);
-        osc1Note.workletNode.parameters.get('quantizeAmount').setValueAtTime(osc1QuantizeValue, noteStartTime);
-        osc1Note.workletNode.parameters.get('waveformType').setValueAtTime(waveMapNameToWorkletType[osc1Waveform] ?? 0, noteStartTime);
-
-        // Set level gain - SCHEDULE AT noteStartTime
-        osc1Note.levelNode.gain.setValueAtTime(osc1GainValue, noteStartTime);
-
-        // Ensure connection
-        try {
-            osc1Note.gainNode.disconnect(masterGain);
-        } catch (e) { /* Ignore */ }
-        osc1Note.gainNode.connect(masterGain);
-
-        // ADSR Trigger - START AT noteStartTime
-        osc1Note.gainNode.gain.setValueAtTime(0, noteStartTime);
-        osc1Note.gainNode.gain.linearRampToValueAtTime(1.0, noteStartTime + attack);
-        osc1Note.gainNode.gain.linearRampToValueAtTime(sustain, noteStartTime + attack + decay);
-
-        // Update FM after everything else - SCHEDULE AT noteStartTime
-        // Schedule FM update to happen at noteStartTime
-        if (voiceStartDelay > 0) {
-            trackSetTimeout(() => {
-                updateOsc1FmModulatorParameters(osc1Note, noteStartTime, voice);
-            }, voiceStartDelay * 1000);
-        } else {
-            updateOsc1FmModulatorParameters(osc1Note, noteStartTime, voice);
-        }
+    // Set worklet parameters - SCHEDULE AT noteStartTime
+    const targetFreqOsc1 = noteToFrequency(noteNumber, osc1OctaveOffset);
+    const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
+    
+    const freqParam1 = osc1Note.workletNode.parameters.get('frequency');
+    const detuneParam1 = osc1Note.workletNode.parameters.get('detune');
+    
+    if (freqParam1) {
+        freqParam1.cancelScheduledValues(noteStartTime);
+        freqParam1.setValueAtTime(targetFreqOsc1, noteStartTime);
     }
+    if (detuneParam1) {
+        detuneParam1.cancelScheduledValues(noteStartTime);
+        detuneParam1.setValueAtTime(osc1Detune, noteStartTime);
+    }
+
+    osc1Note.workletNode.parameters.get('holdAmount').setValueAtTime(osc1PWMValue, noteStartTime);
+    osc1Note.workletNode.parameters.get('quantizeAmount').setValueAtTime(osc1QuantizeValue, noteStartTime);
+    osc1Note.workletNode.parameters.get('waveformType').setValueAtTime(waveMapNameToWorkletType[osc1Waveform] ?? 0, noteStartTime);
+
+    // Set level gain - SCHEDULE AT noteStartTime
+    osc1Note.levelNode.gain.setValueAtTime(osc1GainValue, noteStartTime);
+
+    // Ensure connection
+    try {
+        osc1Note.gainNode.disconnect(masterGain);
+    } catch (e) { /* Ignore */ }
+    osc1Note.gainNode.connect(masterGain);
+
+    // ADSR Trigger with improved attack curve - START AT noteStartTime
+    osc1Note.gainNode.gain.setValueAtTime(0, noteStartTime);
+    
+    // CRITICAL FIX: Apply a very tiny initial fade-in to avoid clicks
+    const microFadeIn = Math.min(STANDARD_FADE_TIME / 3, attack * 0.1); // Use consistent standard time fraction
+    if (attack > 0.01) {
+        // For longer attacks, use a two-stage approach
+        osc1Note.gainNode.gain.linearRampToValueAtTime(0.05, noteStartTime + microFadeIn); // Tiny initial fade to 5%
+        osc1Note.gainNode.gain.linearRampToValueAtTime(1.0, noteStartTime + attack); // Then normal attack
+    } else {
+        // For very short attacks, just do a single ramp
+        osc1Note.gainNode.gain.linearRampToValueAtTime(1.0, noteStartTime + attack);
+    }
+
+    // Continue with normal decay/sustain
+    osc1Note.gainNode.gain.linearRampToValueAtTime(sustain, noteStartTime + attack + decay);
+
+    // Update FM after everything else - SCHEDULE AT noteStartTime
+    // Schedule FM update to happen at noteStartTime
+    if (voiceStartDelay > 0) {
+        trackSetTimeout(() => {
+            updateOsc1FmModulatorParameters(osc1Note, noteStartTime, voice);
+        }, voiceStartDelay * 1000);
+    } else {
+        updateOsc1FmModulatorParameters(osc1Note, noteStartTime, voice);
+    }
+}
 
     // --- Configure Osc2 Component --- (Apply same timing fixes)
     if (isWorkletReady) {
@@ -4022,11 +4027,13 @@ function noteOn(noteNumber) {
         clearScheduledEventsForNote(osc2Note);
 
         // Phase reset - SCHEDULE AT noteStartTime
-        const phaseResetParam = osc2Note.workletNode.parameters.get('phaseReset');
-        if (phaseResetParam) {
-            phaseResetParam.setValueAtTime(1, noteStartTime);
-            phaseResetParam.setValueAtTime(0, noteStartTime + 0.001);
-        }
+const phaseResetParam = osc2Note.workletNode.parameters.get('phaseReset');
+if (phaseResetParam) {
+    // SIMPLER IMPLEMENTATION: Single reset at noteStartTime
+    phaseResetParam.setValueAtTime(0, noteStartTime - 0.001);
+    phaseResetParam.setValueAtTime(1, noteStartTime);
+    phaseResetParam.setValueAtTime(0, noteStartTime + 0.001);
+}
 
         // Clean slate for gain - SCHEDULE AT noteStartTime
         const osc2GainParam = osc2Note.gainNode.gain;
@@ -4062,10 +4069,22 @@ function noteOn(noteNumber) {
         } catch(e) { /* Ignore */ }
         osc2Note.gainNode.connect(masterGain);
 
-        // ADSR Trigger - START AT noteStartTime
-        osc2Note.gainNode.gain.setValueAtTime(0, noteStartTime);
-        osc2Note.gainNode.gain.linearRampToValueAtTime(1.0, noteStartTime + attack);
-        osc2Note.gainNode.gain.linearRampToValueAtTime(sustain, noteStartTime + attack + decay);
+        // ADSR Trigger with improved attack curve - START AT noteStartTime
+osc2Note.gainNode.gain.setValueAtTime(0, noteStartTime);
+
+// CRITICAL FIX: Apply a very tiny initial fade-in to avoid clicks
+const microFadeIn = Math.min(0.005, attack * 0.1); // Either 5ms or 10% of attack, whichever is smaller
+if (attack > 0.01) {
+    // For longer attacks, use a two-stage approach
+    osc2Note.gainNode.gain.linearRampToValueAtTime(0.05, noteStartTime + microFadeIn); // Tiny initial fade to 5%
+    osc2Note.gainNode.gain.linearRampToValueAtTime(1.0, noteStartTime + attack); // Then normal attack
+} else {
+    // For very short attacks, just do a single ramp
+    osc2Note.gainNode.gain.linearRampToValueAtTime(1.0, noteStartTime + attack);
+}
+
+// Continue with normal decay/sustain
+osc2Note.gainNode.gain.linearRampToValueAtTime(sustain, noteStartTime + attack + decay);
 
         // Update FM after everything else - SCHEDULE AT noteStartTime
         if (voiceStartDelay > 0) {
@@ -4229,11 +4248,27 @@ function noteOff(noteNumber) {
 
     if (!noteWasHeld) {
         console.log(`noteOff: Note ${noteNumber} was not in heldNotes array (potentially stolen or already released).`);
-        // Update UI even if note wasn't technically held (might have been stolen)
+        // CRITICAL FIX: Still check for voices that were stolen from this note
+        let foundStolenVoice = false;
+        for (const voice of voicePool) {
+            if (voice.stolenFrom === noteNumber) {
+                console.log(`noteOff: Found voice ${voice.id} that was stolen from note ${noteNumber}, clearing stolen flag`);
+                voice.stolenFrom = null;
+                foundStolenVoice = true;
+            }
+        }
+        
+        // Update UI even if note wasn't technically held
         updateVoiceDisplay_Pool();
         updateKeyboardDisplay_Pool();
+        
+        // If we found stolen voices but note wasn't held, this might be self-stealing case
+        if (foundStolenVoice) {
+            console.log(`noteOff: Handled self-stealing case for note ${noteNumber}`);
+        }
         return; // Exit if the note wasn't considered held
     }
+
 
     if (isMonoMode) {
         // --- Mono Mode Logic ---
@@ -4475,6 +4510,15 @@ function noteOff(noteNumber) {
         let foundVoices = 0;
         
         for (const voice of voicePool) {
+            // NEW: Check if this voice was stolen from the note being released
+            if (voice.stolenFrom === noteNumber) {
+                console.log(`Poly NoteOff: Found voice ${voice.id} that was stolen from note ${noteNumber}, clearing stolen flag`);
+                // Clear the stolen flag but don't release the voice since it's playing a new note
+                voice.stolenFrom = null;
+                continue;
+            }
+
+            // Regular check for voices currently playing this note
             if (voice.noteNumber === noteNumber && voice.state !== 'inactive' && voice.state !== 'releasing') {
                 foundVoices++;
                 console.log(`Poly NoteOff: Releasing voice ${voice.id} for note ${noteNumber}`);

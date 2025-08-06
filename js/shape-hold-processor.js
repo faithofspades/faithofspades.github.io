@@ -21,14 +21,37 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
 
     process(inputs, outputs, parameters) {
     const output = outputs[0];
-    const channel = output[0]; // You correctly define 'channel' here
+    const channel = output[0];
     
-    // Handle phase reset FIRST
+    // Handle phase reset with careful zero crossing
     const phaseReset = parameters.phaseReset;
     const phaseResetValue = phaseReset ? phaseReset[0] : 0;
     
     if (phaseResetValue > 0.5) {
-        this.phase = 0; // Reset to exact zero phase (also fix: use 'this.phase' not 'this._phase')
+        // Instead of abruptly setting phase to 0, calculate a smooth transition
+        // based on current phase to avoid discontinuities
+        this.phase = 0;
+        
+        // For shaping waveforms, ensure we're at a zero crossing point
+        // This depends on the waveform type
+        const waveformType = parameters.waveformType[0];
+        
+        // For sine waves, zero crossing is at 0 or 0.5 phase
+        if (waveformType === 0) { // sine
+            this.phase = 0;  // exact zero phase (sin(0) = 0)
+        }
+        // For sawtooth, zero crossing is at 0.5 phase
+        else if (waveformType === 1) { // sawtooth
+            this.phase = 0.5; // center of sawtooth is zero crossing
+        }
+        // For triangle, zero crossing is at 0 or 0.5 phase
+        else if (waveformType === 2) { // triangle
+            this.phase = 0;  // exact zero phase
+        }
+        // For square/pulse, use 0 phase but know it will jump to +1
+        else {
+            this.phase = 0;
+        }
     }
     
     const frequencyValues = parameters.frequency;
