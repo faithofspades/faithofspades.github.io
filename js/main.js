@@ -3771,6 +3771,90 @@ function noteOn(noteNumber) {
         heldNotes.sort((a, b) => a - b);
     }
 
+    // --- SAME-NOTE RETRIGGER DETECTION (MODIFIED FOR LAYERING) ---
+    // Only consider same-note retrigger if ALL voices are already in use
+    const inactiveVoiceCount = voicePool.filter(v => v.state === 'inactive').length;
+    
+    // If no inactive voices left AND we already have voices playing this note, then retrigger
+    if (inactiveVoiceCount === 0) {
+        // Find all voices playing this note
+        const voicesPlayingThisNote = voicePool.filter(v => 
+            v.state !== 'inactive' && v.noteNumber === noteNumber &&
+            ((v.osc1Note && v.osc1Note.state !== 'killed') || 
+             (v.osc2Note && v.osc2Note.state !== 'killed'))
+        );
+        
+        // If we found any, choose the oldest one to retrigger
+        if (voicesPlayingThisNote.length > 0) {
+            // Sort by startTime to find the oldest voice
+            voicesPlayingThisNote.sort((a, b) => a.startTime - b.startTime);
+            const sameNoteVoice = voicesPlayingThisNote[0];
+            
+            console.log(`All voices in use and found ${voicesPlayingThisNote.length} voices playing note ${noteNumber}. Retriggering oldest: ${sameNoteVoice.id}`);
+            
+            // Define ADSR values for retrigger
+            const attack = Math.max(0.005, parseFloat(D('attack').value));
+            const decay = parseFloat(D('decay').value);
+            const sustain = parseFloat(D('sustain').value);
+            
+            // Update voice state
+            sameNoteVoice.state = 'playing';
+            
+            // Retrigger Osc1 if it exists and is active
+            if (sameNoteVoice.osc1Note && sameNoteVoice.osc1Note.state !== 'killed' && sameNoteVoice.osc1Note.gainNode) {
+                const note = sameNoteVoice.osc1Note;
+                note.state = 'playing';
+                clearScheduledEventsForNote(note);
+                
+                // Retrigger envelope
+                const g = note.gainNode.gain;
+                g.cancelScheduledValues(now);
+                const current = Math.max(0.0001, g.value);
+                g.setValueAtTime(current, now);
+                g.linearRampToValueAtTime(1.0, now + attack);
+                g.linearRampToValueAtTime(sustain, now + attack + decay);
+                
+                // Refresh FM if needed
+                if (note.fmModulatorSource) {
+                    try { note.fmModulatorSource.stop(0); } catch (_) {}
+                    try { note.fmModulatorSource.disconnect(); } catch (_) {}
+                    note.fmModulatorSource = null;
+                    updateOsc1FmModulatorParameters(note, now, sameNoteVoice);
+                }
+            }
+            
+            // Retrigger Osc2 if it exists and is active
+            if (sameNoteVoice.osc2Note && sameNoteVoice.osc2Note.state !== 'killed' && sameNoteVoice.osc2Note.gainNode) {
+                const note = sameNoteVoice.osc2Note;
+                note.state = 'playing';
+                clearScheduledEventsForNote(note);
+                
+                // Retrigger envelope
+                const g = note.gainNode.gain;
+                g.cancelScheduledValues(now);
+                const current = Math.max(0.0001, g.value);
+                g.setValueAtTime(current, now);
+                g.linearRampToValueAtTime(1.0, now + attack);
+                g.linearRampToValueAtTime(sustain, now + attack + decay);
+                
+                // Refresh FM if needed
+                if (note.fmModulatorSource) {
+                    try { note.fmModulatorSource.stop(0); } catch (_) {}
+                    try { note.fmModulatorSource.disconnect(); } catch (_) {}
+                    note.fmModulatorSource = null;
+                    updateOsc2FmModulatorParameters(note, now, sameNoteVoice);
+                }
+            }
+            
+            // For sampler notes, we can't retrigger - just let them keep playing
+            // If you need to restart the sample, you'd need to create a new AudioBufferSourceNode
+            
+            updateVoiceDisplay_Pool();
+            updateKeyboardDisplay_Pool();
+            return; // Exit early - we've handled the retrigger
+        }
+        // If no voices playing this note, continue to normal voice allocation/stealing
+    }
     // Define ADSR values at the beginning of the function
     const attack = Math.max(0.005, parseFloat(D('attack').value));
     const decay = parseFloat(D('decay').value);
