@@ -3771,11 +3771,11 @@ function noteOn(noteNumber) {
         heldNotes.sort((a, b) => a - b);
     }
 
-    // --- SAME-NOTE RETRIGGER DETECTION (MODIFIED FOR LAYERING) ---
+    // --- SAME-NOTE RETRIGGER DETECTION (MODIFIED FOR BETTER LAYERING) ---
     // Only consider same-note retrigger if ALL voices are already in use
     const inactiveVoiceCount = voicePool.filter(v => v.state === 'inactive').length;
     
-    // If no inactive voices left AND we already have voices playing this note, then retrigger
+    // If no inactive voices left, we need voice stealing or retrigger
     if (inactiveVoiceCount === 0) {
         // Find all voices playing this note
         const voicesPlayingThisNote = voicePool.filter(v => 
@@ -3784,13 +3784,17 @@ function noteOn(noteNumber) {
              (v.osc2Note && v.osc2Note.state !== 'killed'))
         );
         
-        // If we found any, choose the oldest one to retrigger
-        if (voicesPlayingThisNote.length > 0) {
+        // IMPROVED LOGIC:
+        // Only retrigger if we already have MAX_POLYPHONY/2 instances of this note
+        // This allows for layering up to half the voices before retriggering
+        const retriggingThreshold = Math.max(1, Math.floor(MAX_POLYPHONY));
+        
+        if (voicesPlayingThisNote.length >= retriggingThreshold) {
             // Sort by startTime to find the oldest voice
             voicesPlayingThisNote.sort((a, b) => a.startTime - b.startTime);
             const sameNoteVoice = voicesPlayingThisNote[0];
             
-            console.log(`All voices in use and found ${voicesPlayingThisNote.length} voices playing note ${noteNumber}. Retriggering oldest: ${sameNoteVoice.id}`);
+            console.log(`All voices in use and found ${voicesPlayingThisNote.length} voices playing note ${noteNumber} (threshold: ${retriggingThreshold}). Retriggering oldest: ${sameNoteVoice.id}`);
             
             // Define ADSR values for retrigger
             const attack = Math.max(0.005, parseFloat(D('attack').value));
@@ -3853,7 +3857,8 @@ function noteOn(noteNumber) {
             updateKeyboardDisplay_Pool();
             return; // Exit early - we've handled the retrigger
         }
-        // If no voices playing this note, continue to normal voice allocation/stealing
+        // If we didn't meet the threshold for retriggering, continue with normal voice stealing
+        console.log(`Found ${voicesPlayingThisNote.length} voices playing note ${noteNumber}, but below threshold of ${retriggingThreshold}. Will steal a voice for layering.`);
     }
     // Define ADSR values at the beginning of the function
     const attack = Math.max(0.005, parseFloat(D('attack').value));
