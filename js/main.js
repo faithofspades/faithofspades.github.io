@@ -422,107 +422,57 @@ function isVoiceFullyInactive(voice) {
  * @param {number} noteNumber - The MIDI note number that will be played
  * @returns {object|null} The found voice object or null if pool is empty.
  */
+
 function findAvailableVoice(noteNumber) {
     if (voicePool.length === 0) {
         console.error("findAvailableVoice: Voice pool is empty!");
         return null;
     }
 
-    // 1. Try to find an inactive voice
+    // 1) Prefer an inactive voice
     for (let i = 0; i < voicePool.length; i++) {
         const index = (nextVoiceIndex + i) % voicePool.length;
-        const voice = voicePool[index];
-        if (voice.state === 'inactive') {
-            console.log(`findAvailableVoice: Found inactive voice ${voice.index}`);
+        const v = voicePool[index];
+        if (v.state === 'inactive') {
+            console.log(`findAvailableVoice: Found inactive voice ${v.index}`);
             nextVoiceIndex = (index + 1) % voicePool.length;
-            return voice;
+            return v;
         }
     }
 
-    // 2. No inactive voice found. Force-steal oldest voice
-    let voiceToSteal = null;
-    
-    // IMPROVEMENT: Prioritize voices that are already releasing
-    for (const voice of voicePool) {
-        if (voice.state === 'releasing') {
-            if (!voiceToSteal || voice.startTime < voiceToSteal.startTime) {
-                voiceToSteal = voice;
-            }
-        }
-    }
-    
-    // If no releasing voices, check all voices
-    if (!voiceToSteal) {
-        for (const voice of voicePool) {
-            if (!voiceToSteal || voice.startTime < voiceToSteal.startTime) {
-                voiceToSteal = voice;
-            }
+    // 2) No inactive voice => ALWAYS steal the single oldest active voice (absolute rule)
+    let oldestVoice = null;
+    for (const v of voicePool) {
+        if (v.state !== 'inactive' && (oldestVoice === null || v.startTime < oldestVoice.startTime)) {
+            oldestVoice = v;
         }
     }
 
-    if (!voiceToSteal) {
-        console.error("findAvailableVoice: Could not find any voice to steal.");
+    if (!oldestVoice) {
+        console.error("findAvailableVoice: Could not select oldest voice to steal.");
         return null;
     }
 
-    console.warn(`findAvailableVoice: Stealing oldest voice ${voiceToSteal.index} (Note: ${voiceToSteal.noteNumber}, State: ${voiceToSteal.state})`);
+    const isSelfStealing = (oldestVoice.noteNumber === noteNumber);
+    console.warn(`findAvailableVoice: Stealing oldest voice ${oldestVoice.id} (note=${oldestVoice.noteNumber}, state=${oldestVoice.state})${isSelfStealing ? " [SELF]" : ""}`);
 
-    // CRITICAL FIX: Properly handle self-stealing
-    const stolenNoteNumber = voiceToSteal.noteNumber;
-    const isSelfStealing = (noteNumber !== undefined && stolenNoteNumber === noteNumber);
+    // Mark provenance
+    oldestVoice.stolenFrom = oldestVoice.noteNumber || null;
+
     if (isSelfStealing) {
-    console.log(`findAvailableVoice: SELF-STEALING detected for note ${noteNumber}`);
-    
-    // Flag this voice with special handling for same-note stealing
-    voiceToSteal.isSelfStealing = true;
-    
-    // Remove from heldNotes to avoid stuck notes
-    heldNotes = heldNotes.filter(n => n !== noteNumber);
-    
-    // CRITICAL: For self-stealing, DON'T reset the voice immediately
-    // Just mark it for special handling in noteOn
-    voiceToSteal.stolenFrom = stolenNoteNumber;
-    
-    // Force state flags to inactive, but DON'T clear audio nodes or parameters
-    voiceToSteal.state = 'inactive';
-    if (voiceToSteal.samplerNote) voiceToSteal.samplerNote.state = 'inactive';
-    if (voiceToSteal.osc1Note) voiceToSteal.osc1Note.state = 'inactive';
-    if (voiceToSteal.osc2Note) voiceToSteal.osc2Note.state = 'inactive';
-    
-    // CRITICAL NEW FLAG: Preserve phase for same-note stealing
-    voiceToSteal.preservePhase = true;
-    
-    return voiceToSteal;
-}
+        // Special-case: same-note reuse (handled by noteOn envelope retrigger)
+        oldestVoice.isSelfStealing = true;
+        oldestVoice.preservePhase = true; // used by noteOn to soften attack
+        // Do NOT hard reset; let noteOn reuse the oscillators
+        // Leave state as-is; noteOn computes a small start delay if needed
+        return oldestVoice;
+    }
 
-// ONLY call hardResetVoice for non-self-stealing cases
-voiceToSteal.stolenFrom = stolenNoteNumber;
-hardResetVoice(voiceToSteal);
+    // Normal steal: micro-fade and clean components synchronously
+    hardResetVoice(oldestVoice);
 
-// After hardResetVoice completes, for self-stealing case ONLY:
-if (isSelfStealing) {
-    // Simply set the component state flags without interrupting fades
-    voiceToSteal.state = 'inactive';
-    if (voiceToSteal.samplerNote) voiceToSteal.samplerNote.state = 'inactive';
-    if (voiceToSteal.osc1Note) voiceToSteal.osc1Note.state = 'inactive';
-    if (voiceToSteal.osc2Note) voiceToSteal.osc2Note.state = 'inactive';
-}
-
-// For non-self-stealing cases, continue with normal reset
-voiceToSteal.stolenFrom = stolenNoteNumber;
-hardResetVoice(voiceToSteal);
-
-// After hardResetVoice completes, for self-stealing case ONLY:
-if (isSelfStealing) {
-    // Simply set the component state flags without interrupting fades
-    voiceToSteal.state = 'inactive';
-    if (voiceToSteal.samplerNote) voiceToSteal.samplerNote.state = 'inactive';
-    if (voiceToSteal.osc1Note) voiceToSteal.osc1Note.state = 'inactive';
-    if (voiceToSteal.osc2Note) voiceToSteal.osc2Note.state = 'inactive';
-}
-    
-    nextVoiceIndex = (voiceToSteal.index + 1) % voicePool.length;
-    return voiceToSteal;
+    nextVoiceIndex = (oldestVoice.index + 1) % voicePool.length;
+    return oldestVoice;
 }
 
 /**
@@ -3619,20 +3569,20 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
         // --- 2. Manage Source Node ---
         const currentSource = osc2Note.fmModulatorSource;
         let sourceTypeMatches = false;
-        let newFmSource = null;
+    let newFmSource = null;
+    let createdNewSource = false; // track whether we created a new node
 
-        if (currentSource) {
-            if (osc2FMSource === 'sampler' && currentSource instanceof AudioBufferSourceNode) {
-                sourceTypeMatches = true;
-            } else if (osc2FMSource === 'osc1' && currentSource instanceof OscillatorNode) { // Check for Osc1 source
-                sourceTypeMatches = true;
-            }
+    if (currentSource) {
+        if (osc2FMSource === 'sampler' && currentSource instanceof AudioBufferSourceNode) {
+            sourceTypeMatches = true;
+        } else if (osc2FMSource === 'osc1' && currentSource instanceof OscillatorNode) {
+            sourceTypeMatches = true;
         }
+    }
 
         if (sourceTypeMatches) {
-            // --- Reuse Existing Source ---
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Reusing existing FM source node (${currentSource.constructor.name}).`);
-            newFmSource = currentSource;
+        // Reuse existing source; DO NOT call start() again
+        newFmSource = currentSource;
 
             if (osc2FMSource === 'sampler') {
                 // Update Sampler Source Parameters (same logic as in Osc1 update)
@@ -3680,13 +3630,12 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
                 console.log(`updateOsc2FmModulatorParameters [${noteId}]: Updated reused oscillator FM source params (mirroring Osc1).`);
             }
         } else {
-            // --- Create/Replace Source ---
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Replacing FM source node.`);
-            if (currentSource) {
-                try { currentSource.stop(0); } catch(e) { /* Ignore */ }
-                try { currentSource.disconnect(); } catch(e) { /* Ignore */ }
-                osc2Note.fmModulatorSource = null;
-            }
+        // Replace source
+        if (currentSource) {
+            try { currentSource.stop(0); } catch(e) {}
+            try { currentSource.disconnect(); } catch(e) {}
+            osc2Note.fmModulatorSource = null;
+        }
 
             if (osc2FMSource === 'sampler') {
                 // Create Sampler Source (same logic as in Osc1 update)
@@ -3711,6 +3660,7 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
                     if (isSampleLoopOn) { newFmSource.loop = true; loopStartTime = sampleStartPosition * audioBuffer.duration; loopEndTime = sampleEndPosition * audioBuffer.duration; newFmSource.loopStart = Math.max(0, loopStartTime); newFmSource.loopEnd = Math.min(audioBuffer.duration, loopEndTime); if (newFmSource.loopEnd <= newFmSource.loopStart) { newFmSource.loopEnd = audioBuffer.duration; newFmSource.loopStart = 0; } }
                     else { newFmSource.loop = false; }
                 } else { newFmSource.loop = isSampleLoopOn; }
+                createdNewSource = true;
                 console.log(`updateOsc2FmModulatorParameters [${noteId}]: NEW Sampler FM Loop=${newFmSource.loop}, Start=${newFmSource.loopStart.toFixed(3)}, End=${newFmSource.loopEnd.toFixed(3)}`);
 
             } else if (osc2FMSource === 'osc1') {
@@ -3720,29 +3670,23 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
                 const osc1Freq = noteToFrequency(noteNumber, osc1OctaveOffset); // Use Osc1 octave
                 newFmSource.frequency.value = osc1Freq;
                 newFmSource.detune.value = osc1Detune; // Use Osc1 detune
+                createdNewSource = true;
                 console.log(`updateOsc2FmModulatorParameters [${noteId}]: Created NEW basic OscillatorNode (${newFmSource.type}) mirroring Osc1 settings.`);
             }
 
-            if (newFmSource) {
-                newFmSource.start(now);
-                osc2Note.fmModulatorSource = newFmSource;
-            } else {
-                console.warn(`updateOsc2FmModulatorParameters [${noteId}]: Failed to create new FM source. FM inactive.`);
-                if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e) {} osc2Note.fmDepthGain = null; }
-                return;
-            }
+           
         }
 
         // --- 3. Connect Nodes ---
         if (newFmSource && osc2Note.fmDepthGain && freqParam) {
-    newFmSource.connect(osc2Note.fmDepthGain);
-    osc2Note.fmDepthGain.connect(freqParam);
-    // Start at precise time to avoid clicks
-    const startTime = now + (STANDARD_FADE_TIME / 10); // Small offset for clean start
-    newFmSource.start(startTime);
-    osc2Note.fmModulatorSource = newFmSource;
-    console.log(`FM modulator source started and connected at ${startTime.toFixed(5)}`);
-} else {
+        newFmSource.connect(osc2Note.fmDepthGain);
+        osc2Note.fmDepthGain.connect(freqParam);
+        if (createdNewSource) {
+            const startTime = now + (STANDARD_FADE_TIME / 10);
+            try { newFmSource.start(startTime); } catch(e) { console.warn('Osc2 FM start failed:', e); }
+        }
+        osc2Note.fmModulatorSource = newFmSource;
+    } else {
              console.warn(`updateOsc2FmModulatorParameters [${noteId}]: Could not connect FM chain (gain or source missing).`);
              if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e) {} osc2Note.fmDepthGain = null; }
              if (newFmSource) { try { newFmSource.disconnect(); } catch(e) {} }
@@ -3771,108 +3715,174 @@ function noteOn(noteNumber) {
         heldNotes.sort((a, b) => a - b);
     }
 
-    // --- SAME-NOTE RETRIGGER DETECTION (MODIFIED FOR BETTER LAYERING) ---
-    // Only consider same-note retrigger if ALL voices are already in use
+    // --- OLDEST-FIRST SAME-NOTE RETRIGGER / STEAL (GLOBAL ROUND-ROBIN) ---
     const inactiveVoiceCount = voicePool.filter(v => v.state === 'inactive').length;
-    
-    // If no inactive voices left, we need voice stealing or retrigger
     if (inactiveVoiceCount === 0) {
-        // Find all voices playing this note
-        const voicesPlayingThisNote = voicePool.filter(v => 
-            v.state !== 'inactive' && v.noteNumber === noteNumber &&
-            ((v.osc1Note && v.osc1Note.state !== 'killed') || 
-             (v.osc2Note && v.osc2Note.state !== 'killed'))
-        );
-        
-        // IMPROVED LOGIC:
-        // Only retrigger if we already have MAX_POLYPHONY/2 instances of this note
-        // This allows for layering up to half the voices before retriggering
-        const retriggingThreshold = Math.max(1, Math.floor(MAX_POLYPHONY));
-        
-        if (voicesPlayingThisNote.length >= retriggingThreshold) {
-            // Sort by startTime to find the oldest voice
-            voicesPlayingThisNote.sort((a, b) => a.startTime - b.startTime);
-            const sameNoteVoice = voicesPlayingThisNote[0];
-            
-            console.log(`All voices in use and found ${voicesPlayingThisNote.length} voices playing note ${noteNumber} (threshold: ${retriggingThreshold}). Retriggering oldest: ${sameNoteVoice.id}`);
-            
-            // Define ADSR values for retrigger
-            const attack = Math.max(0.005, parseFloat(D('attack').value));
-            const decay = parseFloat(D('decay').value);
-            const sustain = parseFloat(D('sustain').value);
-            
-            // Update voice state
-            sameNoteVoice.state = 'playing';
-            
-            // Retrigger Osc1 if it exists and is active
-            if (sameNoteVoice.osc1Note && sameNoteVoice.osc1Note.state !== 'killed' && sameNoteVoice.osc1Note.gainNode) {
-                const note = sameNoteVoice.osc1Note;
+        // Find the single oldest active voice globally
+        let oldest = null;
+        for (const v of voicePool) {
+            if (v.state !== 'inactive' && (oldest === null || v.startTime < oldest.startTime)) {
+                oldest = v;
+            }
+        }
+
+        if (oldest && oldest.noteNumber === noteNumber) {
+            // Oldest is same note: retrigger envelope on its existing oscillators (reuse, no new allocation)
+            console.log(`Max polyphony: retriggering oldest same-note voice ${oldest.id} for note ${noteNumber}`);
+
+            const rAttack  = Math.max(0.005, parseFloat(D('attack').value));
+            const rDecay   = parseFloat(D('decay').value);
+            const rSustain = parseFloat(D('sustain').value);
+
+            const retriggerEnv = (note) => {
+                if (!note || note.state === 'killed' || !note.gainNode) return;
                 note.state = 'playing';
                 clearScheduledEventsForNote(note);
-                
-                // Retrigger envelope
                 const g = note.gainNode.gain;
                 g.cancelScheduledValues(now);
                 const current = Math.max(0.0001, g.value);
                 g.setValueAtTime(current, now);
-                g.linearRampToValueAtTime(1.0, now + attack);
-                g.linearRampToValueAtTime(sustain, now + attack + decay);
-                
-                // Refresh FM if needed
-                if (note.fmModulatorSource) {
-                    try { note.fmModulatorSource.stop(0); } catch (_) {}
-                    try { note.fmModulatorSource.disconnect(); } catch (_) {}
-                    note.fmModulatorSource = null;
-                    updateOsc1FmModulatorParameters(note, now, sameNoteVoice);
+                g.linearRampToValueAtTime(1.0, now + rAttack);
+                g.linearRampToValueAtTime(rSustain, now + rAttack + rDecay);
+            };
+
+            // Retrigger oscillators (preserve phase continuity)
+            retriggerEnv(oldest.osc1Note);
+            retriggerEnv(oldest.osc2Note);
+
+            // RETRIGGER SAMPLER TOO (rebuild BufferSource and restart)
+            const sNote = oldest.samplerNote;
+            if (sNote && audioBuffer) {
+                try {
+                    // Stop/disconnect old source safely
+                    if (sNote.source) {
+                        try { sNote.source.stop(0); } catch(e){}
+                        try { sNote.source.disconnect(); } catch(e){}
+                    }
+
+                    // New one-shot BufferSource
+                    const newSource = audioCtx.createBufferSource();
+                    // Buffer selection mirrors regular noteOn
+                    let useOriginalBuffer = true;
+                    let sourceBuffer = audioBuffer;
+                    let bufferType = "original";
+                    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
+                        sourceBuffer = cachedCrossfadedBuffer; useOriginalBuffer = false; bufferType = "crossfaded";
+                    } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
+                        sourceBuffer = fadedBuffer; useOriginalBuffer = false; bufferType = "faded";
+                    } else if (isEmuModeOn && useOriginalBuffer) {
+                        sourceBuffer = applyEmuProcessing(audioBuffer); useOriginalBuffer = false; bufferType = "original_emu";
+                    }
+
+                    if (sourceBuffer instanceof AudioBuffer && sourceBuffer.length > 0) {
+                        newSource.buffer = sourceBuffer;
+
+                        // Connect chain
+                        newSource.connect(sNote.sampleNode);
+                        // Ensure ADSR gain is connected
+                        try { sNote.gainNode.disconnect(masterGain); } catch(e){}
+                        sNote.gainNode.connect(masterGain);
+
+                        // State/metadata
+                        sNote.noteNumber = noteNumber;
+                        sNote.startTime = now;
+                        sNote.state = 'playing';
+                        clearScheduledEventsForNote(sNote);
+
+                        // Gain & pitch
+                        sNote.sampleNode.gain.setValueAtTime(currentSampleGain, now);
+                        const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
+                        newSource.playbackRate.setValueAtTime(targetRate, now);
+                        newSource.detune.setValueAtTime(currentSampleDetune, now);
+
+                        // Loop settings
+                        let loopStartTime = 0; let loopEndTime = sourceBuffer.duration;
+                        if (useOriginalBuffer) {
+                            if (isSampleLoopOn) {
+                                newSource.loop = true;
+                                loopStartTime = sampleStartPosition * audioBuffer.duration;
+                                loopEndTime = sampleEndPosition * audioBuffer.duration;
+                                newSource.loopStart = Math.max(0, loopStartTime);
+                                newSource.loopEnd = Math.min(audioBuffer.duration, loopEndTime);
+                                if (newSource.loopEnd <= newSource.loopStart) {
+                                    newSource.loopEnd = audioBuffer.duration;
+                                    newSource.loopStart = 0;
+                                }
+                            } else {
+                                newSource.loop = false;
+                            }
+                        } else {
+                            newSource.loop = isSampleLoopOn;
+                        }
+                        sNote.looping = newSource.loop;
+                        sNote.usesProcessedBuffer = !useOriginalBuffer;
+                        sNote.crossfadeActive = bufferType === "crossfaded";
+                        sNote.calculatedLoopStart = loopStartTime;
+                        sNote.calculatedLoopEnd = loopEndTime;
+
+                        // ADSR retrigger for sampler gain
+                        const g = sNote.gainNode.gain;
+                        g.cancelScheduledValues(now);
+                        const current = Math.max(0.0001, g.value);
+                        g.setValueAtTime(current, now);
+                        g.linearRampToValueAtTime(1.0, now + rAttack);
+                        g.linearRampToValueAtTime(rSustain, now + rAttack + rDecay);
+
+                        // Start sampler
+                        newSource.start(now);
+                        sNote.source = newSource;
+
+                        // Schedule stop if not looping
+                        if (!newSource.loop) {
+                            let originalDuration;
+                            if (sNote.crossfadeActive) {
+                                originalDuration = sourceBuffer.duration;
+                            } else if (sNote.usesProcessedBuffer && fadedBufferOriginalDuration) {
+                                originalDuration = fadedBufferOriginalDuration;
+                            } else {
+                                originalDuration = (sampleEndPosition - sampleStartPosition) * audioBuffer.duration;
+                            }
+                            const adjustedDuration = originalDuration / (isSampleKeyTrackingOn ? targetRate : 1.0);
+                            const safetyMargin = 0.05;
+                            const stopTime = now + adjustedDuration + safetyMargin;
+                            try { newSource.stop(stopTime); } catch (e) {
+                                console.error(`Sampler retrigger stop schedule failed for ${sNote.id}:`, e);
+                            }
+                        }
+                    } else {
+                        console.error(`Same-note retrigger [Voice ${oldest.id} Sampler]: Invalid buffer (${bufferType}), skipping sampler retrigger.`);
+                        sNote.state = 'inactive';
+                    }
+                } catch (e) {
+                    console.warn(`Same-note retrigger: sampler restart failed for voice ${oldest.id}`, e);
                 }
             }
-            
-            // Retrigger Osc2 if it exists and is active
-            if (sameNoteVoice.osc2Note && sameNoteVoice.osc2Note.state !== 'killed' && sameNoteVoice.osc2Note.gainNode) {
-                const note = sameNoteVoice.osc2Note;
-                note.state = 'playing';
-                clearScheduledEventsForNote(note);
-                
-                // Retrigger envelope
-                const g = note.gainNode.gain;
-                g.cancelScheduledValues(now);
-                const current = Math.max(0.0001, g.value);
-                g.setValueAtTime(current, now);
-                g.linearRampToValueAtTime(1.0, now + attack);
-                g.linearRampToValueAtTime(sustain, now + attack + decay);
-                
-                // Refresh FM if needed
-                if (note.fmModulatorSource) {
-                    try { note.fmModulatorSource.stop(0); } catch (_) {}
-                    try { note.fmModulatorSource.disconnect(); } catch (_) {}
-                    note.fmModulatorSource = null;
-                    updateOsc2FmModulatorParameters(note, now, sameNoteVoice);
-                }
-            }
-            
-            // For sampler notes, we can't retrigger - just let them keep playing
-            // If you need to restart the sample, you'd need to create a new AudioBufferSourceNode
-            
+
+            // Make this voice newest so next press picks next-oldest (round-robin)
+            oldest.startTime = now;
+            oldest.state = 'playing';
+            oldest.noteNumber = noteNumber;
+
             updateVoiceDisplay_Pool();
             updateKeyboardDisplay_Pool();
-            return; // Exit early - we've handled the retrigger
+            return; // Done: no new allocation/steal
         }
-        // If we didn't meet the threshold for retriggering, continue with normal voice stealing
-        console.log(`Found ${voicesPlayingThisNote.length} voices playing note ${noteNumber}, but below threshold of ${retriggingThreshold}. Will steal a voice for layering.`);
+        // If oldest is a different note, we fall through to normal allocation which will steal that oldest voice (see findAvailableVoice)
     }
-    // Define ADSR values at the beginning of the function
+
+    // Define ADSR at the beginning
     const attack = Math.max(0.005, parseFloat(D('attack').value));
     const decay = parseFloat(D('decay').value);
     const sustain = parseFloat(D('sustain').value);
     const release = parseFloat(D('release').value);
-    
+
     let voice = null;
     let previousNoteNumber = null;
     let isNewMonoNote = false;
     let wasStolen = false;
-    let voiceStartDelay = 0; // CRITICAL: This will be set if voice stealing occurs
+    let voiceStartDelay = 0;
 
-    // Voice selection logic
+    // Voice selection logic (unchanged, but findAvailableVoice now enforces oldest-first)
     if (isMonoMode) {
         if (currentMonoVoice && currentMonoVoice.state !== 'inactive') {
             voice = currentMonoVoice;
@@ -3993,104 +4003,111 @@ if (wasStolen && voice.state !== 'inactive') {
     voice.state = 'playing';
 
     // --- Configure Sampler Component ---
-    if (audioBuffer) {
-        let samplerNote = voice.samplerNote;
-        
-        if (!samplerNote.source) {
-            const freshSource = audioCtx.createBufferSource();
-            freshSource.connect(samplerNote.sampleNode);
-            samplerNote.source = freshSource;
-            console.log(`NoteOn [Voice ${voice.id}]: Created new BufferSource for sampler and connected to existing sampleNode.`);
-        }
+if (audioBuffer) {
+    let samplerNote = voice.samplerNote;
 
-        // Reset state for re-use
-        samplerNote.noteNumber = noteNumber;
-        samplerNote.startTime = noteStartTime; // Use delayed start time
-        samplerNote.state = 'playing';
-        clearScheduledEventsForNote(samplerNote);
+    // Always create a fresh BufferSource (one-shot node)
+    if (samplerNote.source) {
+        try { samplerNote.source.stop(0); } catch(e){}
+        try { samplerNote.source.disconnect(); } catch(e){}
+    }
+    const newSource = audioCtx.createBufferSource();
+    newSource.connect(samplerNote.sampleNode);
+    samplerNote.source = newSource;
 
-        // Clean slate for re-used nodes - SCHEDULE AT noteStartTime
-        const samplerGainParam = samplerNote.gainNode.gain;
-        samplerGainParam.cancelScheduledValues(noteStartTime);
-        samplerGainParam.setValueAtTime(0, noteStartTime); // Start at delayed time
+    // Reset state for re-use
+    samplerNote.noteNumber = noteNumber;
+    samplerNote.startTime = noteStartTime;
+    samplerNote.state = 'playing';
+    clearScheduledEventsForNote(samplerNote);
 
-        const samplerRateParam = samplerNote.source.playbackRate;
-        samplerRateParam.cancelScheduledValues(now);
+    // Prepare ADSR gain at noteStartTime
+    const samplerGainParam = samplerNote.gainNode.gain;
+    samplerGainParam.cancelScheduledValues(noteStartTime);
+    samplerGainParam.setValueAtTime(0, noteStartTime);
 
-        const samplerDetuneParam = samplerNote.source.detune;
-        samplerDetuneParam.cancelScheduledValues(now);
-        // --- END FIX ---
+    // Select buffer
+    let useOriginalBuffer = true;
+    let sourceBuffer = audioBuffer;
+    let bufferType = "original";
+    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
+        sourceBuffer = cachedCrossfadedBuffer; useOriginalBuffer = false; bufferType = "crossfaded";
+    } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
+        sourceBuffer = fadedBuffer; useOriginalBuffer = false; bufferType = "faded";
+    } else if (isEmuModeOn && useOriginalBuffer) {
+        sourceBuffer = applyEmuProcessing(audioBuffer); useOriginalBuffer = false; bufferType = "original_emu";
+    }
 
-        // Select buffer
-        let useOriginalBuffer = true;
-        let sourceBuffer = audioBuffer;
-        let bufferType = "original";
-        if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-            sourceBuffer = cachedCrossfadedBuffer; useOriginalBuffer = false; bufferType = "crossfaded";
-        } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-            sourceBuffer = fadedBuffer; useOriginalBuffer = false; bufferType = "faded";
-        } else if (isEmuModeOn && useOriginalBuffer) {
-             sourceBuffer = applyEmuProcessing(audioBuffer); useOriginalBuffer = false; bufferType = "original_emu";
-        }
+    if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer) || sourceBuffer.length === 0) {
+        console.error(`NoteOn [Voice ${voice.id} Sampler]: Invalid sourceBuffer (type: ${bufferType}). Skipping sampler.`);
+        samplerNote.state = 'inactive';
+    } else {
+        samplerNote.source.buffer = sourceBuffer;
+        samplerNote.usesProcessedBuffer = !useOriginalBuffer;
+        samplerNote.crossfadeActive = bufferType === "crossfaded";
 
-        if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer) || sourceBuffer.length === 0) {
-            console.error(`NoteOn [Voice ${voice.id} Sampler]: Invalid sourceBuffer (type: ${bufferType}). Skipping sampler.`);
-            samplerNote.state = 'inactive';
-        } else {
-            samplerNote.source.buffer = sourceBuffer; // Use the potentially new source
-            samplerNote.usesProcessedBuffer = !useOriginalBuffer;
-            samplerNote.crossfadeActive = bufferType === "crossfaded";
+        try { samplerNote.gainNode.disconnect(masterGain); } catch (e) {}
+        samplerNote.gainNode.connect(masterGain);
 
-            // --- FIX: Ensure connection to master gain ---
-            try {
-                samplerNote.gainNode.disconnect(masterGain);
-            } catch (e) { /* Ignore if not connected */ }
-            samplerNote.gainNode.connect(masterGain);
-            // --- END FIX ---
-
-
-            // Set sample gain on sampleNode - SCHEDULE AT noteStartTime
+        // Gain and pitch params at start time
         samplerNote.sampleNode.gain.setValueAtTime(currentSampleGain, noteStartTime);
-
-        // Set pitch/rate/detune on source - SCHEDULE AT noteStartTime
         const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
         samplerNote.source.playbackRate.setValueAtTime(targetRate, noteStartTime);
         samplerNote.source.detune.setValueAtTime(currentSampleDetune, noteStartTime);
 
-            // Set loop on source
-            let loopStartTime = 0; let loopEndTime = sourceBuffer.duration;
-            if (useOriginalBuffer) {
-                if (isSampleLoopOn) {
-                    samplerNote.source.loop = true; loopStartTime = sampleStartPosition * audioBuffer.duration; loopEndTime = sampleEndPosition * audioBuffer.duration;
-                    samplerNote.source.loopStart = Math.max(0, loopStartTime); samplerNote.source.loopEnd = Math.min(audioBuffer.duration, loopEndTime);
-                    if (samplerNote.source.loopEnd <= samplerNote.source.loopStart) { samplerNote.source.loopEnd = audioBuffer.duration; samplerNote.source.loopStart = 0; }
-                } else { samplerNote.source.loop = false; }
-            } else { samplerNote.source.loop = isSampleLoopOn; } // Processed buffers loop fully or not at all
-            samplerNote.looping = samplerNote.source.loop;
-            samplerNote.calculatedLoopStart = loopStartTime; samplerNote.calculatedLoopEnd = loopEndTime;
-// ADSR Trigger - START AT noteStartTime
+        // Loop settings
+        let loopStartTime = 0; let loopEndTime = sourceBuffer.duration;
+        if (useOriginalBuffer) {
+            if (isSampleLoopOn) {
+                samplerNote.source.loop = true;
+                loopStartTime = sampleStartPosition * audioBuffer.duration;
+                loopEndTime = sampleEndPosition * audioBuffer.duration;
+                samplerNote.source.loopStart = Math.max(0, loopStartTime);
+                samplerNote.source.loopEnd = Math.min(audioBuffer.duration, loopEndTime);
+                if (samplerNote.source.loopEnd <= samplerNote.source.loopStart) {
+                    samplerNote.source.loopEnd = audioBuffer.duration;
+                    samplerNote.source.loopStart = 0;
+                }
+            } else {
+                samplerNote.source.loop = false;
+            }
+        } else {
+            samplerNote.source.loop = isSampleLoopOn;
+        }
+        samplerNote.looping = samplerNote.source.loop;
+        samplerNote.calculatedLoopStart = loopStartTime;
+        samplerNote.calculatedLoopEnd = loopEndTime;
+
+        // ADSR
         samplerNote.gainNode.gain.setValueAtTime(0, noteStartTime);
         samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, noteStartTime + attack);
         samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, noteStartTime + attack + decay);
 
-        // Start source at delayed time
+        // Start source
         samplerNote.source.start(noteStartTime);
 
-        // Schedule stop if not looping (adjust for delayed start)
+        // Schedule stop when not looping (define adjustedDuration/safetyMargin here)
         if (!samplerNote.source.loop) {
-            // ... (existing duration calculation) ...
+            let originalDuration;
+            if (samplerNote.crossfadeActive) {
+                originalDuration = sourceBuffer.duration;
+            } else if (samplerNote.usesProcessedBuffer && fadedBufferOriginalDuration) {
+                originalDuration = fadedBufferOriginalDuration;
+            } else {
+                originalDuration = (sampleEndPosition - sampleStartPosition) * audioBuffer.duration;
+            }
+            const adjustedDuration = originalDuration / (isSampleKeyTrackingOn ? targetRate : 1.0);
+            const safetyMargin = 0.05;
             const stopTime = noteStartTime + adjustedDuration + safetyMargin;
-            try {
-                samplerNote.source.stop(stopTime);
-            } catch (e) { 
-                console.error(`Error scheduling stop for sampler note ${samplerNote.id}:`, e); 
+            try { samplerNote.source.stop(stopTime); } catch (e) {
+                console.error(`Error scheduling stop for sampler note ${samplerNote.id}:`, e);
             }
         }
     }
-    } else {
-        if (voice.samplerNote) voice.samplerNote.state = 'inactive'; // Ensure component is marked inactive
-        console.log(`NoteOn [Voice ${voice.id}]: No audioBuffer loaded, skipping sampler component.`);
-    }
+} else {
+    if (voice.samplerNote) voice.samplerNote.state = 'inactive';
+    console.log(`NoteOn [Voice ${voice.id}]: No audioBuffer loaded, skipping sampler component.`);
+}
 // --- Configure Osc1 Component ---
 if (isWorkletReady) {
     let osc1Note = voice.osc1Note;
