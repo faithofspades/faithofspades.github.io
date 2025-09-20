@@ -8,8 +8,8 @@ import { initializeUiPlaceholders } from './uiPlaceholders.js';
 
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
-const STANDARD_FADE_TIME = 0.015; // 15ms standard fade time
-const VOICE_STEAL_SAFETY_BUFFER = 0.008; // 8ms safety buffer for voice stealing
+const STANDARD_FADE_TIME = 0.001; // 15ms standard fade time
+const VOICE_STEAL_SAFETY_BUFFER = 0.001; // 8ms safety buffer for voice stealing
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 Tone.setContext(audioCtx); // <<< ADD THIS LINE
 const masterGain = audioCtx.createGain();
@@ -2256,71 +2256,101 @@ function findAvailableSamplerVoice(noteNumber) {
         return null;
     }
 
-    // PRIORITY 1: Prefer an inactive voice.
-    for (let i = 0; i < samplerVoicePool.length; i++) {
-        const voice = samplerVoicePool[i];
-        if (voice.state === 'inactive') {
-            console.log(`findAvailableSamplerVoice: Found inactive voice ${voice.id} for note ${noteNumber}.`);
-            return voice;
-        }
-    }
-
-    // PRIORITY 2: No inactive voice found. Steal the single oldest voice.
-    // This is the crucial part for max polyphony.
-    let oldestVoice = null;
-    for (const v of samplerVoicePool) {
-        // Find the voice that started playing the longest time ago.
-        if (!oldestVoice || v.startTime < oldestVoice.startTime) {
-            oldestVoice = v;
-        }
-    }
-
-    // This should not happen if the pool is not empty, but as a safeguard:
-    if (!oldestVoice) {
-        console.error("findAvailableSamplerVoice: Could not determine oldest voice to steal.");
-        return samplerVoicePool[0]; // Fallback to stealing the first voice.
-    }
-
-    console.log(`findAvailableSamplerVoice: Stealing oldest voice ${oldestVoice.id} (playing note ${oldestVoice.noteNumber}) for new note ${noteNumber}.`);
-
-    // CRITICAL: Perform a complete and immediate hard reset on the stolen voice.
-    // This ensures the old note is silenced and all resources are ready for the new note.
-    if (oldestVoice.samplerNote) {
-        const noteToKill = oldestVoice.samplerNote;
-        const now = audioCtx.currentTime;
-
-        // 1. Stop any scheduled release timers.
-        clearScheduledEventsForNote(noteToKill);
-
-        // 2. Stop the audio source immediately.
-        if (noteToKill.source) {
-            try { noteToKill.source.stop(0); } catch (e) { /* Ignore if already stopped */ }
-            try { noteToKill.source.disconnect(); } catch (e) { /* Ignore if already disconnected */ }
+    // CRITICAL FIX: In mono mode, we MUST steal the current voice if it exists
+    // This ensures same-note retriggers work correctly
+    if (isMonoMode && currentMonoSamplerVoice) {
+        console.log(`findAvailableSamplerVoice MONO: Forcing steal of current mono sampler voice ${currentMonoSamplerVoice.id} for note ${noteNumber}`);
+        
+        const voiceToSteal = currentMonoSamplerVoice;
+        
+        // If the voice is playing, we need to fade it out
+        if (voiceToSteal.state !== 'inactive') {
+            const noteToKill = voiceToSteal.samplerNote;
+            const now = audioCtx.currentTime;
+            const fadeTime = STANDARD_FADE_TIME;
+            
+            if (noteToKill) {
+                clearScheduledEventsForNote(noteToKill);
+                
+                if (noteToKill.gainNode) {
+                    const g = noteToKill.gainNode.gain;
+                    g.cancelScheduledValues(now);
+                    g.setValueAtTime(Math.max(0.0001, g.value), now);
+                    g.linearRampToValueAtTime(0.0001, now + fadeTime);
+                }
+                
+                if (noteToKill.source) {
+                    try { 
+                        noteToKill.source.stop(now + fadeTime + 0.005); 
+                    } catch (e) {}
+                    try { 
+                        noteToKill.source.disconnect(); 
+                    } catch (e) {}
+                }
+                
+                noteToKill.source = null;
+                noteToKill.state = 'inactive';
+                noteToKill.noteNumber = null;
+            }
+            
+            voiceToSteal.state = 'inactive';
+            voiceToSteal.noteNumber = null;
+            voiceToSteal.startTime = 0;
+            voiceToSteal.wasStolen = true;
         }
         
-        // 3. Create a fresh, disconnected source for the new note to use.
-        // This is essential because a BufferSource cannot be re-started.
-        noteToKill.source = audioCtx.createBufferSource();
-        noteToKill.source.connect(noteToKill.sampleNode);
-
-        // 4. Force the gain to zero immediately to prevent any lingering sound.
+        return voiceToSteal;
+    }
+    
+    // For poly mode, use round-robin
+    const index = nextSamplerVoiceIndex % samplerVoicePool.length;
+    const candidate = samplerVoicePool[index];
+    nextSamplerVoiceIndex = (index + 1) % samplerVoicePool.length;
+    
+    // If the candidate is inactive, use it directly
+    if (candidate.state === 'inactive') {
+        console.log(`findAvailableSamplerVoice: Found inactive voice ${candidate.id} via round-robin for note ${noteNumber}`);
+        candidate.wasStolen = false;
+        return candidate;
+    }
+    
+    // The candidate is active, we MUST steal it (even if same note)
+    console.log(`findAvailableSamplerVoice: Stealing voice ${candidate.id} (currently playing note ${candidate.noteNumber}) for new note ${noteNumber}`);
+    
+    const noteToKill = candidate.samplerNote;
+    const now = audioCtx.currentTime;
+    const fadeTime = STANDARD_FADE_TIME;
+    
+    if (noteToKill) {
+        clearScheduledEventsForNote(noteToKill);
+        
         if (noteToKill.gainNode) {
-            noteToKill.gainNode.gain.cancelScheduledValues(now);
-            noteToKill.gainNode.gain.setValueAtTime(0, now);
+            const g = noteToKill.gainNode.gain;
+            g.cancelScheduledValues(now);
+            g.setValueAtTime(Math.max(0.0001, g.value), now);
+            g.linearRampToValueAtTime(0.0001, now + fadeTime);
         }
-
-        // 5. Reset the state of the note component.
+        
+        if (noteToKill.source) {
+            try { 
+                noteToKill.source.stop(now + fadeTime + 0.005); 
+            } catch (e) {}
+            try { 
+                noteToKill.source.disconnect(); 
+            } catch (e) {}
+        }
+        
+        noteToKill.source = null;
         noteToKill.state = 'inactive';
         noteToKill.noteNumber = null;
     }
-
-    // 6. Reset the state of the parent voice container.
-    oldestVoice.state = 'inactive';
-    oldestVoice.noteNumber = null;
-    oldestVoice.startTime = 0;
-
-    // The voice is now clean and ready to be used by noteOn.
-    return oldestVoice;
+    
+    candidate.state = 'inactive';
+    candidate.noteNumber = null;
+    candidate.startTime = 0;
+    candidate.wasStolen = true;
+    
+    return candidate;
 }
 // Add interface updating functions
 function updateSliderValues() {
@@ -3962,18 +3992,17 @@ function noteOn(noteNumber) {
 
     // --- PART 2: SAMPLER VOICE CONFIGURATION ---
     if (audioBuffer && samplerVoice) {
-        // Since findAvailableSamplerVoice now does immediate cleanup, we can start right away
-        const noteStartTime = now; // No delay needed
+        // Apply delay if the voice was stolen (for fade-out to complete)
+        const samplerStartDelay = samplerVoice.wasStolen ? (STANDARD_FADE_TIME + VOICE_STEAL_SAFETY_BUFFER) : 0;
+        const noteStartTime = now + samplerStartDelay;
         
-        // Update voice state immediately
         samplerVoice.noteNumber = noteNumber;
         samplerVoice.startTime = noteStartTime;
         samplerVoice.state = 'playing';
-            
-        // Get the samplerNote component
+        
         let samplerNote = samplerVoice.samplerNote;
         
-        // Always create a fresh BufferSource (one-shot node)
+        // Always create a fresh BufferSource
         if (samplerNote.source) {
             try { samplerNote.source.stop(0); } catch(e){}
             try { samplerNote.source.disconnect(); } catch(e){}
@@ -3981,6 +4010,9 @@ function noteOn(noteNumber) {
         const newSource = audioCtx.createBufferSource();
         newSource.connect(samplerNote.sampleNode);
         samplerNote.source = newSource;
+        
+        // Reset the wasStolen flag after using it
+        samplerVoice.wasStolen = false;
         
         // Rewire sampler chain defensively: sampleNode -> gainNode -> master
         try { samplerNote.sampleNode.disconnect(); } catch(e){}
