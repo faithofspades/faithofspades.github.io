@@ -161,8 +161,20 @@ export function initializeKeyboard(elementId, onNoteOn, onNoteOff, onUpdateDispl
 }
 // --- State Reset ---
 export function resetKeyStates() {
-    for (const key in keyStates) {
-        keyStates[key] = false;
-    }
-    console.log("Keyboard key states reset.");
+    // Reset visual key states
+    document.querySelectorAll('.key').forEach(key => {
+        key.classList.remove('pressed');
+    });
+    
+    // Reset internal key tracking
+    keys.forEach((_, index) => {
+        keyStates[index] = false;
+    });
+    
+    // Force browser to clear any stuck key states (important for transitions)
+    window.addEventListener('keyup', function clearKeys() {
+        window.removeEventListener('keyup', clearKeys);
+    });
+    
+    console.log("All keyboard states reset");
 }

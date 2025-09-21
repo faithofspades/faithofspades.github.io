@@ -7,106 +7,97 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
             { name: 'holdAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'quantizeAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 },
-            { name: 'phaseReset', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' } // Phase reset parameter
-            // No separate phaseModulation parameter needed for this approach
+            { name: 'phaseReset', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' }, // Phase reset parameter
+            { name: 'gate', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'a-rate' }
         ];
     }
 
     constructor(options) {
         super(options);
         this.phase = 0;
-        this.sampleRate = sampleRate;
+        this.sampleRate = sampleRate; // Assuming sampleRate is globally available here
         this._holdValues = [ 0.0, -1.0, 0.0, 1.0, 1.0 ];
+        
+        // CRITICAL: Add internal state for the gate and zero-crossing detection
+        this._gateState = 'OPEN'; // Can be 'OPEN', 'CLOSING', 'CLOSED'
+        this._lastSample = 0.0;   // Store the previous sample to detect crossing
     }
 
     process(inputs, outputs, parameters) {
-    const output = outputs[0];
-    const channel = output[0];
-    
-    // Handle phase reset with careful zero crossing
-    const phaseReset = parameters.phaseReset;
-    const phaseResetValue = phaseReset ? phaseReset[0] : 0;
-    
-    if (phaseResetValue > 0.5) {
-        // Instead of abruptly setting phase to 0, calculate a smooth transition
-        // based on current phase to avoid discontinuities
-        this.phase = 0;
+        const output = outputs[0];
+        const channel = output[0];
         
-        // For shaping waveforms, ensure we're at a zero crossing point
-        // This depends on the waveform type
-        const waveformType = parameters.waveformType[0];
-        
-        // For sine waves, zero crossing is at 0 or 0.5 phase
-        if (waveformType === 0) { // sine
-            this.phase = 0;  // exact zero phase (sin(0) = 0)
-        }
-        // For sawtooth, zero crossing is at 0.5 phase
-        else if (waveformType === 1) { // sawtooth
-            this.phase = 0.5; // center of sawtooth is zero crossing
-        }
-        // For triangle, zero crossing is at 0 or 0.5 phase
-        else if (waveformType === 2) { // triangle
-            this.phase = 0;  // exact zero phase
-        }
-        // For square/pulse, use 0 phase but know it will jump to +1
-        else {
-            this.phase = 0;
-        }
-    }
-    
-    const frequencyValues = parameters.frequency;
-    const detuneValues = parameters.detune;
-    const holdAmountValues = parameters.holdAmount;
-    const quantizeAmountValues = parameters.quantizeAmount;
-    const waveformTypeValues = parameters.waveformType;
+        const frequencyValues = parameters.frequency;
+        const detuneValues = parameters.detune;
+        const holdAmountValues = parameters.holdAmount;
+        const quantizeAmountValues = parameters.quantizeAmount;
+        const waveformTypeValues = parameters.waveformType;
+        const phaseResetValues = parameters.phaseReset;
+        const gateValues = parameters.gate;
 
-    const waveformType = waveformTypeValues[0];
-    const holdValue = this._holdValues[waveformType] !== undefined ? this._holdValues[waveformType] : 0.0;
+        const waveformType = waveformTypeValues[0];
+        const holdValue = this._holdValues[waveformType] !== undefined ? this._holdValues[waveformType] : 0.0;
 
-    // FIX: Use 'channel.length' instead of 'outputChannel.length'
-    for (let i = 0; i < channel.length; ++i) {
-        // --- Calculate Instantaneous Frequency ---
-        const baseFreq = frequencyValues.length > 1 ? frequencyValues[i] : frequencyValues[0];
-        const detune = detuneValues.length > 1 ? detuneValues[i] : detuneValues[0];
-        const holdAmount = holdAmountValues.length > 1 ? holdAmountValues[i] : holdAmountValues[0];
-        const quantizeAmount = quantizeAmountValues.length > 1 ? quantizeAmountValues[i] : quantizeAmountValues[0];
-
-        // Apply detune AFTER getting the modulated frequency
-        const instantaneousFreq = baseFreq * Math.pow(2, detune / 1200);
-
-        // Calculate Phase Increment based on ABSOLUTE frequency
-        const phaseIncrementMagnitude = Math.abs(instantaneousFreq) / this.sampleRate;
-        const phaseDirection = Math.sign(instantaneousFreq);
-
-        // Apply phase increment
-        this.phase += phaseIncrementMagnitude * phaseDirection;
-        this.phase = this.phase - Math.floor(this.phase);
-
-        // --- Waveform Generation ---
-        const currentPhase = this.phase;
-        const clampedHoldAmount = Math.max(0.0, Math.min(1.0, holdAmount));
-        const activeRatio = 1.0 - clampedHoldAmount;
-        let sample = 0;
-
-        if (activeRatio <= 1e-6) {
-            sample = holdValue;
-        } else if (currentPhase < activeRatio) {
-            const squeezedPhase = currentPhase / activeRatio;
-            switch (waveformType) {
-                case 0: sample = Math.sin(squeezedPhase * 2 * Math.PI); break; // Sine
-                case 1: sample = (squeezedPhase * 2) - 1; break; // Saw
-                case 2: sample = 1 - 4 * Math.abs(Math.round(squeezedPhase - 0.25) - (squeezedPhase - 0.25)); break; // Tri
-                case 3: sample = squeezedPhase < 0.5 ? 1 : -1; break; // Square
-                case 4: {
-                    const dutyCycle = 0.25 + (clampedHoldAmount * 0.75);
-                    sample = squeezedPhase < dutyCycle ? 1 : -1;
-                    break;
-                }
-                default: sample = Math.sin(squeezedPhase * 2 * Math.PI);
+        for (let i = 0; i < channel.length; ++i) {
+            // --- CRITICAL FIX: Independent Phase Reset Logic ---
+            const phaseResetCommand = phaseResetValues.length > 1 ? phaseResetValues[i] : phaseResetValues[0];
+            if (phaseResetCommand > 0.5) {
+                this.phase = 0;
             }
-        } else {
-            sample = holdValue;
-        }
+
+            // --- State Machine Control ---
+            const gateCommand = gateValues.length > 1 ? gateValues[i] : gateValues[0];
+
+            if (this._gateState === 'OPEN' && gateCommand < 0.5) {
+                this._gateState = 'CLOSING'; // Begin hunting for a zero-crossing.
+            } else if (this._gateState !== 'OPEN' && gateCommand > 0.5) {
+                // If gate is opening from ANY non-open state (CLOSED or CLOSING), force it open.
+                this._gateState = 'OPEN';
+                // The independent phase reset logic above ensures a clean start.
+            }
+
+            // If the gate is fully closed, output silence and do nothing else.
+            if (this._gateState === 'CLOSED') {
+                channel[i] = 0;
+                this._lastSample = 0;
+                continue;
+            }
+
+            // --- Waveform Generation (always run when not CLOSED) ---
+            const baseFreq = frequencyValues.length > 1 ? frequencyValues[i] : frequencyValues[0];
+            const detune = detuneValues.length > 1 ? detuneValues[i] : detuneValues[0];
+            const holdAmount = holdAmountValues.length > 1 ? holdAmountValues[i] : holdAmountValues[0];
+            const quantizeAmount = quantizeAmountValues.length > 1 ? quantizeAmountValues[i] : quantizeAmountValues[0];
+            const instantaneousFreq = baseFreq * Math.pow(2, detune / 1200);
+            const phaseIncrementMagnitude = Math.abs(instantaneousFreq) / this.sampleRate;
+            const phaseDirection = Math.sign(instantaneousFreq);
+            this.phase += phaseIncrementMagnitude * phaseDirection;
+            this.phase = this.phase - Math.floor(this.phase);
+            
+            const currentPhase = this.phase;
+            const clampedHoldAmount = Math.max(0.0, Math.min(1.0, holdAmount));
+            const activeRatio = 1.0 - clampedHoldAmount;
+            let sample = 0;
+
+            if (activeRatio <= 1e-6) {
+                sample = holdValue;
+            } else if (currentPhase < activeRatio) {
+                const squeezedPhase = currentPhase / activeRatio;
+                switch (waveformType) {
+                    case 0: sample = Math.sin(squeezedPhase * 2 * Math.PI); break;
+                    case 1: sample = (squeezedPhase * 2) - 1; break;
+                    case 2: sample = 1 - 4 * Math.abs(Math.round(squeezedPhase - 0.25) - (squeezedPhase - 0.25)); break;
+                    case 3: sample = squeezedPhase < 0.5 ? 1 : -1; break;
+                    case 4: {
+                        const dutyCycle = 0.25 + (clampedHoldAmount * 0.75);
+                        sample = squeezedPhase < dutyCycle ? 1 : -1;
+                        break;
+                    }
+                    default: sample = Math.sin(squeezedPhase * 2 * Math.PI);
+                }
+            } else {
+                sample = holdValue;
+            }
 
         // Quantization
         const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
@@ -121,12 +112,23 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
                 sample = quantizedNormalized * 2 - 1;
             }
         }
+// --- Zero-Crossing Gate Logic ---
+            if (this._gateState === 'CLOSING') {
+                // Check if the zero-crossing happened between the last sample and this one.
+                if ((this._lastSample > 0 && sample <= 0) || (this._lastSample < 0 && sample >= 0)) {
+                    channel[i] = 0; // Output zero at the crossing point.
+                    this._gateState = 'CLOSED'; // Lock the gate.
+                } else {
+                    channel[i] = sample; // Still searching, output the sample.
+                }
+            } else { // State is 'OPEN'
+                channel[i] = sample;
+            }
 
-        // FIX: Use 'channel[i]' instead of 'outputChannel[i]'
-        channel[i] = sample;
+            // Update the last sample value for the next iteration.
+            this._lastSample = sample;
+        }
+        return true;
     }
-    
-    return true;
-}
 }
 registerProcessor('shape-hold-processor', ShapeHoldProcessor);

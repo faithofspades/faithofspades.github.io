@@ -234,6 +234,9 @@ export function fixSwitchesTouchMode(
     onPortaToggle,
     cleanupNotesCallback
 ) {
+    // Add global mode transition lock
+    window.isModeTransitioning = false;
+
     const switchConfigs = {
         'voice-mode-switch': { callback: onMonoToggle, logName: 'Voice Mode', states: ['POLY', 'MONO'] },
         'trigger-mode-switch': { callback: onLegatoToggle, logName: 'Trigger Mode', states: ['MULTI', 'LEGATO'] },
@@ -264,6 +267,12 @@ export function fixSwitchesTouchMode(
             e.preventDefault();
             e.stopPropagation();
 
+            // Prevent toggling during transition
+            if (window.isModeTransitioning) {
+                console.log(`${config.logName} toggle ignored - mode transition in progress`);
+                return;
+            }
+
             // Explicitly toggle, don't rely on classList.toggle
             const currentState = newSwitch.classList.contains('active');
             const newState = !currentState;
@@ -271,15 +280,33 @@ export function fixSwitchesTouchMode(
             // Update visual state
             newSwitch.classList.toggle('active', newState);
             
-            // Update global state with a very explicit approach
-            console.log(`${config.logName} toggled to:`, newState);
-            
-            // Call the callback with explicit log verification
-            config.callback(newState);
-            
-            // Special action for voice mode switch
-            if (id === 'voice-mode-switch' && newState) {
-                cleanupNotesCallback();
+            // Special handling for mono mode switch
+            if (id === 'voice-mode-switch') {
+                console.log(`${config.logName} toggled to: ${newState ? 'MONO' : 'POLY'}`);
+                
+                // Set transition lock
+                window.isModeTransitioning = true;
+                
+                // Force cleanup before changing mode
+                if (cleanupNotesCallback) {
+                    console.log("Cleaning up all notes before mode change");
+                    cleanupNotesCallback();
+                }
+                
+                // Call the callback with explicit log verification after a small delay
+                setTimeout(() => {
+                    config.callback(newState);
+                    
+                    // Release transition lock after mode is fully changed
+                    setTimeout(() => {
+                        window.isModeTransitioning = false;
+                        console.log("Mode transition complete - input unlocked");
+                    }, 50);
+                }, 20);
+            } else {
+                // For non-mono switches, just call the callback directly
+                console.log(`${config.logName} toggled to:`, newState);
+                config.callback(newState);
             }
         };
 
