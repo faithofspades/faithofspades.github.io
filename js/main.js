@@ -260,7 +260,7 @@ let glideStartDetuneFmOsc2 = null; // <<< ADD: Start detune for Osc2's FM source
 let isMonoMode = false;
 let isLegatoMode = false;
 let isPortamentoOn = false;
-let glideTime = 0.1; // seconds
+let glideTime = 0.0; // seconds
 let heldNotes = []; // Keep track of held notes in mono mode
 let nodeMonitorInterval = null; // To store the interval ID
 const activeSynthTimers = new Set(); // <<< ADD: Track active setTimeout IDs
@@ -295,7 +295,7 @@ const knobDefaults = {
 'sample-start-knob': 0.0,     // Start at beginning of sample
 'sample-end-knob': 1.0,       // End at end of sample
 'sample-crossfade-knob': 0.0, // No crossfade initially
-'glide-time-knob': 0.05,      // 100ms (5% of 2000ms)
+'glide-time-knob': 0.00,      // 100ms (5% of 2000ms)
 'osc1-gain-knob': 0.5, // <<< ADD: Default gain 50%
 'osc1-pitch-knob': 0.5, // <<< ADD: Default pitch 0 cents (center)
 'osc1-pwm-knob': 0.0, // Default: 50% duty cycle / minimal shape distortion
@@ -486,6 +486,7 @@ function findAvailableVoice(noteNumber, peek = false) {
     const inactiveVoice = voicePool.find(v => v.state === 'inactive');
     if (inactiveVoice) {
         if (peek) return { wasStolen: false };
+        // CRITICAL: This is a new note, so it was NOT stolen.
         inactiveVoice.wasStolen = false;
         inactiveVoice.isSelfStealing = false;
         return inactiveVoice;
@@ -504,6 +505,7 @@ function findAvailableVoice(noteNumber, peek = false) {
     if (oldestReleasingVoice) {
         if (peek) return { wasStolen: true };
         console.log(`findAvailableVoice: Stealing oldest RELEASING voice ${oldestReleasingVoice.id} for new note ${noteNumber}`);
+        // CRITICAL: This is a voice steal.
         oldestReleasingVoice.wasStolen = true;
         oldestReleasingVoice.isSelfStealing = oldestReleasingVoice.noteNumber === noteNumber;
         return oldestReleasingVoice;
@@ -517,6 +519,7 @@ function findAvailableVoice(noteNumber, peek = false) {
     if (oldestVoice) {
         if (peek) return { wasStolen: true };
         console.log(`findAvailableVoice: Stealing oldest PLAYING voice ${oldestVoice.id} for new note ${noteNumber}`);
+        // CRITICAL: This is also a voice steal.
         oldestVoice.wasStolen = true;
         oldestVoice.isSelfStealing = oldestVoice.noteNumber === noteNumber;
         return oldestVoice;
@@ -3272,11 +3275,13 @@ function killSamplerNote(note) {
         if (note.gainNode) {
             note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
             note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-            try { note.gainNode.disconnect(); } catch(e){ /* Ignore */ }
+            // Disconnecting is risky and can cause issues, let's avoid it.
+            // The nodes are reused.
+            // try { note.gainNode.disconnect(); } catch(e){ /* Ignore */ }
         }
         
         if (note.sampleNode) {
-            try { note.sampleNode.disconnect(); } catch(e){ /* Ignore */ }
+            // try { note.sampleNode.disconnect(); } catch(e){ /* Ignore */ }
         }
         
         if (note.source) {
@@ -3290,16 +3295,40 @@ function killSamplerNote(note) {
     // --- Update Voice Pool State ---
     const voice = note.parentVoice;
 
-    if (voice) {
+    // --- NEW, SIMPLIFIED CLEANUP FOR SAMPLER VOICES ---
+    if (voice && samplerVoicePool.includes(voice)) {
+        // This is a voice from the samplerVoicePool.
+        console.log(`killSamplerNote [${noteId}]: Marking sampler voice ${voice.id} as inactive.`);
+        
+        // Reset the component note state
+        note.state = 'inactive';
+        note.noteNumber = null;
+        note.source = null; // The source is disposable and will be recreated.
+
+        // Reset the parent voice state
+        voice.state = 'inactive';
+        voice.noteNumber = null;
+        voice.startTime = 0;
+
+        if (isMonoMode && currentMonoSamplerVoice === voice) {
+            currentMonoSamplerVoice = null;
+        }
+
+        // Update UI
+        updateVoiceDisplay_Pool();
+        updateKeyboardDisplay_Pool();
+
+    } else if (voice) {
+        // This is a voice from the main oscillator voicePool (legacy or combined mode).
         // Mark the component as inactive immediately
         note.state = 'inactive';
         note.noteNumber = null;
         
-        // CRITICAL FIX: Only update voice state if this is the LAST component to be killed
+        // Check if all OTHER components are also inactive
         const allComponentsInactive = isVoiceFullyInactive(voice);
         
         if (allComponentsInactive && voice.state !== 'inactive') {
-            console.log(`killSamplerNote [${noteId}]: Last component killed, marking voice ${voice.id} inactive.`);
+            console.log(`killSamplerNote [${noteId}]: Last component killed, marking main voice ${voice.id} inactive.`);
             voice.state = 'inactive';
             voice.noteNumber = null;
             voice.startTime = 0;
@@ -3308,15 +3337,15 @@ function killSamplerNote(note) {
                 currentMonoVoice = null;
             }
             
-            // Update UI only once when voice becomes fully inactive
             updateVoiceDisplay_Pool();
             updateKeyboardDisplay_Pool();
         } else {
-            console.log(`killSamplerNote [${noteId}]: Voice ${voice.id} still has active/releasing components (${voice.state}).`);
+            console.log(`killSamplerNote [${noteId}]: Main voice ${voice.id} still has active/releasing components (${voice.state}).`);
         }
     } else {
         console.warn(`killSamplerNote [${noteId}]: Could not find parent voice during cleanup.`);
     }
+    // --- END NEW LOGIC ---
 
     console.log(`killSamplerNote: Finished killing ${noteId}`);
     return true;
@@ -3814,9 +3843,6 @@ function noteOn(noteNumber) {
         heldNotes.push(noteNumber);
         heldNotes.sort((a, b) => a - b);
     }
-    // DELETE THESE TWO LINES FROM HERE
-    // updateVoiceDisplay_Pool();
-    // updateKeyboardDisplay_Pool();
     
     const attack = Math.max(0.005, parseFloat(D('attack').value));
     const decay = parseFloat(D('decay').value);
@@ -3829,58 +3855,39 @@ function noteOn(noteNumber) {
     let wasStolen = false;
     let wasSamplerStolen = false;
 
-    // --- NEW: More Robust Phase Lock Logic ---
-    // Determine if the voice to be used was recently active, which means we should preserve phase.
-    let shouldPreservePhase = false;
-    if (isMonoMode && currentMonoVoice && currentMonoVoice.state !== 'inactive') {
-        shouldPreservePhase = true;
-    } else if (!isMonoMode) {
-        // In poly mode, we peek at the voice we are about to find.
-        const peekVoice = findAvailableVoice(noteNumber, true); // Peek without allocating
-        if (peekVoice && peekVoice.wasStolen) {
-            shouldPreservePhase = true;
-        }
-    }
-    // --- END NEW ---
-
-
-    // Allocate oscillator voice
+    // --- NEW, SIMPLIFIED ALLOCATION LOGIC ---
     if (isMonoMode) {
-        if (currentMonoVoice && currentMonoVoice.state !== 'inactive') {
+        if (currentMonoVoice) {
             voice = currentMonoVoice;
+            // In mono, if a voice exists, it's ALWAYS a steal, even if it was 'releasing'.
             wasStolen = true;
         } else {
+            // Find a voice. It will be an 'inactive' one.
             voice = findAvailableVoice(noteNumber);
-            if (!voice) { console.error("Mono NoteOn: No voices available!"); return; }
+            wasStolen = false; // It must be a new voice.
             currentMonoVoice = voice;
         }
-    } else {
+    } else { // Poly mode
         voice = findAvailableVoice(noteNumber);
-        if (!voice) { console.error("Poly NoteOn: No voices available!"); return; }
-        wasStolen = voice.wasStolen;
+        // The voice is stolen if its state was NOT 'inactive' before we grabbed it.
+        // The findAvailableVoice function correctly prioritizes 'inactive' voices.
+        // So if we get one that isn't inactive, it's a true steal.
+        wasStolen = voice.state !== 'inactive';
     }
 
-    // --- MODIFIED: Apply the phase lock based on our earlier check ---
-    if (shouldPreservePhase || wasStolen) {
-        // When a voice is stolen or was very recently active, lock its phase.
-        if (voice) {
-            voice.preservePhase = true;
-            setTimeout(() => {
-                if (voice) voice.preservePhase = false;
-            }, 50); // Lock phase for 50ms, long enough to cover rapid re-triggers.
-        }
-    } else {
-        // It's a genuinely new note, so no phase preservation is needed.
-        if (voice) voice.preservePhase = false;
-    }
-    // --- END MODIFIED ---
+    if (!voice) { console.error("NoteOn: Could not allocate an oscillator voice!"); return; }
+    
+    // The wasStolen flag on the voice object itself is now redundant and can be ignored.
+    // Our local wasStolen variable is the source of truth for this noteOn event.
 
-    // Allocate sampler voice
+    // Allocate sampler voice (logic remains similar)
     samplerVoice = findAvailableSamplerVoice(noteNumber);
     if (samplerVoice) {
-        wasSamplerStolen = samplerVoice.wasStolen;
+        wasSamplerStolen = samplerVoice.state !== 'inactive';
         if (isMonoMode) currentMonoSamplerVoice = samplerVoice;
     }
+    // --- END NEW ALLOCATION LOGIC ---
+
 
     // --- 3. VOICE CONFIGURATION ---
     const noteStartTime = now;
@@ -3888,13 +3895,27 @@ function noteOn(noteNumber) {
     // Helper to re-trigger a component, preserving gain and gliding pitch.
     const retriggerComponent = (component, targetPitchProvider, isSampler = false) => {
         if (!component) return;
+
+        // REMOVE ALL PRESERVEPHASE LOGIC
+        /*
+        const parent = component.parentVoice;
+        if (parent) {
+            parent.preservePhase = true;
+            trackSetTimeout(() => {
+                if (parent) parent.preservePhase = false;
+            }, 75);
+        }
+        */
         
-        // For samplers, the source can be stopped and needs to be replaced.
-        if (isSampler) {
-            if (component.source) { try { component.source.stop(0); } catch(e){} }
+        // CRITICAL FIX: For samplers, if the source was killed (is null), we must recreate it.
+        // Otherwise, we DO NOT replace it, allowing it to be free-running.
+        if (isSampler && !component.source) {
+            console.log(`retriggerComponent: Sampler source for ${component.id} was null. Recreating.`);
             component.source = audioCtx.createBufferSource();
             component.source.connect(component.sampleNode);
-            try { component.source.start(now); } catch(e) { console.warn(`retriggerComponent: Failed to start new sampler source for ${component.id}`, e); return; }
+            // We will configure and start it below.
+        } else if (isSampler) {
+            console.log(`retriggerComponent: Reusing existing sampler source for ${component.id} to allow glide.`);
         }
 
         // Set state to 'playing' BEFORE clearing timers to invalidate old kill timers.
@@ -3905,32 +3926,51 @@ function noteOn(noteNumber) {
 
         // 1. Glide Pitch
         const pitchParam = isSampler ? component.source.playbackRate : component.workletNode.parameters.get('frequency');
-        if (isPortamentoOn && pitchParam) {
-            const glideDuration = (glideTime > 0.001) ? glideTime : 0.005;
+        
+        // CRITICAL FIX: Always apply a glide for stolen voices, controlled by the glide knob.
+        // The 'isPortamentoOn' switch is for longer, intentional glides between separate notes.
+        if (pitchParam) {
+            // Use the global glideTime, but ensure a tiny minimum for instant transitions.
+            const glideDuration = (glideTime > 0.001) ? glideTime : 0.001; 
             const targetPitch = targetPitchProvider();
+            
             pitchParam.cancelScheduledValues(now);
             pitchParam.setValueAtTime(pitchParam.value, now); // Start glide from current value.
+            
+            // Use setTargetAtTime to create the smooth pitch transition.
+            // A small time constant (e.g., glideDuration / 4) creates a fast but smooth curve.
             pitchParam.setTargetAtTime(targetPitch, now, glideDuration / 4);
-        } else if (pitchParam) {
-            pitchParam.setValueAtTime(targetPitchProvider(), now);
         }
 
-        // For samplers, update buffer and loop settings on the new source
+        // For samplers, update buffer and loop settings on the source
         if (isSampler) {
             let sourceBuffer = audioBuffer;
             if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) sourceBuffer = cachedCrossfadedBuffer;
             else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) sourceBuffer = fadedBuffer;
             else if (isEmuModeOn) sourceBuffer = applyEmuProcessing(audioBuffer);
             
-            component.source.buffer = sourceBuffer;
+            // Only assign buffer if it's different or new
+            if (component.source.buffer !== sourceBuffer) {
+                component.source.buffer = sourceBuffer;
+            }
+            
             component.source.loop = isSampleLoopOn;
             if (isSampleLoopOn) {
                 component.source.loopStart = sampleStartPosition * sourceBuffer.duration;
                 component.source.loopEnd = sampleEndPosition * sourceBuffer.duration;
             }
+
+            // If the source was just recreated, it needs to be started.
+            if (!component.source.buffer) { // A good check for a brand new, unstarted source
+                 try {
+                    component.source.start(now);
+                    console.log(`retriggerComponent: Started newly created sampler source for ${component.id}`);
+                } catch(e) { console.warn(`retriggerComponent: Failed to start new sampler source for ${component.id}`, e); return; }
+            }
         }
 
         // For oscillators, reset the gate.
+
         if (!isSampler && component.workletNode) {
             const gateParam = component.workletNode.parameters.get('gate');
             if (gateParam) {
@@ -3952,6 +3992,18 @@ function noteOn(noteNumber) {
     // Helper to configure a fresh component from an inactive state.
     const configureNewComponent = (component, targetPitchProvider, isSampler = false) => {
         if (!component) return;
+
+        // REMOVE ALL PRESERVEPHASE LOGIC
+        /*
+        const parent = component.parentVoice;
+        if (parent && parent.preservePhase) {
+            console.warn(`configureNewComponent: Aborting for component ${component.id} because its parent voice is phase-locked. This prevents a glide interruption.`);
+            return;
+        }
+        if (parent) {
+            parent.preservePhase = false;
+        }
+        */
         
         component.noteNumber = noteNumber;
         component.startTime = noteStartTime;
@@ -3961,14 +4013,13 @@ function noteOn(noteNumber) {
         if (!isSampler) { // Oscillator setup
             component.workletNode.parameters.get('gate').setValueAtTime(1, noteStartTime);
             
-            // --- MODIFIED: Check the phase lock before resetting ---
+            // --- THIS IS THE ONLY PHASE RESET CALL ---
+            // It only happens for brand new notes.
             const phaseResetParam = component.workletNode.parameters.get('phaseReset');
-            // Only reset phase if the voice is NOT in a phase-locked (stolen) state.
-            if (phaseResetParam && (!component.parentVoice || !component.parentVoice.preservePhase)) {
+            if (phaseResetParam) {
                 phaseResetParam.setValueAtTime(noteStartTime, noteStartTime);
             }
-            // --- END MODIFIED ---
-
+            
             const isOsc1 = component.type === 'osc1';
             const waveMap = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
             component.workletNode.parameters.get('frequency').setValueAtTime(targetPitchProvider(), noteStartTime);
@@ -4011,17 +4062,11 @@ function noteOn(noteNumber) {
     };
 
     // --- APPLY LOGIC ---
-    // This section is now simplified and works for both MONO and POLY.
-    // The 'wasStolen' flag, correctly set by our improved findAvailableVoice,
-    // determines whether to retrigger or configure anew.
-    
-    // Oscillator Voice
+    // This section is now driven by the more reliable 'wasStolen' flag.
     if (wasStolen) {
-        console.log(`noteOn: Retriggering stolen voice ${voice.id} for note ${noteNumber}`);
         retriggerComponent(voice.osc1Note, () => noteToFrequency(noteNumber, osc1OctaveOffset));
         retriggerComponent(voice.osc2Note, () => noteToFrequency(noteNumber, osc2OctaveOffset));
     } else {
-        console.log(`noteOn: Configuring new voice ${voice.id} for note ${noteNumber}`);
         configureNewComponent(voice.osc1Note, () => noteToFrequency(noteNumber, osc1OctaveOffset));
         configureNewComponent(voice.osc2Note, () => noteToFrequency(noteNumber, osc2OctaveOffset));
     }
@@ -4047,10 +4092,9 @@ function noteOn(noteNumber) {
 
     // --- 4. FINAL UPDATES ---
     lastPlayedNoteNumber = noteNumber;
-    if (voice) voice.wasStolen = false;
-    if (samplerVoice) samplerVoice.wasStolen = false;
+    // The wasStolen flag on the voice object is now set reliably inside findAvailableVoice.
+    // No need to set it to false here.
 
-    // ADD THE TWO LINES HERE, AT THE VERY END
     updateVoiceDisplay_Pool();
     updateKeyboardDisplay_Pool();
 }
