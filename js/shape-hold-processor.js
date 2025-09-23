@@ -1,26 +1,31 @@
 class ShapeHoldProcessor extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [
-            // Frequency is modulated for Linear TZFM
-            { name: 'frequency', defaultValue: 440, minValue: -20000, maxValue: 20000, automationRate: 'a-rate' }, // Allow negative target
+            { name: 'frequency', defaultValue: 440, minValue: -20000, maxValue: 20000, automationRate: 'a-rate' },
             { name: 'detune', defaultValue: 0, minValue: -1200, maxValue: 1200, automationRate: 'k-rate' },
             { name: 'holdAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'quantizeAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 },
-            { name: 'phaseReset', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' }, // Phase reset parameter
-            { name: 'gate', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'a-rate' }
+            { name: 'gate', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
+            // We'll use this parameter to pass the note's start time as a trigger.
+            { name: 'phaseReset', defaultValue: 0, minValue: 0, maxValue: 99999, automationRate: 'k-rate' }
         ];
     }
 
     constructor(options) {
         super(options);
         this.phase = 0;
-        this.sampleRate = sampleRate; // Assuming sampleRate is globally available here
+        this.sampleRate = sampleRate;
         this._holdValues = [ 0.0, -1.0, 0.0, 1.0, 1.0 ];
-        
-        // CRITICAL: Add internal state for the gate and zero-crossing detection
-        this._gateState = 'OPEN'; // Can be 'OPEN', 'CLOSING', 'CLOSED'
-        this._lastSample = 0.0;   // Store the previous sample to detect crossing
+        this._gateState = 'OPEN';
+        this._lastSample = 0.0;
+        this._prevGateValue = 1;
+        this._currentGateTarget = 1;
+        this._outputGain = 1.0;
+        this._smoothingSteps = 32;
+        this._smoothingCounter = 0;
+        // NEW: Keep track of the last reset time we've seen.
+        this._lastPhaseResetTime = -1;
     }
 
     process(inputs, outputs, parameters) {
@@ -32,101 +37,137 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
         const holdAmountValues = parameters.holdAmount;
         const quantizeAmountValues = parameters.quantizeAmount;
         const waveformTypeValues = parameters.waveformType;
-        const phaseResetValues = parameters.phaseReset;
         const gateValues = parameters.gate;
+        const phaseResetValues = parameters.phaseReset;
+
+        // --- NEW: More robust phase reset logic ---
+        // We only need to check the first value since it's k-rate.
+        const phaseResetTime = phaseResetValues[0];
+        // If the reset time from the main thread is new, reset the phase once.
+        if (phaseResetTime > this._lastPhaseResetTime) {
+            this.phase = 0;
+            this._lastPhaseResetTime = phaseResetTime; // Acknowledge the reset.
+        }
+        // --- END NEW ---
 
         const waveformType = waveformTypeValues[0];
         const holdValue = this._holdValues[waveformType] !== undefined ? this._holdValues[waveformType] : 0.0;
 
         for (let i = 0; i < channel.length; ++i) {
-            // --- CRITICAL FIX: Independent Phase Reset Logic ---
-            const phaseResetCommand = phaseResetValues.length > 1 ? phaseResetValues[i] : phaseResetValues[0];
-            if (phaseResetCommand > 0.5) {
-                this.phase = 0;
-            }
-
-            // --- State Machine Control ---
-            const gateCommand = gateValues.length > 1 ? gateValues[i] : gateValues[0];
-
-            if (this._gateState === 'OPEN' && gateCommand < 0.5) {
-                this._gateState = 'CLOSING'; // Begin hunting for a zero-crossing.
-            } else if (this._gateState !== 'OPEN' && gateCommand > 0.5) {
-                // If gate is opening from ANY non-open state (CLOSED or CLOSING), force it open.
-                this._gateState = 'OPEN';
-                // The independent phase reset logic above ensures a clean start.
-            }
-
-            // If the gate is fully closed, output silence and do nothing else.
-            if (this._gateState === 'CLOSED') {
-                channel[i] = 0;
-                this._lastSample = 0;
-                continue;
-            }
-
-            // --- Waveform Generation (always run when not CLOSED) ---
+            // --- 1. ALWAYS GENERATE THE OSCILLATOR SAMPLE (FREE-RUNNING) ---
             const baseFreq = frequencyValues.length > 1 ? frequencyValues[i] : frequencyValues[0];
             const detune = detuneValues.length > 1 ? detuneValues[i] : detuneValues[0];
             const holdAmount = holdAmountValues.length > 1 ? holdAmountValues[i] : holdAmountValues[0];
             const quantizeAmount = quantizeAmountValues.length > 1 ? quantizeAmountValues[i] : quantizeAmountValues[0];
+            
             const instantaneousFreq = baseFreq * Math.pow(2, detune / 1200);
             const phaseIncrementMagnitude = Math.abs(instantaneousFreq) / this.sampleRate;
             const phaseDirection = Math.sign(instantaneousFreq);
+            
             this.phase += phaseIncrementMagnitude * phaseDirection;
             this.phase = this.phase - Math.floor(this.phase);
             
             const currentPhase = this.phase;
             const clampedHoldAmount = Math.max(0.0, Math.min(1.0, holdAmount));
             const activeRatio = 1.0 - clampedHoldAmount;
-            let sample = 0;
+            let currentSample = 0;
 
             if (activeRatio <= 1e-6) {
-                sample = holdValue;
+                currentSample = holdValue;
             } else if (currentPhase < activeRatio) {
                 const squeezedPhase = currentPhase / activeRatio;
                 switch (waveformType) {
-                    case 0: sample = Math.sin(squeezedPhase * 2 * Math.PI); break;
-                    case 1: sample = (squeezedPhase * 2) - 1; break;
-                    case 2: sample = 1 - 4 * Math.abs(Math.round(squeezedPhase - 0.25) - (squeezedPhase - 0.25)); break;
-                    case 3: sample = squeezedPhase < 0.5 ? 1 : -1; break;
+                    case 0: currentSample = Math.sin(squeezedPhase * 2 * Math.PI); break;
+                    case 1: currentSample = (squeezedPhase * 2) - 1; break;
+                    case 2: currentSample = 1 - 4 * Math.abs(Math.round(squeezedPhase - 0.25) - (squeezedPhase - 0.25)); break;
+                    case 3: currentSample = squeezedPhase < 0.5 ? 1 : -1; break;
                     case 4: {
                         const dutyCycle = 0.25 + (clampedHoldAmount * 0.75);
-                        sample = squeezedPhase < dutyCycle ? 1 : -1;
+                        currentSample = squeezedPhase < dutyCycle ? 1 : -1;
                         break;
                     }
-                    default: sample = Math.sin(squeezedPhase * 2 * Math.PI);
+                    default: currentSample = Math.sin(squeezedPhase * 2 * Math.PI);
                 }
             } else {
-                sample = holdValue;
+                currentSample = holdValue;
             }
 
-        // Quantization
-        const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
-        if (clampedQuantize > 0.005) {
-            const factor = Math.pow(1 - clampedQuantize, 2);
-            const calculatedSteps = 4 + (256 - 4) * factor;
-            const steps = Math.max(4, Math.floor(calculatedSteps));
-            if (steps < 256) {
-                const normalizedSample = (sample + 1) / 2;
-                const quantizedScaled = Math.floor(normalizedSample * (steps - 1));
-                const quantizedNormalized = (steps > 1) ? quantizedScaled / (steps - 1) : quantizedScaled;
-                sample = quantizedNormalized * 2 - 1;
-            }
-        }
-// --- Zero-Crossing Gate Logic ---
-            if (this._gateState === 'CLOSING') {
-                // Check if the zero-crossing happened between the last sample and this one.
-                if ((this._lastSample > 0 && sample <= 0) || (this._lastSample < 0 && sample >= 0)) {
-                    channel[i] = 0; // Output zero at the crossing point.
-                    this._gateState = 'CLOSED'; // Lock the gate.
-                } else {
-                    channel[i] = sample; // Still searching, output the sample.
+            // Quantization (Bitcrushing)
+            const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
+            if (clampedQuantize > 0.005) {
+                const factor = Math.pow(1 - clampedQuantize, 2);
+                const calculatedSteps = 4 + (256 - 4) * factor;
+                const steps = Math.max(4, Math.floor(calculatedSteps));
+                if (steps < 256) {
+                    const normalizedSample = (currentSample + 1) / 2;
+                    const quantizedScaled = Math.floor(normalizedSample * (steps - 1));
+                    const quantizedNormalized = (steps > 1) ? quantizedScaled / (steps - 1) : quantizedScaled;
+                    currentSample = quantizedNormalized * 2 - 1;
                 }
-            } else { // State is 'OPEN'
-                channel[i] = sample;
             }
 
-            // Update the last sample value for the next iteration.
-            this._lastSample = sample;
+            // --- 2. IMPROVED GATE HANDLING ---
+            const gateCommand = gateValues.length > 1 ? gateValues[i] : gateValues[0];
+            // REPLACEMENT LOGIC STARTS HERE
+            const gateChanged = gateCommand !== this._prevGateValue;
+            this._prevGateValue = gateCommand;
+
+            if (gateChanged) {
+                const isOpening = this._gateState === 'CLOSED' || this._gateState === 'CLOSING';
+                const isClosing = this._gateState === 'OPEN' || this._gateState === 'OPENING';
+                
+                if (gateCommand > 0.5 && isOpening) {
+                    this._gateState = 'OPENING';
+                    this._currentGateTarget = 1;
+                } else if (gateCommand < 0.5 && isClosing) {
+                    this._gateState = 'CLOSING';
+                    this._currentGateTarget = 0;
+                }
+            }
+            
+            // Zero-crossing detection for clean transitions
+            const zeroCrossingOccurred = (this._lastSample > 0 && currentSample <= 0) || 
+                                         (this._lastSample < 0 && currentSample >= 0);
+
+            // Update state based on zero-crossings
+            if (zeroCrossingOccurred) {
+                if (this._gateState === 'CLOSING') {
+                    this._gateState = 'CLOSED';
+                } else if (this._gateState === 'OPENING') {
+                    this._gateState = 'OPEN';
+                }
+            }
+
+            // --- 3. DETERMINE OUTPUT BASED ON GATE STATE ---
+            let outputSample = 0;
+            
+            switch (this._gateState) {
+                case 'OPEN':
+                    outputSample = currentSample;
+                    break;
+                case 'CLOSING':
+                    outputSample = currentSample;
+                    break;
+                case 'CLOSED':
+                    outputSample = 0;
+                    break;
+                case 'OPENING':
+                    outputSample = zeroCrossingOccurred ? currentSample : 0;
+                    break;
+            }
+            
+            // Apply smooth gain transitions when forcing gate changes
+            if (this._smoothingCounter > 0) {
+                const targetGain = (this._currentGateTarget > 0.5) ? 1.0 : 0.0;
+                this._outputGain += (targetGain - this._outputGain) / this._smoothingCounter;
+                this._smoothingCounter--;
+                outputSample *= this._outputGain;
+            }
+            
+            channel[i] = outputSample;
+            
+            // Update the last sample value for the next iteration's zero-crossing check
+            this._lastSample = currentSample;
         }
         return true;
     }
