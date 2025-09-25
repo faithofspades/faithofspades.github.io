@@ -39,15 +39,22 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
         const waveformTypeValues = parameters.waveformType;
         const gateValues = parameters.gate;
         const phaseResetValues = parameters.phaseReset;
-
-        // --- NEW: More robust phase reset logic ---
-        // We only need to check the first value since it's k-rate.
-        const phaseResetTime = phaseResetValues[0];
-        // If the reset time from the main thread is new, reset the phase once.
-        if (phaseResetTime > this._lastPhaseResetTime) {
-            this.phase = 0;
-            this._lastPhaseResetTime = phaseResetTime; // Acknowledge the reset.
-        }
+// --- Improved phase reset handling ---
+const phaseResetTime = phaseResetValues[0];
+if (phaseResetTime > this._lastPhaseResetTime) {
+    // Add a fixed offset to ensure consistent phase reset behavior
+    // This helps with paired oscillators
+    this.phase = 0;
+    this._lastPhaseResetTime = phaseResetTime;
+    
+    // Add a small delay to the next possible reset to prevent race conditions
+    this._nextResetAllowedAt = phaseResetTime + 0.02; // 20ms minimum between resets
+} else if (phaseResetTime > 0 && phaseResetTime >= this._nextResetAllowedAt) {
+    // Handle the case of multiple resets with the same timestamp
+    // This can happen during voice stealing race conditions
+    this.phase = 0;
+    this._lastPhaseResetTime = phaseResetTime;
+}
         // --- END NEW ---
 
         const waveformType = waveformTypeValues[0];

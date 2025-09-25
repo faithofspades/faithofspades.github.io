@@ -3850,18 +3850,28 @@ function noteOn(noteNumber) {
     const release = parseFloat(D('release').value);
 
     // --- 2. VOICE ALLOCATION ---
-    let voice = null;
-    let samplerVoice = null;
-    let wasStolen = false;
-    let wasSamplerStolen = false;
+let voice = null;
+let samplerVoice = null;
+let wasStolen = false;
+let wasSamplerStolen = false;
 
-    // --- NEW, SIMPLIFIED ALLOCATION LOGIC ---
-    if (isMonoMode) {
-        if (currentMonoVoice) {
-            voice = currentMonoVoice;
-            // In mono, if a voice exists, it's ALWAYS a steal, even if it was 'releasing'.
-            wasStolen = true;
-        } else {
+// Add a phase lock tracking variable with timestamp-based protection
+if (isMonoMode) {
+    if (currentMonoVoice && currentMonoVoice.state !== 'inactive') {
+        voice = currentMonoVoice;
+        wasStolen = true;
+        // Lock phase for this stolen voice for the duration of the glide
+        voice.phaseLocked = true;
+        // Use a longer lock time for longer glides
+        const lockDuration = Math.max(100, glideTime * 1000 * 1.5); // At least 100ms or 1.5x glide time
+        if (voice.phaseUnlockTimer) {
+            trackClearTimeout(voice.phaseUnlockTimer);
+        }
+        voice.phaseUnlockTimer = trackSetTimeout(() => {
+            if (voice) voice.phaseLocked = false;
+        }, lockDuration);
+        console.log(`Phase locked for voice ${voice.id} for ${lockDuration}ms (glide: ${glideTime}s)`);
+    } else {
             // Find a voice. It will be an 'inactive' one.
             voice = findAvailableVoice(noteNumber);
             wasStolen = false; // It must be a new voice.
@@ -3894,18 +3904,23 @@ function noteOn(noteNumber) {
 
     // Helper to re-trigger a component, preserving gain and gliding pitch.
     const retriggerComponent = (component, targetPitchProvider, isSampler = false) => {
-        if (!component) return;
-
-        // REMOVE ALL PRESERVEPHASE LOGIC
-        /*
-        const parent = component.parentVoice;
-        if (parent) {
-            parent.preservePhase = true;
-            trackSetTimeout(() => {
-                if (parent) parent.preservePhase = false;
-            }, 75);
-        }
-        */
+    if (!component) return;
+    
+    // For pair synchronization: Get the oscillator ID to ensure proper pairing
+    const componentId = component.id || '';
+    const isPairFirst = componentId.includes('osc1_');
+    const pairId = isPairFirst ? componentId.replace('osc1_', '') : componentId.replace('osc2_', '');
+    
+    // CRITICAL FIX: We need to ensure both oscillators in a pair have consistent behavior
+    if (!isSampler && isPairFirst) {
+        // This is the first oscillator of a pair (osc1)
+        // Set a global sync token that will be used by both oscillators
+        window.lastOscPairSync = {
+            pairId: pairId,
+            timestamp: now,
+            frequency: targetPitchProvider()
+        };
+    }
         
         // CRITICAL FIX: For samplers, if the source was killed (is null), we must recreate it.
         // Otherwise, we DO NOT replace it, allowing it to be free-running.
@@ -3925,22 +3940,25 @@ function noteOn(noteNumber) {
         clearScheduledEventsForNote(component);
 
         // 1. Glide Pitch
-        const pitchParam = isSampler ? component.source.playbackRate : component.workletNode.parameters.get('frequency');
+    const pitchParam = isSampler ? component.source.playbackRate : component.workletNode.parameters.get('frequency');
+    if (pitchParam) {
+        // Use the global glideTime, but ensure a tiny minimum for instant transitions.
+        const glideDuration = (glideTime > 0.001) ? glideTime : 0.001; 
+        const targetPitch = targetPitchProvider();
         
-        // CRITICAL FIX: Always apply a glide for stolen voices, controlled by the glide knob.
-        // The 'isPortamentoOn' switch is for longer, intentional glides between separate notes.
-        if (pitchParam) {
-            // Use the global glideTime, but ensure a tiny minimum for instant transitions.
-            const glideDuration = (glideTime > 0.001) ? glideTime : 0.001; 
-            const targetPitch = targetPitchProvider();
-            
-            pitchParam.cancelScheduledValues(now);
-            pitchParam.setValueAtTime(pitchParam.value, now); // Start glide from current value.
-            
-            // Use setTargetAtTime to create the smooth pitch transition.
-            // A small time constant (e.g., glideDuration / 4) creates a fast but smooth curve.
+        pitchParam.cancelScheduledValues(now);
+        pitchParam.setValueAtTime(pitchParam.value, now); // Start glide from current value.
+        
+        // Use setTargetAtTime to create the smooth pitch transition.
+        // The time constant should be consistent between pairs
+        if (!isSampler && window.lastOscPairSync && window.lastOscPairSync.pairId === pairId) {
+            // Use the exact same time constant for both oscillators in the pair
+            const timeConstant = glideDuration / 4;
+            pitchParam.setTargetAtTime(targetPitch, now, timeConstant);
+        } else {
             pitchParam.setTargetAtTime(targetPitch, now, glideDuration / 4);
         }
+    }
 
         // For samplers, update buffer and loop settings on the source
         if (isSampler) {
@@ -3991,35 +4009,27 @@ function noteOn(noteNumber) {
 
     // Helper to configure a fresh component from an inactive state.
     const configureNewComponent = (component, targetPitchProvider, isSampler = false) => {
-        if (!component) return;
+    if (!component) return;
+    
+    component.noteNumber = noteNumber;
+    component.startTime = noteStartTime;
+    component.state = 'playing';
+    clearScheduledEventsForNote(component);
 
-        // REMOVE ALL PRESERVEPHASE LOGIC
-        /*
-        const parent = component.parentVoice;
-        if (parent && parent.preservePhase) {
-            console.warn(`configureNewComponent: Aborting for component ${component.id} because its parent voice is phase-locked. This prevents a glide interruption.`);
-            return;
-        }
-        if (parent) {
-            parent.preservePhase = false;
-        }
-        */
+    if (!isSampler) { // Oscillator setup
+        component.workletNode.parameters.get('gate').setValueAtTime(1, noteStartTime);
         
-        component.noteNumber = noteNumber;
-        component.startTime = noteStartTime;
-        component.state = 'playing';
-        clearScheduledEventsForNote(component);
-
-        if (!isSampler) { // Oscillator setup
-            component.workletNode.parameters.get('gate').setValueAtTime(1, noteStartTime);
-            
-            // --- THIS IS THE ONLY PHASE RESET CALL ---
-            // It only happens for brand new notes.
-            const phaseResetParam = component.workletNode.parameters.get('phaseReset');
-            if (phaseResetParam) {
-                phaseResetParam.setValueAtTime(noteStartTime, noteStartTime);
-            }
-            
+        // CRITICAL FIX: Only reset phase if the voice is not phase-locked
+        const phaseResetParam = component.workletNode.parameters.get('phaseReset');
+        const parent = component.parentVoice;
+        if (phaseResetParam && (!parent || !parent.phaseLocked)) {
+            phaseResetParam.setValueAtTime(noteStartTime, noteStartTime);
+            console.log(`Reset phase for ${component.id}`);
+        } else if (parent && parent.phaseLocked) {
+            console.log(`Skipped phase reset for ${component.id} - parent voice is phase-locked`);
+        }
+        
+        // Rest of oscillator setup remains the same
             const isOsc1 = component.type === 'osc1';
             const waveMap = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
             component.workletNode.parameters.get('frequency').setValueAtTime(targetPitchProvider(), noteStartTime);
@@ -4060,7 +4070,16 @@ function noteOn(noteNumber) {
         gainParam.linearRampToValueAtTime(sustain, noteStartTime + attack + decay);
         component.gainNode.connect(masterGain);
     };
-
+    // --- ENSURE OSCILLATOR SYNC ---
+if (wasStolen) {
+    // Mark the time when this voice pair was stolen together
+    if (voice.osc1Note && voice.osc2Note) {
+        const syncId = `sync_${now.toFixed(3)}`;
+        voice.osc1Note.syncId = syncId;
+        voice.osc2Note.syncId = syncId;
+        console.log(`Marked stolen oscillator pair with syncId: ${syncId}`);
+    }
+}
     // --- APPLY LOGIC ---
     // This section is now driven by the more reliable 'wasStolen' flag.
     if (wasStolen) {
