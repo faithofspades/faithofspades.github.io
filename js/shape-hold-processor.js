@@ -7,14 +7,14 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
             { name: 'quantizeAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 },
             { name: 'gate', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
-            // We'll use this parameter to pass the note's start time as a trigger.
-            { name: 'phaseReset', defaultValue: 0, minValue: 0, maxValue: 99999, automationRate: 'k-rate' }
+            // Use time-based reset detection
+            { name: 'phaseReset', defaultValue: 0, minValue: 0, maxValue: Number.MAX_SAFE_INTEGER, automationRate: 'k-rate' }
         ];
     }
 
     constructor(options) {
         super(options);
-        this.phase = 0;
+        this.phase = 0.5; // Start at 180 degrees
         this.sampleRate = sampleRate;
         this._holdValues = [ 0.0, -1.0, 0.0, 1.0, 1.0 ];
         this._gateState = 'OPEN';
@@ -24,8 +24,8 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
         this._outputGain = 1.0;
         this._smoothingSteps = 32;
         this._smoothingCounter = 0;
-        // NEW: Keep track of the last reset time we've seen.
-        this._lastPhaseResetTime = -1;
+        // CRITICAL FIX: Use time-based reset detection
+        this._lastPhaseResetTime = 0;
     }
 
     process(inputs, outputs, parameters) {
@@ -39,23 +39,14 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
         const waveformTypeValues = parameters.waveformType;
         const gateValues = parameters.gate;
         const phaseResetValues = parameters.phaseReset;
-// --- Improved phase reset handling ---
-const phaseResetTime = phaseResetValues[0];
-if (phaseResetTime > this._lastPhaseResetTime) {
-    // Add a fixed offset to ensure consistent phase reset behavior
-    // This helps with paired oscillators
-    this.phase = 0;
-    this._lastPhaseResetTime = phaseResetTime;
-    
-    // Add a small delay to the next possible reset to prevent race conditions
-    this._nextResetAllowedAt = phaseResetTime + 0.02; // 20ms minimum between resets
-} else if (phaseResetTime > 0 && phaseResetTime >= this._nextResetAllowedAt) {
-    // Handle the case of multiple resets with the same timestamp
-    // This can happen during voice stealing race conditions
-    this.phase = 0;
-    this._lastPhaseResetTime = phaseResetTime;
-}
-        // --- END NEW ---
+
+        // CRITICAL FIX: Only reset phase when we get a NEW reset signal
+        const phaseResetTime = phaseResetValues[0];
+        if (phaseResetTime > 0 && phaseResetTime !== this._lastPhaseResetTime) {
+            // Reset to 180 degrees for zero-crossing
+            this.phase = 0.5;
+            this._lastPhaseResetTime = phaseResetTime;
+        }
 
         const waveformType = waveformTypeValues[0];
         const holdValue = this._holdValues[waveformType] !== undefined ? this._holdValues[waveformType] : 0.0;
