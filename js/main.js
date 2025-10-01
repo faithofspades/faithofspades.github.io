@@ -480,7 +480,6 @@ function createVoice(ctx, index) {
         parentVoice: voice
     };
 
-    // --- Create Osc1 using Juno Voice Processor ---
     if (isWorkletReady) {
         const osc1LevelNode = ctx.createGain();
         const osc1GainNode = ctx.createGain();
@@ -491,7 +490,7 @@ function createVoice(ctx, index) {
             }
         });
         
-        // Initialize all parameters including new sine and triangle levels
+        // Initialize all parameters including new parameters
         osc1WorkletNode.parameters.get('voiceIndex').setValueAtTime(index, 0);
         osc1WorkletNode.parameters.get('clockSource').setValueAtTime(0, 0);
         osc1WorkletNode.parameters.get('gate').setValueAtTime(0, 0);
@@ -499,7 +498,10 @@ function createVoice(ctx, index) {
         osc1WorkletNode.parameters.get('pulseLevel').setValueAtTime(0, 0);
         osc1WorkletNode.parameters.get('sineLevel').setValueAtTime(0, 0);
         osc1WorkletNode.parameters.get('triangleLevel').setValueAtTime(0, 0);
-        
+        osc1WorkletNode.parameters.get('pulseWidth').setValueAtTime(0.5, 0);
+        // Initialize quantize parameter
+        osc1WorkletNode.parameters.get('quantizeAmount').setValueAtTime(osc1QuantizeValue, 0);
+            
         osc1LevelNode.gain.value = 0.5;
         osc1GainNode.gain.value = 0;
 
@@ -522,8 +524,7 @@ function createVoice(ctx, index) {
             parentVoice: voice
         };
     }
-
-    // --- Create Osc2 using Juno Voice Processor ---
+    // Similarly for osc2
     if (isWorkletReady) {
         const osc2LevelNode = ctx.createGain();
         const osc2GainNode = ctx.createGain();
@@ -534,7 +535,7 @@ function createVoice(ctx, index) {
             }
         });
         
-        // Initialize all parameters including new sine and triangle levels
+        // Initialize all parameters including new parameters
         osc2WorkletNode.parameters.get('voiceIndex').setValueAtTime(index, 0);
         osc2WorkletNode.parameters.get('clockSource').setValueAtTime(1, 0);
         osc2WorkletNode.parameters.get('gate').setValueAtTime(0, 0);
@@ -542,6 +543,9 @@ function createVoice(ctx, index) {
         osc2WorkletNode.parameters.get('pulseLevel').setValueAtTime(0, 0);
         osc2WorkletNode.parameters.get('sineLevel').setValueAtTime(0, 0);
         osc2WorkletNode.parameters.get('triangleLevel').setValueAtTime(0, 0);
+        osc2WorkletNode.parameters.get('pulseWidth').setValueAtTime(0.5, 0);
+        // Initialize quantize parameter
+        osc2WorkletNode.parameters.get('quantizeAmount').setValueAtTime(osc2QuantizeValue, 0);
         
         osc2LevelNode.gain.value = 0.5;
         osc2GainNode.gain.value = 0;
@@ -595,7 +599,6 @@ function clearVoiceTimers(voice) {
     console.log(`Cleared all timers for voice ${voice.index}`);
 }
 // --- Helper function to set waveform mix for Juno voices ---
-// Update the setJunoWaveform function
 function setJunoWaveform(workletNode, waveformType, customPulseWidth = null) {
     if (!workletNode) return;
     
@@ -608,9 +611,13 @@ function setJunoWaveform(workletNode, waveformType, customPulseWidth = null) {
     workletNode.parameters.get('sineLevel').setValueAtTime(params.sineLevel, now);
     workletNode.parameters.get('triangleLevel').setValueAtTime(params.triangleLevel, now);
     
-    // Use custom pulse width if provided, otherwise use default for waveform
+    // IMPORTANT: Always use custom pulse width if provided, regardless of waveform type
+    // This ensures PWM works for all waveforms
     const pwValue = customPulseWidth !== null ? customPulseWidth : params.pulseWidth;
-    workletNode.parameters.get('pulseWidth').setValueAtTime(pwValue, now);
+    
+    // Ensure pulse width is within valid range (0.05-0.95)
+    const clampedPW = Math.max(0.05, Math.min(0.95, pwValue));
+    workletNode.parameters.get('pulseWidth').setValueAtTime(clampedPW, now);
 }
 
 /**
@@ -1876,49 +1883,61 @@ const knobInitializations = {
     // Update the PWM knob callbacks to work with the new system
 // In knobInitializations object:
 'osc1-pwm-knob': (value) => {
+    // Always update the global value first
     osc1PWMValue = value;
     
     const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
-    tooltip.textContent = `PW: ${Math.round(5 + value * 90)}%`;
+    
+    // Update display text - show "OFF" when at zero
+    if (value === 0) {
+        tooltip.textContent = "PWM: OFF";
+    } else {
+        tooltip.textContent = `PW: ${Math.round(5 + value * 90)}%`;
+    }
     tooltip.style.opacity = '1';
     
-    // Update active notes if using pulse waveform
+    // Update active notes with pulse width
     const now = audioCtx.currentTime;
     voicePool.forEach(voice => {
-        if (voice.osc1Note && voice.osc1Note.workletNode && voice.state === 'active') {
-            // Only update pulse width if currently using pulse waveform
-            if (osc1Waveform === 'pulse' || osc1Waveform === 'square') {
-                const pulseWidth = osc1Waveform === 'square' ? 0.5 : (0.05 + value * 0.9);
-                voice.osc1Note.workletNode.parameters.get('pulseWidth').setValueAtTime(pulseWidth, now);
+        if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
+            // When value is 0, PWM is OFF (use default 0.5 pulse width)
+            // Otherwise calculate actual pulse width (5%-95%)
+            const pulseWidth = (value === 0) ? 0.5 : (0.05 + value * 0.9);
+            
+            // Apply to the current waveform
+            setJunoWaveform(voice.osc1Note.workletNode, osc1Waveform, pulseWidth);
+        }
+    });
+    
+    // Log with special case for OFF state
+    if (value === 0) {
+        console.log(`Osc1 PWM: OFF`);
+    } else {
+        console.log(`Osc1 PWM: ${value.toFixed(2)}, Actual PW: ${(0.05 + value * 0.9).toFixed(2)}`);
+    }
+},
+    'osc1-quantize-knob': (value) => {
+    osc1QuantizeValue = value;
+    
+    const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
+    tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
+    tooltip.style.opacity = '1';
+    
+    // Update active notes
+    const now = audioCtx.currentTime;
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
+            // Get worklet parameter
+            const quantizeParam = voice.osc1Note.workletNode.parameters.get('quantizeAmount');
+            if (quantizeParam) {
+                // Set parameter smoothly
+                quantizeParam.setTargetAtTime(value, now, 0.01);
             }
         }
     });
     
-    console.log(`Osc1 PWM: ${osc1PWMValue.toFixed(2)}`);
+    console.log(`Osc1 Quantize: ${value.toFixed(2)}`);
 },
-    'osc1-quantize-knob': (value) => {
-        osc1QuantizeValue = value; // Update global quantize amount
-
-        const quantizeAmount = osc1QuantizeValue; // Value is 0-1
-
-        const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
-        tooltip.textContent = `Quant: ${(quantizeAmount * 100).toFixed(0)}%`;
-        tooltip.style.opacity = '1';
-
-        // Update active notes
-        const now = audioCtx.currentTime;
-        // <<< CHANGE: Iterate over voicePool >>>
-        voicePool.forEach(voice => {
-            if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
-                const quantizeParam = voice.osc1Note.workletNode.parameters.get('quantizeAmount');
-                if (quantizeParam) {
-                    quantizeParam.setTargetAtTime(quantizeAmount, now, 0.015);
-                }
-            }
-        });
-        // <<< END CHANGE >>>
-        console.log(`Osc1 Quantize Knob: ${quantizeAmount.toFixed(2)}`);
-    },
     'osc2-gain-knob': (value) => {
         osc2GainValue = value;
         const tooltip = createTooltipForKnob('osc2-gain-knob', value);
@@ -1959,44 +1978,61 @@ const knobInitializations = {
         console.log(`Osc2 Detune set to: ${osc2Detune.toFixed(1)} cents`);
     },
     'osc2-pwm-knob': (value) => {
+    // Always update the global value first
     osc2PWMValue = value;
     
     const tooltip = createTooltipForKnob('osc2-pwm-knob', value);
-    tooltip.textContent = `PW: ${Math.round(5 + value * 90)}%`;
+    
+    // Update display text - show "OFF" when at zero
+    if (value === 0) {
+        tooltip.textContent = "PWM: OFF";
+    } else {
+        tooltip.textContent = `PW: ${Math.round(5 + value * 90)}%`;
+    }
     tooltip.style.opacity = '1';
     
+    // Update active notes with pulse width
     const now = audioCtx.currentTime;
     voicePool.forEach(voice => {
-        if (voice.osc2Note && voice.osc2Note.workletNode && voice.state === 'active') {
-            // Only update pulse width if currently using pulse waveform
-            if (osc2Waveform === 'pulse' || osc2Waveform === 'square') {
-                const pulseWidth = osc2Waveform === 'square' ? 0.5 : (0.05 + value * 0.9);
-                voice.osc2Note.workletNode.parameters.get('pulseWidth').setValueAtTime(pulseWidth, now);
+        if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
+            // When value is 0, PWM is OFF (use default 0.5 pulse width)
+            // Otherwise calculate actual pulse width (5%-95%)
+            const pulseWidth = (value === 0) ? 0.5 : (0.05 + value * 0.9);
+            
+            // Apply to the current waveform
+            setJunoWaveform(voice.osc2Note.workletNode, osc2Waveform, pulseWidth);
+        }
+    });
+    
+    // Log with special case for OFF state
+    if (value === 0) {
+        console.log(`Osc2 PWM: OFF`);
+    } else {
+        console.log(`Osc2 PWM: ${value.toFixed(2)}, Actual PW: ${(0.05 + value * 0.9).toFixed(2)}`);
+    }
+},
+    'osc2-quantize-knob': (value) => {
+    osc2QuantizeValue = value;
+    
+    const tooltip = createTooltipForKnob('osc2-quantize-knob', value);
+    tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
+    tooltip.style.opacity = '1';
+    
+    // Update active notes
+    const now = audioCtx.currentTime;
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
+            // Get worklet parameter
+            const quantizeParam = voice.osc2Note.workletNode.parameters.get('quantizeAmount');
+            if (quantizeParam) {
+                // Set parameter smoothly
+                quantizeParam.setTargetAtTime(value, now, 0.01);
             }
         }
     });
     
-    console.log(`Osc2 PWM: ${osc2PWMValue.toFixed(2)}`);
+    console.log(`Osc2 Quantize: ${value.toFixed(2)}`);
 },
-    'osc2-quantize-knob': (value) => {
-        osc2QuantizeValue = value;
-        const tooltip = createTooltipForKnob('osc2-quantize-knob', value);
-        tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
-        tooltip.style.opacity = '1';
-        const now = audioCtx.currentTime;
-        // Update active Osc2 notes
-        // <<< CHANGE: Iterate over voicePool >>>
-        voicePool.forEach(voice => {
-            if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
-                const quantParam = voice.osc2Note.workletNode.parameters.get('quantizeAmount');
-                if (quantParam) {
-                    quantParam.setTargetAtTime(osc2QuantizeValue, now, 0.015);
-                }
-            }
-        });
-        // <<< END CHANGE >>>
-        console.log(`Osc2 Quantize set to: ${value.toFixed(2)}`);
-    },
     'osc2-fm-knob': (value) => {
         // Apply exponential curve
         const curvedValue = value * value;
@@ -4093,8 +4129,8 @@ function noteOn(noteNumber) {
         const selectedWaveform = waveformMap[osc1WaveSelector ? parseInt(osc1WaveSelector.value) : 1];
         
         // Apply waveform with PWM if applicable
-        const pulseWidth = selectedWaveform === 'pulse' ? 0.05 + osc1PWMValue * 0.9 : 0.5;
-        setJunoWaveform(osc1.workletNode, selectedWaveform, pulseWidth);
+        const pulseWidth = (osc1PWMValue === 0) ? 0.5 : (0.05 + osc1PWMValue * 0.9);
+setJunoWaveform(osc1.workletNode, selectedWaveform, pulseWidth);
         
         // Ensure gate is open
         osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
@@ -4169,8 +4205,8 @@ function noteOn(noteNumber) {
         const selectedWaveform = waveformMap[osc2WaveSelector ? parseInt(osc2WaveSelector.value) : 1];
         
         // Apply waveform with PWM if applicable
-        const pulseWidth = selectedWaveform === 'pulse' ? 0.05 + osc2PWMValue * 0.9 : 0.5;
-        setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
+        const pulseWidth = (osc2PWMValue === 0) ? 0.5 : (0.05 + osc2PWMValue * 0.9);
+setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
         
         // Ensure gate is open
         osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);

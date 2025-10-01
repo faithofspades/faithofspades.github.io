@@ -16,6 +16,8 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
             { name: 'sineLevel', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
             { name: 'triangleLevel', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
             { name: 'pulseWidth', defaultValue: 0.5, minValue: 0.05, maxValue: 0.95, automationRate: 'a-rate' },
+            // Add quantization parameter
+            { name: 'quantizeAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             // Gate for this voice
             { name: 'gate', defaultValue: 0, minValue: 0, maxValue: 1 },
             // Phase reset trigger (only used on initial page load)
@@ -54,6 +56,11 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
         // Sub-oscillator state for pulse wave generation
         this.subOscillatorPhase = 0;
         
+        // Add state for improved pulse generation
+        this.lastPulseValue = -1;
+        this.pulseTransitionPos = 0;
+        this.previousPW = 0.5;
+        
         // Message handling for phase updates (fallback)
         this.port.onmessage = (event) => {
             if (event.data.type === 'phaseUpdate') {
@@ -79,6 +86,8 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
         const sineLevel = parameters.sineLevel;
         const triangleLevel = parameters.triangleLevel;
         const pulseWidth = parameters.pulseWidth;
+        // Get the quantize amount parameter
+        const quantizeAmount = parameters.quantizeAmount;
         const gate = parameters.gate[0];
         const resetPhase = parameters.resetPhase[0];
         
@@ -126,30 +135,68 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
                 this.localPhase -= Math.floor(this.localPhase);
             }
             
-            // Generate all waveforms
+            // Get pulse width for this sample
+            const pw = pulseWidth.length > 1 ? pulseWidth[i] : pulseWidth[0];
+            const clampedPW = Math.max(0.05, Math.min(0.95, pw));
+            
+            // IMPORTANT: Apply PWM to all waveforms by warping the phase
+            // This is similar to how shape-hold-processor.js does it
+            let modifiedPhase = this.localPhase;
+            
+            // Apply phase warping based on pulse width only when different from default
+if (Math.abs(clampedPW - 0.5) > 0.001) {
+    // Map PWM to phase warping - different for each half of the cycle
+    if (this.localPhase < 0.5) {
+        // First half of the waveform - compress/expand
+        modifiedPhase = this.localPhase * (clampedPW * 2);
+    } else {
+        // Second half - compress/expand inversely
+        modifiedPhase = 0.5 + ((this.localPhase - 0.5) * ((1 - clampedPW) * 2));
+    }
+    
+    // Ensure phase stays in 0-1 range
+    modifiedPhase = Math.max(0, Math.min(1, modifiedPhase));
+}
+            
+            // Generate all waveforms using the modified phase
             
             // Sawtooth: Linear ramp from -1 to 1
-            const sawtoothCore = (this.localPhase * 2) - 1;
+            const sawtoothCore = (modifiedPhase * 2) - 1;
             
             // Sine: Use Math.sin for proper sine wave
-            const sineWave = Math.sin(this.localPhase * 2 * Math.PI);
+            const sineWave = Math.sin(modifiedPhase * 2 * Math.PI);
             
             // Triangle: Create from phase with proper shape
             let triangleWave;
-            if (this.localPhase < 0.25) {
+            if (modifiedPhase < 0.25) {
                 // Rising from 0 to 1 (first quarter)
-                triangleWave = this.localPhase * 4;
-            } else if (this.localPhase < 0.75) {
+                triangleWave = modifiedPhase * 4;
+            } else if (modifiedPhase < 0.75) {
                 // Falling from 1 to -1 (middle half)
-                triangleWave = 2 - (this.localPhase * 4);
+                triangleWave = 2 - (modifiedPhase * 4);
             } else {
                 // Rising from -1 to 0 (last quarter)
-                triangleWave = (this.localPhase * 4) - 4;
+                triangleWave = (modifiedPhase * 4) - 4;
             }
             
-            // Pulse wave via comparison (Juno-style)
-            const pw = pulseWidth.length > 1 ? pulseWidth[i] : pulseWidth[0];
-            const pulseWave = this.localPhase < pw ? 1 : -1;
+            // Pulse: Standard pulse wave with direct pulse width control
+            let pulseWave;
+            if (this.localPhase < clampedPW) {
+                // Phase is in the "high" part of the pulse wave
+                pulseWave = 1;
+            } else {
+                // Phase is in the "low" part of the pulse wave
+                pulseWave = -1;
+            }
+            
+            // When there's a significant PW change, track it for smoother transitions
+            if (Math.abs(this.previousPW - clampedPW) > 0.01) {
+                this.pulseTransitionPos = this.localPhase;
+                this.previousPW = clampedPW;
+            }
+            
+            // Store last value for potential zero-crossing detection later
+            this.lastPulseValue = pulseWave;
             
             // Get level parameters for this sample
             const sawLvl = sawLevel.length > 1 ? sawLevel[i] : sawLevel[0];
@@ -168,6 +215,27 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
             const totalLevel = Math.max(0.001, sawLvl + pulseLvl + sineLvl + triangleLvl);
             if (totalLevel > 1) {
                 mixedSample /= totalLevel;
+            }
+            
+            // Apply quantization (bitcrushing) effect
+            const quantizeAmt = quantizeAmount.length > 1 ? quantizeAmount[i] : quantizeAmount[0];
+            if (quantizeAmt > 0.005) {
+                // Convert the quantization amount to number of steps
+                // Smaller values = more quantization (fewer steps)
+                const factor = Math.pow(1 - quantizeAmt, 2);
+                const calculatedSteps = 4 + (256 - 4) * factor;
+                const steps = Math.max(4, Math.floor(calculatedSteps));
+                
+                if (steps < 256) {
+                    // Normalize the sample to 0-1 range
+                    const normalizedSample = (mixedSample + 1) / 2;
+                    // Quantize to discrete steps
+                    const quantizedScaled = Math.floor(normalizedSample * (steps - 1));
+                    // Convert back to normalized 0-1
+                    const quantizedNormalized = (steps > 1) ? quantizedScaled / (steps - 1) : quantizedScaled;
+                    // Convert back to -1 to 1 range
+                    mixedSample = quantizedNormalized * 2 - 1;
+                }
             }
             
             // Output with reduced volume to avoid clipping
