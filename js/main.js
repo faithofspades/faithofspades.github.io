@@ -693,7 +693,20 @@ function findAvailableVoice(noteNumber) {
 
     // In mono mode, always use voice 0
     if (isMonoMode) {
-        return voicePool[0];
+        const monoVoice = voicePool[0];
+        currentMonoVoice = monoVoice; // Track the mono voice
+        
+        // CRITICAL FIX: Track mono voice in voiceAssignments
+        if (!voiceAssignments.has(noteNumber)) {
+            voiceAssignments.set(noteNumber, []);
+        }
+        
+        const assignments = voiceAssignments.get(noteNumber);
+        if (!assignments.includes(monoVoice)) {
+            assignments.push(monoVoice);
+        }
+        
+        return monoVoice;
     }
     
     let selectedVoice = null;
@@ -3987,6 +4000,27 @@ function noteOn(noteNumber) {
     // Store the previous played note before getting a new voice
     const previousNoteNumber = lastPlayedNoteNumber;
 
+    // --- DETERMINE LEGATO STATE ---
+    // Check if we're in mono mode with legato enabled and if we're triggering a new note while another is held
+    const isLegatoActive = isMonoMode && isLegatoMode && previousNoteNumber !== null;
+    
+    // For true legato, we need at least one previously held note that's not in release stage
+    let legatoTransition = false;
+    
+    if (isLegatoActive) {
+        // We have a mono voice that we're using
+        const monoVoice = voicePool[0];
+        
+        // Check if any component is in playing state (not releasing)
+        const hasPreviousActiveSampler = monoVoice.samplerNote && monoVoice.samplerNote.state === 'playing';
+        const hasPreviousActiveOsc1 = monoVoice.osc1Note && monoVoice.osc1Note.state === 'playing';
+        const hasPreviousActiveOsc2 = monoVoice.osc2Note && monoVoice.osc2Note.state === 'playing';
+        
+        // Only use legato if at least one component is in playing state
+        legatoTransition = hasPreviousActiveSampler || hasPreviousActiveOsc1 || hasPreviousActiveOsc2;
+        
+        console.log(`Legato check: Active=${isLegatoActive}, Transition=${legatoTransition}, Components: Sampler=${hasPreviousActiveSampler}, Osc1=${hasPreviousActiveOsc1}, Osc2=${hasPreviousActiveOsc2}`);
+    }
     // --- SAMPLER VOICE ALLOCATION ---
     // Find or allocate a sampler voice
     let samplerVoice = null;
@@ -4056,24 +4090,24 @@ function noteOn(noteNumber) {
     }
     
     // --- SAMPLER VOICE CONFIGURATION ---
-if (audioBuffer && samplerVoice) {
-    // Configure the sampler note
-    const samplerNote = samplerVoice.samplerNote;
-    
-    // Determine if we need to create a new source or reuse existing
-    let needNewSource = true;
-    let oldPlaybackRate = 1.0;
-    
-    // FIXED: Also reuse source for notes in the releasing state
-    if (samplerNote.source && (samplerNote.state === 'playing' || samplerNote.state === 'releasing')) {
-        // If the source is already playing OR releasing, we can reuse it
-        needNewSource = false;
-        oldPlaybackRate = samplerNote.source.playbackRate.value || 1.0;
-        console.log(`Reusing existing sampler source for voice ${samplerVoice.id} (state: ${samplerNote.state})`);
-    }
-    
-    // Create new source only if needed
-    if (needNewSource) {
+    if (audioBuffer && samplerVoice) {
+        // Configure the sampler note
+        const samplerNote = samplerVoice.samplerNote;
+        
+        // Determine if we need to create a new source or reuse existing
+        let needNewSource = true;
+        let oldPlaybackRate = 1.0;
+        
+        // FIXED: Also reuse source for notes in the releasing state
+        if (samplerNote.source && (samplerNote.state === 'playing' || samplerNote.state === 'releasing')) {
+            // If the source is already playing OR releasing, we can reuse it
+            needNewSource = false;
+            oldPlaybackRate = samplerNote.source.playbackRate.value || 1.0;
+            console.log(`Reusing existing sampler source for voice ${samplerVoice.id} (state: ${samplerNote.state})`);
+        }
+        
+        // Create new source only if needed
+        if (needNewSource) {
         if (samplerNote.source) {
             try { 
                 samplerNote.source.stop(now); 
@@ -4156,44 +4190,51 @@ if (audioBuffer && samplerVoice) {
     samplerNote.source.detune.setValueAtTime(currentSampleDetune, now);
     
     // Reset gain nodes and apply ADSR envelope
-samplerNote.sampleNode.gain.cancelScheduledValues(now);
-samplerNote.sampleNode.gain.setValueAtTime(currentSampleGain, now);
-
-samplerNote.gainNode.gain.cancelScheduledValues(now);
-
-// FIXED: Properly handle ADSR for notes that were in different states
-if (wasSamplerStolen || samplerVoice.state !== 'inactive') {
+        samplerNote.sampleNode.gain.cancelScheduledValues(now);
+        samplerNote.sampleNode.gain.setValueAtTime(currentSampleGain, now);
+        
+        samplerNote.gainNode.gain.cancelScheduledValues(now);
+        
+        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
+        if (legatoTransition && samplerNote.state === 'playing') {
+            // For legato, don't reset envelope - just keep current gain values
+            console.log(`Legato: Keeping current sampler envelope for note ${noteNumber}`);
+            
+            // No envelope changes - just maintain current state
+            // We don't cancel or set new values to the gain nodes
+        } 
+        else if (wasSamplerStolen || samplerVoice.state !== 'inactive') {
     // Get current gain value before any modifications
-    const currentGain = samplerNote.gainNode.gain.value || 0;
-    
-    // Always start from the current gain with no dip
-    samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
-    
-    // For releasing notes, use a slightly more gradual transition to avoid discontinuity
-    if (samplerNote.state === 'releasing') {
-        // More gradual transition for notes that were releasing
-        const transitionTime = Math.min(0.05, attack * 0.5); // Smaller of 50ms or half the attack time
-        
-        // First smoothly move to a small intermediate value
-        const intermediateGain = Math.max(0.05, currentGain * 0.7); // Don't go below 5%
-        samplerNote.gainNode.gain.linearRampToValueAtTime(intermediateGain, now + transitionTime);
-        
-        // Then perform the attack phase from this intermediate point
-        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + transitionTime + attack);
-        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + transitionTime + attack + decay);
-    } else {
-        // For active notes or other states, just apply the envelope directly
-        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-    }
-} else {
-    // Fresh note with standard envelope
-    const fadeInTime = 0.005;
-    samplerNote.gainNode.gain.setValueAtTime(0, now);
-    samplerNote.gainNode.gain.linearRampToValueAtTime(0.01, now + fadeInTime);
-    samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeInTime + attack);
-    samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeInTime + attack + decay);
-}
+            const currentGain = samplerNote.gainNode.gain.value || 0;
+            
+            // Always start from the current gain with no dip
+            samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+            
+            // For releasing notes, use a slightly more gradual transition to avoid discontinuity
+            if (samplerNote.state === 'releasing') {
+                // More gradual transition for notes that were releasing
+                const transitionTime = Math.min(0.05, attack * 0.5); // Smaller of 50ms or half the attack time
+                
+                // First smoothly move to a small intermediate value
+                const intermediateGain = Math.max(0.05, currentGain * 0.7); // Don't go below 5%
+                samplerNote.gainNode.gain.linearRampToValueAtTime(intermediateGain, now + transitionTime);
+                
+                // Then perform the attack phase from this intermediate point
+                samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + transitionTime + attack);
+                samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + transitionTime + attack + decay);
+            } else {
+                // For active notes or other states, just apply the envelope directly
+                samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+                samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+            }
+        } else {
+            // Fresh note with standard envelope
+            const fadeInTime = 0.005;
+            samplerNote.gainNode.gain.setValueAtTime(0, now);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(0.01, now + fadeInTime);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeInTime + attack);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeInTime + attack + decay);
+        }
     
     // Connect to master gain if not already connected
     if (!samplerNote.gainNode.isConnectedToMaster) {
@@ -4234,12 +4275,12 @@ if (wasSamplerStolen || samplerVoice.state !== 'inactive') {
     }
     
     // CONTINUOUS OSCILLATOR ENVELOPE - OSC1
-if (voice.osc1Note && voice.osc1Note.workletNode) {
-    const osc1 = voice.osc1Note;
-    
-    // Calculate frequencies
-    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc1OctaveOffset, osc1Detune) : 0;
-    const newFrequency = noteToFrequency(noteNumber, osc1OctaveOffset, osc1Detune);
+    if (voice.osc1Note && voice.osc1Note.workletNode) {
+        const osc1 = voice.osc1Note;
+        
+        // Calculate frequencies
+        const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc1OctaveOffset, osc1Detune) : 0;
+        const newFrequency = noteToFrequency(noteNumber, osc1OctaveOffset, osc1Detune);
     
     // Handle frequency changes
     if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
@@ -4273,32 +4314,40 @@ if (voice.osc1Note && voice.osc1Note.workletNode) {
     setJunoWaveform(osc1.workletNode, selectedWaveform, pulseWidth);
     
     // Ensure gate is open
-    osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
-    
-    // CONTINUOUS ENVELOPE TRANSITION
-    // Get the current gain without any cancellation first
-    const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
-    osc1.gainNode.gain.cancelScheduledValues(now);
-    
-    // Always start from current gain, no dips
-    osc1.gainNode.gain.setValueAtTime(currentGain, now);
-    
-    // Apply new envelope directly from current point
-    osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-    osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-    
-    osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
-    osc1.state = 'active';
-    osc1.noteNumber = noteNumber;
-}
+        osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
+        
+        // CONTINUOUS ENVELOPE TRANSITION
+        // Get the current gain without any cancellation first
+        const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
+        osc1.gainNode.gain.cancelScheduledValues(now);
+        
+        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
+        if (legatoTransition && osc1.state === 'playing') {
+            // For legato, preserve the current envelope state
+            console.log(`Legato: Keeping current osc1 envelope for note ${noteNumber}`);
+            // Just set current gain value to maintain envelope position
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        } else {
+            // Non-legato: Always start from current gain, no dips
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+            
+            // Apply new envelope directly from current point
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        }
+        
+        osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
+        osc1.state = 'playing';
+        osc1.noteNumber = noteNumber;
+    }
 
     // CONTINUOUS OSCILLATOR ENVELOPE - OSC2
-if (voice.osc2Note && voice.osc2Note.workletNode) {
-    const osc2 = voice.osc2Note;
-    
-    // Calculate frequencies
-    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc2OctaveOffset, osc2Detune) : 0;
-    const newFrequency = noteToFrequency(noteNumber, osc2OctaveOffset, osc2Detune);
+    if (voice.osc2Note && voice.osc2Note.workletNode) {
+        const osc2 = voice.osc2Note;
+        
+        // Calculate frequencies
+        const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc2OctaveOffset, osc2Detune) : 0;
+        const newFrequency = noteToFrequency(noteNumber, osc2OctaveOffset, osc2Detune);
     
     // Handle frequency changes
     if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
@@ -4330,24 +4379,32 @@ if (voice.osc2Note && voice.osc2Note.workletNode) {
     setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
     
     // Ensure gate is open
-    osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);
-    
-    // CONTINUOUS ENVELOPE TRANSITION
-    // Get the current gain without any cancellation first
-    const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
-    osc2.gainNode.gain.cancelScheduledValues(now);
-    
-    // Always start from current gain, no dips
-    osc2.gainNode.gain.setValueAtTime(currentGain, now);
-    
-    // Apply new envelope directly from current point
-    osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-    osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-    
-    osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
-    osc2.state = 'active';
-    osc2.noteNumber = noteNumber;
-}
+        osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);
+        
+        // CONTINUOUS ENVELOPE TRANSITION
+        // Get the current gain without any cancellation first
+        const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
+        osc2.gainNode.gain.cancelScheduledValues(now);
+        
+        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
+        if (legatoTransition && osc2.state === 'playing') {
+            // For legato, preserve the current envelope state
+            console.log(`Legato: Keeping current osc2 envelope for note ${noteNumber}`);
+            // Just set current gain value to maintain envelope position
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        } else {
+            // Non-legato: Always start from current gain, no dips
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+            
+            // Apply new envelope directly from current point
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        }
+        
+        osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
+        osc2.state = 'playing';
+        osc2.noteNumber = noteNumber;
+    }
     
     // Update FM modulators if needed
     if (samplerVoice && samplerVoice.state === 'playing') {
