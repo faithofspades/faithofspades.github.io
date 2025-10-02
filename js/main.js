@@ -3384,10 +3384,10 @@ function releaseSamplerNote(note) {
     }
 
     // Apply release envelope
-    const release = Math.max(0.001, parseFloat(D('release').value)); // Reduce minimum to 1ms
+    const release = Math.max(0.01, parseFloat(D('release').value)); // Minimum 10ms release
     const now = audioCtx.currentTime;
     
-    // Fast release
+    // Apply proper release envelope
     note.gainNode.gain.cancelScheduledValues(now);
     note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now);
     note.gainNode.gain.linearRampToValueAtTime(0, now + release);
@@ -3397,19 +3397,19 @@ function releaseSamplerNote(note) {
     note.sampleNode.gain.setValueAtTime(note.sampleNode.gain.value, now);
     note.sampleNode.gain.linearRampToValueAtTime(0, now + release);
 
-    // Schedule stop immediately after release 
-    const stopTime = now + release + 0.001; // Add just 1ms safety margin
+    // Schedule stop after release with a small safety margin
+
     try {
         note.source.stop(stopTime);
     } catch (e) { /* Ignore errors */ }
 
-    // CRITICAL: Reduce kill delay to 5ms after release
-    const killDelay = Math.min(5, (release * 1000) + 5); // Maximum 5ms delay
+    // FIXED: Use proper kill delay that respects the release time
+    const killDelay = Math.max(5, (release * 1000) + 0); // Minimum 100ms + release time + 100ms safety
     trackSetTimeout(() => {
         killSamplerNote(note);
     }, killDelay, note);
     
-    console.log(`releaseSamplerNote: Scheduled kill for ${note.id} in ${killDelay}ms (ultra-fast mode)`);
+    console.log(`releaseSamplerNote: Scheduled kill for ${note.id} in ${killDelay}ms (respecting release time)`);
 }
 
 function killSamplerNote(note) {
@@ -4012,7 +4012,7 @@ function noteOn(noteNumber) {
         console.error("noteOn: Could not assign a voice!");
         return;
     }
-
+    
     // CRITICAL: Clear all previous timers for this voice when stealing it
     clearVoiceTimers(voice);
 
@@ -4161,32 +4161,33 @@ samplerNote.sampleNode.gain.setValueAtTime(currentSampleGain, now);
 
 samplerNote.gainNode.gain.cancelScheduledValues(now);
 
-// FIXED: Properly handle ADSR for notes that were in playing state
+// FIXED: Properly handle ADSR for notes that were in different states
 if (wasSamplerStolen || samplerVoice.state !== 'inactive') {
-    // For voice stealing or retriggering, use MUCH faster transitions
+    // Get current gain value before any modifications
     const currentGain = samplerNote.gainNode.gain.value || 0;
     
-    // CRITICAL FIX: Use extremely short dip time for playing notes
-    // No dip for playing notes, minimal dip (1ms) for releasing notes
-    const dipTime = samplerNote.state === 'releasing' ? 0.001 : 0.0005;
-    
+    // Always start from the current gain with no dip
     samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
     
-    // For actively playing notes, skip the dip entirely and just apply new envelope
-    if (samplerNote.state === 'playing' && currentGain > 0.3) {
-        // Already playing at good volume - skip dip and just apply attack/decay
+    // For releasing notes, use a slightly more gradual transition to avoid discontinuity
+    if (samplerNote.state === 'releasing') {
+        // More gradual transition for notes that were releasing
+        const transitionTime = Math.min(0.05, attack * 0.5); // Smaller of 50ms or half the attack time
+        
+        // First smoothly move to a small intermediate value
+        const intermediateGain = Math.max(0.05, currentGain * 0.7); // Don't go below 5%
+        samplerNote.gainNode.gain.linearRampToValueAtTime(intermediateGain, now + transitionTime);
+        
+        // Then perform the attack phase from this intermediate point
+        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + transitionTime + attack);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + transitionTime + attack + decay);
+    } else {
+        // For active notes or other states, just apply the envelope directly
         samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-    } else {
-        // Use minimal dip for notes not actively playing at good volume
-        samplerNote.gainNode.gain.linearRampToValueAtTime(Math.min(currentGain, 0.05), now + dipTime);
-        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + dipTime + attack);
-        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + dipTime + attack + decay);
     }
-    
-    console.log(`Sampler note ${samplerNote.id} envelope: Starting from gain ${currentGain.toFixed(3)}, was in ${samplerNote.state} state`);
 } else {
-    // Fresh note with standard envelope (no changes needed)
+    // Fresh note with standard envelope
     const fadeInTime = 0.005;
     samplerNote.gainNode.gain.setValueAtTime(0, now);
     samplerNote.gainNode.gain.linearRampToValueAtTime(0.01, now + fadeInTime);
@@ -4232,188 +4233,121 @@ if (wasSamplerStolen || samplerVoice.state !== 'inactive') {
         effectiveGlideTime = Math.max(0.001, glideTime * 0.5);
     }
     
-    // --- CONFIGURE OSC1 (EXISTING CODE) ---
-    if (voice.osc1Note && voice.osc1Note.workletNode) {
-        const osc1 = voice.osc1Note;
+    // CONTINUOUS OSCILLATOR ENVELOPE - OSC1
+if (voice.osc1Note && voice.osc1Note.workletNode) {
+    const osc1 = voice.osc1Note;
+    
+    // Calculate frequencies
+    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc1OctaveOffset, osc1Detune) : 0;
+    const newFrequency = noteToFrequency(noteNumber, osc1OctaveOffset, osc1Detune);
+    
+    // Handle frequency changes
+    if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
+        // Apply glide by starting at old frequency and ramping to new
+        console.log(`Osc1: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
         
-        // Calculate frequencies
-        const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc1OctaveOffset, osc1Detune) : 0;
-        const newFrequency = noteToFrequency(noteNumber, osc1OctaveOffset, osc1Detune);
-        
-        // Handle frequency changes
-        if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
-            // Apply glide by starting at old frequency and ramping to new
-            console.log(`Osc1: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
-            
-            osc1.workletNode.parameters.get('frequency').cancelScheduledValues(now);
-            osc1.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
-            // Use exponentialRampToValueAtTime for more natural pitch glides
-            // But only if both values are > 0 and not equal
-            if (oldFrequency > 0.01 && newFrequency > 0.01 && Math.abs(oldFrequency - newFrequency) > 0.01) {
-                osc1.workletNode.parameters.get('frequency').exponentialRampToValueAtTime(newFrequency, now + effectiveGlideTime);
-            } else {
-                osc1.workletNode.parameters.get('frequency').linearRampToValueAtTime(newFrequency, now + effectiveGlideTime);
-            }
+        osc1.workletNode.parameters.get('frequency').cancelScheduledValues(now);
+        osc1.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
+        // Use exponentialRampToValueAtTime for more natural pitch glides
+        if (oldFrequency > 0.01 && newFrequency > 0.01 && Math.abs(oldFrequency - newFrequency) > 0.01) {
+            osc1.workletNode.parameters.get('frequency').exponentialRampToValueAtTime(newFrequency, now + effectiveGlideTime);
         } else {
-            // No glide - set frequency immediately
-            osc1.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
+            osc1.workletNode.parameters.get('frequency').linearRampToValueAtTime(newFrequency, now + effectiveGlideTime);
         }
-        
-        // Set frequency ratio for octave offset
-        const osc1FreqRatio = Math.pow(2, osc1OctaveOffset);
-        osc1.workletNode.parameters.get('frequencyRatio').setValueAtTime(osc1FreqRatio, now);
-        
-        // Get waveform from selector
-        const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-        const osc1WaveSelector = D('osc1-wave-selector');
-        const selectedWaveform = waveformMap[osc1WaveSelector ? parseInt(osc1WaveSelector.value) : 1];
-        
-        // Apply waveform with PWM if applicable
-        const pulseWidth = (osc1PWMValue === 0) ? 0.5 : (0.05 + osc1PWMValue * 0.9);
-        setJunoWaveform(osc1.workletNode, selectedWaveform, pulseWidth);
-        
-        // Ensure gate is open
-        osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
-        
-        // IMPROVED ENVELOPE TO REDUCE CRACKLING
-    osc1.gainNode.gain.cancelScheduledValues(now);
+    } else {
+        // No glide - set frequency immediately
+        osc1.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
+    }
+    
+    // Set frequency ratio for octave offset
+    const osc1FreqRatio = Math.pow(2, osc1OctaveOffset);
+    osc1.workletNode.parameters.get('frequencyRatio').setValueAtTime(osc1FreqRatio, now);
+    
+    // Get waveform from selector
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    const osc1WaveSelector = D('osc1-wave-selector');
+    const selectedWaveform = waveformMap[osc1WaveSelector ? parseInt(osc1WaveSelector.value) : 1];
+    
+    // Apply waveform with PWM if applicable
+    const pulseWidth = (osc1PWMValue === 0) ? 0.5 : (0.05 + osc1PWMValue * 0.9);
+    setJunoWaveform(osc1.workletNode, selectedWaveform, pulseWidth);
+    
+    // Ensure gate is open
+    osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
+    
+    // CONTINUOUS ENVELOPE TRANSITION
+    // Get the current gain without any cancellation first
     const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
+    osc1.gainNode.gain.cancelScheduledValues(now);
     
-    // CRITICAL FIX: Check if note is already playing with good volume
-    if (isRetrigger && currentGain > 0.3) {
-        // Already playing at good volume - skip dip entirely
-        console.log(`Osc1: Retriggering note ${noteNumber} at current gain ${currentGain.toFixed(2)} - skipping dip`);
-        osc1.gainNode.gain.setValueAtTime(currentGain, now);
-        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-    } else if (isReleasingSteal) {
-        // Voice was releasing - use very short smooth transition (5ms)
-        const smoothTime = 0.005; // Reduced from 15ms to 5ms
-        osc1.gainNode.gain.setValueAtTime(currentGain, now);
-        
-        // Linear ramps for most reliable behavior
-        osc1.gainNode.gain.linearRampToValueAtTime(0.01, now + smoothTime);
-        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + smoothTime + attack);
-        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + smoothTime + attack + decay);
-    } else if (isVoiceSteal && currentGain > 0.3) {
-        // For voice stealing of actively playing notes, use minimal dip (2ms)
-        const dipTime = 0.002; // Ultra-short dip for minimal interruption
-        osc1.gainNode.gain.setValueAtTime(currentGain, now);
-        
-        osc1.gainNode.gain.linearRampToValueAtTime(Math.min(currentGain, 0.3), now + dipTime);
-        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + dipTime + attack);
-        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + dipTime + attack + decay);
-    } else if (isVoiceSteal) {
-        // Regular voice steal (not at high volume)
-        const dipTime = 0.005; // Reduced from 10ms to 5ms
-        osc1.gainNode.gain.setValueAtTime(currentGain, now);
-        
-        osc1.gainNode.gain.linearRampToValueAtTime(0.01, now + dipTime);
-        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + dipTime + attack);
-        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + dipTime + attack + decay);
-    } else {
-        // Fresh note with improved fade-in
-        const fadeInTime = 0.003; // Reduced from 5ms to 3ms
-        osc1.gainNode.gain.setValueAtTime(0, now);
-        osc1.gainNode.gain.linearRampToValueAtTime(0.01, now + fadeInTime); 
-        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeInTime + attack);
-        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeInTime + attack + decay);
-    }
-        
-        osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
-        osc1.state = 'active';
-        osc1.noteNumber = noteNumber;
-    }
+    // Always start from current gain, no dips
+    osc1.gainNode.gain.setValueAtTime(currentGain, now);
+    
+    // Apply new envelope directly from current point
+    osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+    osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    
+    osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
+    osc1.state = 'active';
+    osc1.noteNumber = noteNumber;
+}
 
-    // --- CONFIGURE OSC2 (EXISTING CODE) ---
-    // [Keep the existing Osc2 configuration code]
-    if (voice.osc2Note && voice.osc2Note.workletNode) {
-        const osc2 = voice.osc2Note;
-        
-        // Calculate frequencies
-        const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc2OctaveOffset, osc2Detune) : 0;
-        const newFrequency = noteToFrequency(noteNumber, osc2OctaveOffset, osc2Detune);
-        
-        // Handle frequency changes with same glide logic as Osc1
-        if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
-            console.log(`Osc2: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
-            
-            osc2.workletNode.parameters.get('frequency').cancelScheduledValues(now);
-            osc2.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
-            
-            if (oldFrequency > 0.01 && newFrequency > 0.01 && Math.abs(oldFrequency - newFrequency) > 0.01) {
-                osc2.workletNode.parameters.get('frequency').exponentialRampToValueAtTime(newFrequency, now + effectiveGlideTime);
-            } else {
-                osc2.workletNode.parameters.get('frequency').linearRampToValueAtTime(newFrequency, now + effectiveGlideTime);
-            }
-        } else {
-            osc2.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
-        }
-        
-        // Set frequency ratio for octave offset
-        const osc2FreqRatio = Math.pow(2, osc2OctaveOffset);
-        osc2.workletNode.parameters.get('frequencyRatio').setValueAtTime(osc2FreqRatio, now);
-        
-        // Get waveform from selector
-        const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-        const osc2WaveSelector = D('osc2-wave-selector');
-        const selectedWaveform = waveformMap[osc2WaveSelector ? parseInt(osc2WaveSelector.value) : 1];
-        
-        // Apply waveform with PWM if applicable
-        const pulseWidth = (osc2PWMValue === 0) ? 0.5 : (0.05 + osc2PWMValue * 0.9);
-        setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
-        
-        // Ensure gate is open
-        osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);
-        
-        // IMPROVED ENVELOPE TO REDUCE CRACKLING
-    osc2.gainNode.gain.cancelScheduledValues(now);
-    const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
+    // CONTINUOUS OSCILLATOR ENVELOPE - OSC2
+if (voice.osc2Note && voice.osc2Note.workletNode) {
+    const osc2 = voice.osc2Note;
     
-    // CRITICAL FIX: Check if note is already playing with good volume
-    if (isRetrigger && currentGain > 0.3) {
-        // Already playing at good volume - skip dip entirely
-        console.log(`Osc2: Retriggering note ${noteNumber} at current gain ${currentGain.toFixed(2)} - skipping dip`);
-        osc2.gainNode.gain.setValueAtTime(currentGain, now);
-        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-    } else if (isReleasingSteal) {
-        // Voice was releasing - use very short smooth transition (5ms)
-        const smoothTime = 0.005; // Reduced from 15ms to 5ms
-        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+    // Calculate frequencies
+    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc2OctaveOffset, osc2Detune) : 0;
+    const newFrequency = noteToFrequency(noteNumber, osc2OctaveOffset, osc2Detune);
+    
+    // Handle frequency changes
+    if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
+        console.log(`Osc2: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
         
-        osc2.gainNode.gain.linearRampToValueAtTime(0.01, now + smoothTime);
-        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + smoothTime + attack);
-        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + smoothTime + attack + decay);
-    } else if (isVoiceSteal && currentGain > 0.3) {
-        // For voice stealing of actively playing notes, use minimal dip (2ms)
-        const dipTime = 0.002; // Ultra-short dip for minimal interruption
-        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        osc2.workletNode.parameters.get('frequency').cancelScheduledValues(now);
+        osc2.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
         
-        osc2.gainNode.gain.linearRampToValueAtTime(Math.min(currentGain, 0.3), now + dipTime);
-        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + dipTime + attack);
-        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + dipTime + attack + decay);
-    } else if (isVoiceSteal) {
-        // Regular voice steal (not at high volume)
-        const dipTime = 0.005; // Reduced from 10ms to 5ms
-        osc2.gainNode.gain.setValueAtTime(currentGain, now);
-        
-        osc2.gainNode.gain.linearRampToValueAtTime(0.01, now + dipTime);
-        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + dipTime + attack);
-        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + dipTime + attack + decay);
+        if (oldFrequency > 0.01 && newFrequency > 0.01 && Math.abs(oldFrequency - newFrequency) > 0.01) {
+            osc2.workletNode.parameters.get('frequency').exponentialRampToValueAtTime(newFrequency, now + effectiveGlideTime);
+        } else {
+            osc2.workletNode.parameters.get('frequency').linearRampToValueAtTime(newFrequency, now + effectiveGlideTime);
+        }
     } else {
-        // Fresh note with improved fade-in
-        const fadeInTime = 0.003; // Reduced from 5ms to 3ms
-        osc2.gainNode.gain.setValueAtTime(0, now);
-        osc2.gainNode.gain.linearRampToValueAtTime(0.01, now + fadeInTime);
-        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeInTime + attack);
-        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeInTime + attack + decay);
+        osc2.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
     }
-        
-        osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
-        osc2.state = 'active';
-        osc2.noteNumber = noteNumber;
-    }
+    
+    // Set frequency ratio for octave offset
+    const osc2FreqRatio = Math.pow(2, osc2OctaveOffset);
+    osc2.workletNode.parameters.get('frequencyRatio').setValueAtTime(osc2FreqRatio, now);
+    
+    // Get waveform from selector
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    const osc2WaveSelector = D('osc2-wave-selector');
+    const selectedWaveform = waveformMap[osc2WaveSelector ? parseInt(osc2WaveSelector.value) : 1];
+    
+    // Apply waveform with PWM if applicable
+    const pulseWidth = (osc2PWMValue === 0) ? 0.5 : (0.05 + osc2PWMValue * 0.9);
+    setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
+    
+    // Ensure gate is open
+    osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);
+    
+    // CONTINUOUS ENVELOPE TRANSITION
+    // Get the current gain without any cancellation first
+    const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
+    osc2.gainNode.gain.cancelScheduledValues(now);
+    
+    // Always start from current gain, no dips
+    osc2.gainNode.gain.setValueAtTime(currentGain, now);
+    
+    // Apply new envelope directly from current point
+    osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+    osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    
+    osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
+    osc2.state = 'active';
+    osc2.noteNumber = noteNumber;
+}
     
     // Update FM modulators if needed
     if (samplerVoice && samplerVoice.state === 'playing') {
