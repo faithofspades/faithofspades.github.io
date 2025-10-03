@@ -389,6 +389,66 @@ function getJunoWaveformParams(waveformName) {
             return { sawLevel: 1, pulseLevel: 0, sineLevel: 0, triangleLevel: 0, pulseWidth: 0.5 };
     }
 }
+function restartSamplerFMSources() {
+    const now = audioCtx.currentTime;
+    
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            // Check OSC1 FM
+            if (osc1FMSource === 'sampler' && 
+                voice.osc1Note && 
+                voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                
+                // Check if the source has ended (playback state would be 'finished')
+                // We need to restart it
+                console.log(`Restarting OSC1 FM sampler source for voice ${voice.id}`);
+                updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
+            }
+            
+            // Check OSC2 FM
+            if (osc2FMSource === 'sampler' && 
+                voice.osc2Note && 
+                voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                
+                console.log(`Restarting OSC2 FM sampler source for voice ${voice.id}`);
+                updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
+            }
+        }
+    });
+}
+// Add this function to your code to check if a new FM source needs to be created
+function refreshFMSources() {
+    const now = audioCtx.currentTime;
+    
+    // Check all voices and refresh their FM sources if needed
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            // Check OSC1 FM
+            if (osc1FMSource === 'sampler' && voice.osc1Note) {
+                const osc1Note = voice.osc1Note;
+                
+                // Create a new FM source if needed
+                if (!osc1Note.fmModulatorSource || 
+                    !(osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) ||
+                    !audioBuffer) {
+                    updateOsc1FmModulatorParameters(osc1Note, now, voice);
+                }
+            }
+            
+            // Check OSC2 FM
+            if (osc2FMSource === 'sampler' && voice.osc2Note) {
+                const osc2Note = voice.osc2Note;
+                
+                // Create a new FM source if needed
+                if (!osc2Note.fmModulatorSource || 
+                    !(osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) ||
+                    !audioBuffer) {
+                    updateOsc2FmModulatorParameters(osc2Note, now, voice);
+                }
+            }
+        }
+    });
+}
 /**
  * Creates and initializes all audio nodes for a single permanent voice.
  * Uses Juno voice processors that read from master clock.
@@ -1006,55 +1066,37 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
     }
 
     const noteNumber = osc1Note.noteNumber;
-    console.log(`updateOsc1FmModulatorParameters [${noteId}]: Updating TZFM modulator (Source: ${osc1FMSource}, Amount: ${osc1FMAmount.toFixed(3)}).`);
+    // console.log(`updateOsc1FmModulatorParameters [${noteId}]: Updating TZFM modulator...`); // Reduced logging noise
 
     try {
-        // Create fmDepthGain if it doesn't exist
         if (!osc1Note.fmDepthGain) {
             osc1Note.fmDepthGain = audioCtx.createGain();
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Created FM depth gain.`);
         }
 
         const scaledDepth = osc1FMAmount * osc1FMDepthScale;
         osc1Note.fmDepthGain.gain.cancelScheduledValues(now);
         osc1Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
 
-        // CRITICAL FIX: Always disconnect before reconnecting to prevent duplicates
         try { 
             osc1Note.fmDepthGain.disconnect(); 
-        } catch(e) { 
-            // Ignore - node might not be connected yet
-        }
+        } catch(e) { /* Ignore */ }
 
         let needNewSource = false;
         let newFmSource = osc1Note.fmModulatorSource;
 
         if (osc1FMSource === 'sampler') {
-            // CRITICAL FIX: Check if we already have a valid buffer source
-            // Only create a new one if we don't or if it's stopped
-            const hasValidSource = newFmSource instanceof AudioBufferSourceNode && 
-                                   newFmSource.buffer !== null;
+            // CRITICAL FIX: A finished AudioBufferSourceNode is not null, so we must check if it's null to begin with.
+            // The `onended` handler will set it to null when it finishes.
+            const hasValidSource = newFmSource instanceof AudioBufferSourceNode;
             
-            if (!hasValidSource) {
+            if (!hasValidSource) { // This will now be true for new notes after a sample has finished.
                 if (!audioBuffer) {
                     console.error(`updateOsc1FmModulatorParameters [${noteId}]: No audioBuffer loaded.`);
-                    if (osc1Note.fmDepthGain) {
-                        try { osc1Note.fmDepthGain.disconnect(); } catch(e) {}
-                    }
                     return;
-                }
-
-                // Clean up old source if it exists
-                if (newFmSource instanceof AudioBufferSourceNode) {
-                    try {
-                        newFmSource.stop(0);
-                        newFmSource.disconnect();
-                    } catch(e) { /* Ignore */ }
                 }
 
                 newFmSource = audioCtx.createBufferSource();
                 
-                // Select appropriate buffer
                 let sourceBuffer = audioBuffer;
                 if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
                     sourceBuffer = cachedCrossfadedBuffer;
@@ -1064,7 +1106,6 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
                 
                 newFmSource.buffer = sourceBuffer;
                 
-                // Mirror playback settings
                 if (isSampleKeyTrackingOn) {
                     const calculatedRate = TR2 ** (noteNumber - 12);
                     newFmSource.playbackRate.value = calculatedRate;
@@ -1074,21 +1115,28 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
                     newFmSource.detune.value = currentSampleDetune;
                 }
                 
-                // Mirror loop settings
                 if (isSampleLoopOn) {
                     newFmSource.loop = true;
-                    const loopStart = sampleStartPosition * sourceBuffer.duration;
-                    const loopEnd = sampleEndPosition * sourceBuffer.duration;
-                    newFmSource.loopStart = Math.max(0, loopStart);
-                    newFmSource.loopEnd = Math.min(sourceBuffer.duration, loopEnd);
+                    newFmSource.loopStart = sampleStartPosition * sourceBuffer.duration;
+                    newFmSource.loopEnd = sampleEndPosition * sourceBuffer.duration;
                 } else {
                     newFmSource.loop = false;
+                    
+                    // CRITICAL FIX: The onended handler should simply mark the source as dead.
+                    newFmSource.onended = () => {
+                        console.log(`OSC1 FM sampler source ended for note ${noteId}. It will be recreated on next noteOn.`);
+                        // Set the source to null so the next noteOn knows to create a new one.
+                        if (osc1Note.fmModulatorSource === newFmSource) {
+                            osc1Note.fmModulatorSource = null;
+                        }
+                    };
                 }
                 
                 needNewSource = true;
-                console.log(`updateOsc1FmModulatorParameters [${noteId}]: Created new sampler FM source`);
+                console.log(`updateOsc1FmModulatorParameters [${noteId}]: Created new sampler FM source.`);
             } else {
-                console.log(`updateOsc1FmModulatorParameters [${noteId}]: Reusing existing sampler FM source`);
+                // This case is for when a note is stolen or parameters change mid-playback.
+                console.log(`updateOsc1FmModulatorParameters [${noteId}]: Reusing existing sampler FM source.`);
             }
         }
         else if (osc1FMSource === 'osc2') {
@@ -1109,30 +1157,24 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
 
         if (newFmSource && osc1Note.fmDepthGain && workletNode) {
             try {
-                // Connect the chain
                 newFmSource.connect(osc1Note.fmDepthGain);
                 osc1Note.fmDepthGain.connect(workletNode, 0, 0);
-                console.log(`updateOsc1FmModulatorParameters [${noteId}]: Connected ${osc1FMSource} to FM input`);
             } catch(e) {
                 console.error(`updateOsc1FmModulatorParameters [${noteId}]: Connection error: ${e.message}`);
             }
             
             fmDepthParam.setValueAtTime(scaledDepth, now);
             
-            // Only start NEW buffer sources
             if (newFmSource instanceof AudioBufferSourceNode && needNewSource) {
                 try {
                     newFmSource.start(now);
-                    console.log(`updateOsc1FmModulatorParameters [${noteId}]: Started sampler FM source`);
                 } catch(e) {
                     console.error(`updateOsc1FmModulatorParameters [${noteId}]: Error starting buffer source: ${e.message}`);
                 }
             }
             
             osc1Note.fmModulatorSource = newFmSource;
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: FM chain successfully established, depth=${scaledDepth}`);
         } else {
-            console.warn(`updateOsc1FmModulatorParameters [${noteId}]: Failed to create FM chain (missing components)`);
             if (fmDepthParam) {
                 fmDepthParam.setValueAtTime(0, now);
             }
@@ -3686,7 +3728,6 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
     const workletNode = osc2Note?.workletNode;
     const fmDepthParam = workletNode?.parameters.get('fmDepth');
     
-    // CRITICAL FIX: Remove the FM amount check
     const prerequisitesMet = osc2Note &&
                              workletNode &&
                              fmDepthParam;
@@ -3697,17 +3738,13 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
     if (!prerequisitesMet) {
         const reason = !osc2Note ? "no osc2Note" :
                        !workletNode ? "no workletNode" :
-                       !fmDepthParam ? "no fmDepth parameter" :
-                       osc2FMAmount <= 0.001 ? "FM amount is zero" : "unknown";
+                       !fmDepthParam ? "no fmDepth parameter" : "unknown";
 
         if (osc2Note?.fmModulatorSource || osc2Note?.fmDepthGain) {
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Prerequisites not met (${reason}). Stopping/disconnecting any existing FM.`);
+            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Prerequisites not met (${reason}).`);
         }
 
-        // CRITICAL FIX: Only clean up actual FM sources (BufferSourceNode)
-        // Don't disconnect worklet nodes - they're the main audio output!
         if (osc2Note?.fmModulatorSource) {
-            // Only stop/disconnect if it's a disposable source (not another oscillator's worklet)
             if (osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
                 try { 
                     osc2Note.fmModulatorSource.stop(0); 
@@ -3716,20 +3753,13 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
                     osc2Note.fmModulatorSource.disconnect(); 
                 } catch(e) { /* Ignore */ }
             }
-            // Clear the reference regardless
             osc2Note.fmModulatorSource = null;
         }
         
-        // Disconnect the FM depth gain from the worklet input
         if (osc2Note?.fmDepthGain) {
-            try { 
-                // Only disconnect from the worklet FM input, not from everything
-                osc2Note.fmDepthGain.disconnect(); 
-            } catch(e) { /* Ignore */ }
-            // Don't set to null - we'll reuse it
+            try { osc2Note.fmDepthGain.disconnect(); } catch(e) { /* Ignore */ }
         }
         
-        // Disable FM on worklet
         if (fmDepthParam) {
             fmDepthParam.setValueAtTime(0, now);
         }
@@ -3747,185 +3777,164 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
             console.log(`updateOsc2FmModulatorParameters [${noteId}]: Created FM depth gain.`);
         }
 
-        // Calculate FM depth scaling
         const scaledDepth = osc2FMAmount * osc2FMDepthScale;
         osc2Note.fmDepthGain.gain.cancelScheduledValues(now);
         osc2Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
 
-        // Determine if we need to create a new source
+        // CRITICAL FIX: Always disconnect before reconnecting to prevent duplicates
+        try { 
+            osc2Note.fmDepthGain.disconnect(); 
+        } catch(e) { 
+            // Ignore - node might not be connected yet
+        }
+
         let needNewSource = false;
         let newFmSource = osc2Note.fmModulatorSource;
 
         if (osc2FMSource === 'sampler') {
-    let samplerFMTap = null;
-    
-    if (voice && voice.samplerNote && voice.samplerNote.fmTap) {
-        samplerFMTap = voice.samplerNote.fmTap;
-        console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using sampler from same voice ${voice.id} as FM source`);
-    } 
-    else {
-        for (const v of voicePool) {
-            if (v.state !== 'inactive' && v.samplerNote && v.samplerNote.fmTap) {
-                samplerFMTap = v.samplerNote.fmTap;
-                console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using sampler from voice ${v.id} as FM source`);
-                break;
-            }
-        }
-    }
-    
-    if (samplerFMTap) {
-        newFmSource = samplerFMTap;
-        needNewSource = !(osc2Note.fmModulatorSource === samplerFMTap);
-    } else {
-        console.warn(`updateOsc2FmModulatorParameters [${noteId}]: No active sampler found for FM source.`);
-        // FIXED: Don't try to create fallback
-        if (osc2Note.fmDepthGain) {
-            try { osc2Note.fmDepthGain.disconnect(); } catch(e) {}
-        }
-        return; // Exit early
-    }
-} else if (osc2FMSource === 'osc1') {
-            // Check if current source is an AudioWorkletNode (osc1)
-            needNewSource = !newFmSource || !(newFmSource instanceof AudioWorkletNode);
-        }
-
-        // Clean up old source if we need a new one and it's a buffer source
-        if (needNewSource && newFmSource) {
-            if (newFmSource instanceof AudioBufferSourceNode) {
-                try {
-                    newFmSource.stop(0);
-                    newFmSource.disconnect();
-                } catch(e) { /* Ignore */ }
-            } else if (!(newFmSource instanceof AudioWorkletNode) && 
-                       !(newFmSource instanceof ChannelSplitterNode)) {
-                // Only disconnect if it's not a worklet or splitter
-                try { newFmSource.disconnect(); } catch(e) { /* Ignore */ }
-            }
-            osc2Note.fmModulatorSource = null;
-            newFmSource = null;
-        }
-
-        // Create new FM source if needed
-        if (needNewSource || !newFmSource) {
-            if (osc2FMSource === 'sampler') {
-                // First try to find an active sampler splitter
-                let samplerSplitter = null;
-                
-                if (voice && voice.samplerNote && voice.samplerNote.splitter) {
-                    samplerSplitter = voice.samplerNote.splitter;
-                } else {
-                    // Look through the voice pool
-                    for (const v of voicePool) {
-                        if (v.state !== 'inactive' && v.samplerNote && v.samplerNote.splitter) {
-                            samplerSplitter = v.samplerNote.splitter;
-                            break;
-                        }
-                    }
-                }
-                
-                if (samplerSplitter) {
-                    // Use the splitter directly - it's already connected to the main sampler chain
-                    newFmSource = samplerSplitter;
-                    console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using sampler splitter as FM source`);
-                } else {
-                    // FALLBACK: If no active sampler, create a temporary buffer source
-                    if (!audioBuffer) {
-                        console.error(`updateOsc2FmModulatorParameters [${noteId}]: No audioBuffer loaded.`);
-                        return;
-                    }
-
-                    newFmSource = audioCtx.createBufferSource();
-                    
-                    // Select appropriate buffer
-                    let sourceBuffer = audioBuffer;
-                    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-                        sourceBuffer = cachedCrossfadedBuffer;
-                    } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-                        sourceBuffer = fadedBuffer;
-                    }
-                    
-                    newFmSource.buffer = sourceBuffer;
-                    
-                    // Mirror playback settings
-                    if (isSampleKeyTrackingOn) {
-                        const calculatedRate = TR2 ** (noteNumber - 12);
-                        newFmSource.playbackRate.value = calculatedRate;
-                        newFmSource.detune.setValueAtTime(currentSampleDetune, now);
-                    } else {
-                        newFmSource.playbackRate.value = 1.0;
-                        newFmSource.detune.value = currentSampleDetune;
-                    }
-                    
-                    // Mirror loop settings
-                    if (isSampleLoopOn) {
-                        newFmSource.loop = true;
-                        const loopStart = sampleStartPosition * sourceBuffer.duration;
-                        const loopEnd = sampleEndPosition * sourceBuffer.duration;
-                        newFmSource.loopStart = Math.max(0, loopStart);
-                        newFmSource.loopEnd = Math.min(sourceBuffer.duration, loopEnd);
-                    } else {
-                        newFmSource.loop = false;
-                    }
-                    
-                    console.log(`updateOsc2FmModulatorParameters [${noteId}]: Created temporary sampler FM source (no active samplers found)`);
-                }
-            } else if (osc2FMSource === 'osc1') {
-                // CRITICAL: Connect directly to osc1's worklet output for proper frequency tracking
-                const osc1Note = voice?.osc1Note;
-                
-                if (osc1Note && osc1Note.workletNode) {
-                    // Use osc1's worklet directly as the FM source
-                    newFmSource = osc1Note.workletNode;
-                    console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using osc1 worklet directly for TZFM`);
-                } else {
-                    console.warn(`updateOsc2FmModulatorParameters [${noteId}]: No active osc1 worklet found.`);
+            const hasValidSource = newFmSource instanceof AudioBufferSourceNode && 
+                                   newFmSource.buffer !== null;
+            
+            if (!hasValidSource) {
+                if (!audioBuffer) {
+                    console.error(`updateOsc2FmModulatorParameters [${noteId}]: No audioBuffer loaded.`);
                     if (osc2Note.fmDepthGain) {
                         try { osc2Note.fmDepthGain.disconnect(); } catch(e) {}
-                        osc2Note.fmDepthGain = null;
                     }
                     return;
                 }
+
+                // Clean up old source if it exists
+                if (newFmSource instanceof AudioBufferSourceNode) {
+                    try {
+                        // Remove the onended handler to prevent conflicts
+                        newFmSource.onended = null;
+                        newFmSource.stop(0);
+                        newFmSource.disconnect();
+                    } catch(e) { /* Ignore */ }
+                }
+
+                newFmSource = audioCtx.createBufferSource();
+                
+                // Select appropriate buffer
+                let sourceBuffer = audioBuffer;
+                if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
+                    sourceBuffer = cachedCrossfadedBuffer;
+                } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
+                    sourceBuffer = fadedBuffer;
+                }
+                
+                newFmSource.buffer = sourceBuffer;
+                
+                // Mirror playback settings
+                if (isSampleKeyTrackingOn) {
+                    const calculatedRate = TR2 ** (noteNumber - 12);
+                    newFmSource.playbackRate.value = calculatedRate;
+                    newFmSource.detune.setValueAtTime(currentSampleDetune, now);
+                } else {
+                    newFmSource.playbackRate.value = 1.0;
+                    newFmSource.detune.value = currentSampleDetune;
+                }
+                
+                // Mirror loop settings
+                if (isSampleLoopOn) {
+                newFmSource.loop = true;
+                const loopStart = sampleStartPosition * sourceBuffer.duration;
+                const loopEnd = sampleEndPosition * sourceBuffer.duration;
+                newFmSource.loopStart = Math.max(0, loopStart);
+                newFmSource.loopEnd = Math.min(sourceBuffer.duration, loopEnd);
+            } else {
+                newFmSource.loop = false;
+                
+                // CRITICAL FIX: Capture the current FM source type
+                const capturedFMSource = osc2FMSource;
+                
+                const restartContext = {
+                    osc2Note: osc2Note,
+                    voice: voice,
+                    noteId: noteId,
+                    fmSourceAtCreation: capturedFMSource
+                };
+                
+                newFmSource.onended = function() {
+                    const noteStillActive = restartContext.osc2Note.state === 'playing' || 
+                                           restartContext.osc2Note.state === 'active';
+                    const voiceStillActive = restartContext.voice.state !== 'inactive' && 
+                                            restartContext.voice.state !== 'idle';
+                    const stillUsingSampler = osc2FMSource === 'sampler' && 
+                                             restartContext.fmSourceAtCreation === 'sampler';
+                    
+                    if (stillUsingSampler && noteStillActive && voiceStillActive) {
+                        console.log(`OSC2 FM sampler source ended for note ${restartContext.noteId}, auto-restarting...`);
+                        
+                        setTimeout(() => {
+                            const restartTime = audioCtx.currentTime;
+                            updateOsc2FmModulatorParameters(
+                                restartContext.osc2Note, 
+                                restartTime, 
+                                restartContext.voice
+                            );
+                        }, 10);
+                    } else {
+                        console.log(`OSC2 FM sampler source ended for note ${restartContext.noteId}, not restarting (Current FM source: ${osc2FMSource}, Created with: ${restartContext.fmSourceAtCreation}, note state: ${restartContext.osc2Note.state}, voice state: ${restartContext.voice.state})`);
+                    }
+                };
+            }
+            
+            needNewSource = true;
+            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Created new sampler FM source`);
+        } else {
+            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Reusing existing sampler FM source`);
+        }
+    }
+        else if (osc2FMSource === 'osc1') {
+            const osc1Note = voice?.osc1Note;
+            
+            if (osc1Note && osc1Note.workletNode) {
+                newFmSource = osc1Note.workletNode;
+                needNewSource = true;
+                console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using osc1 worklet from voice ${voice.id} as FM source`);
+            } else {
+                console.warn(`updateOsc2FmModulatorParameters [${noteId}]: No osc1 worklet found for FM`);
+                if (fmDepthParam) {
+                    fmDepthParam.setValueAtTime(0, now);
+                }
+                return;
             }
         }
 
-        // Connect FM chain
         if (newFmSource && osc2Note.fmDepthGain && workletNode) {
-            try { osc2Note.fmDepthGain.disconnect(); } catch(e) { /* Ignore */ }
+            try {
+                // Connect the chain
+                newFmSource.connect(osc2Note.fmDepthGain);
+                osc2Note.fmDepthGain.connect(workletNode, 0, 0);
+                console.log(`updateOsc2FmModulatorParameters [${noteId}]: Connected ${osc2FMSource} to FM input`);
+            } catch(e) {
+                console.error(`updateOsc2FmModulatorParameters [${noteId}]: Connection error: ${e.message}`);
+            }
             
-            // Connect based on source type
-            newFmSource.connect(osc2Note.fmDepthGain);
-            osc2Note.fmDepthGain.connect(workletNode, 0, 0);
-            
-            // Set FM depth parameter
             fmDepthParam.setValueAtTime(scaledDepth, now);
             
-            // Start source if needed (only for buffer sources)
+            // Only start NEW buffer sources
             if (newFmSource instanceof AudioBufferSourceNode && needNewSource) {
-                const startTime = now + 0.001;
-                newFmSource.start(startTime);
-                console.log(`updateOsc2FmModulatorParameters [${noteId}]: Started sampler FM source`);
+                try {
+                    newFmSource.start(now);
+                    console.log(`updateOsc2FmModulatorParameters [${noteId}]: Started sampler FM source`);
+                } catch(e) {
+                    console.error(`updateOsc2FmModulatorParameters [${noteId}]: Error starting buffer source: ${e.message}`);
+                }
             }
             
             osc2Note.fmModulatorSource = newFmSource;
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: TZFM chain connected successfully`);
+            console.log(`updateOsc2FmModulatorParameters [${noteId}]: FM chain successfully established, depth=${scaledDepth}`);
         } else {
-            console.warn(`updateOsc2FmModulatorParameters [${noteId}]: Failed to connect TZFM chain`);
-            if (osc2Note.fmDepthGain) {
-                try { osc2Note.fmDepthGain.disconnect(); } catch(e) {}
-                osc2Note.fmDepthGain = null;
+            console.warn(`updateOsc2FmModulatorParameters [${noteId}]: Failed to create FM chain (missing components)`);
+            if (fmDepthParam) {
+                fmDepthParam.setValueAtTime(0, now);
             }
         }
-
     } catch (error) {
         console.error(`updateOsc2FmModulatorParameters [${noteId}]: Error:`, error);
-        if (osc2Note.fmModulatorSource && osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
-            try { osc2Note.fmModulatorSource.disconnect(); } catch(e) {}
-        }
-        osc2Note.fmModulatorSource = null;
-        if (osc2Note.fmDepthGain) {
-            try { osc2Note.fmDepthGain.disconnect(); } catch(e) {}
-            osc2Note.fmDepthGain = null;
-        }
     }
 }
 // Also ensure noteOn properly sets up the envelope from zero
@@ -4366,6 +4375,13 @@ if (voice.osc2Note) {
     console.log(`noteOn: Setting up Osc2 FM (source: ${osc2FMSource}, depth: ${osc2FMAmount})`);
     updateOsc2FmModulatorParameters(voice.osc2Note, nowFM, voice);
 }
+// At the end of the function, add:
+    
+    // Always refresh FM sources when playing a new note
+    // This ensures that even if samples have ended, new FM sources are created
+    if (osc1FMSource === 'sampler' || osc2FMSource === 'sampler') {
+        refreshFMSources();
+    }
     
     // Update UI and tracking
     lastPlayedNoteNumber = noteNumber;
@@ -5176,24 +5192,25 @@ if (osc2FmSourceSwitchElement) {
             console.log(`Osc2 FM Source switching from ${oldSource} to ${newSource}`);
             osc2FMSource = newSource;
             
-            // Important: Update ALL voices, not just active ones
+            // Update ALL voices
             voicePool.forEach(voice => {
-                // First, ensure we force-disconnect any existing FM connections
                 if (voice.osc2Note) {
                     const osc2Note = voice.osc2Note;
                     
-                    // Force disconnect any FM source if it exists
+                    // CRITICAL FIX: Only disconnect/stop BUFFER SOURCES
+                    // NEVER disconnect worklet nodes as they're the main audio output!
                     if (osc2Note.fmModulatorSource) {
-                        try {
-                            if (osc2Note.fmModulatorSource.stop) {
+                        if (osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                            try {
                                 osc2Note.fmModulatorSource.stop(0);
-                            }
-                            osc2Note.fmModulatorSource.disconnect();
-                        } catch(e) { /* Ignore disconnection errors */ }
+                                osc2Note.fmModulatorSource.disconnect();
+                            } catch(e) { /* Ignore */ }
+                        }
+                        // Clear the reference but DON'T disconnect worklet nodes
                         osc2Note.fmModulatorSource = null;
                     }
                     
-                    // Only disconnect the gain node, don't destroy it
+                    // Only disconnect the FM depth gain from the worklet FM input
                     if (osc2Note.fmDepthGain) {
                         try { 
                             osc2Note.fmDepthGain.disconnect(); 
@@ -5201,7 +5218,7 @@ if (osc2FmSourceSwitchElement) {
                     }
                     
                     // For active voices, recreate the correct FM connections
-                    if (voice.state !== 'inactive' && osc2FMAmount > 0.001) {
+                    if (voice.state !== 'inactive') {
                         console.log(`Osc2 FM Switch: Rebuilding FM for voice ${voice.id}`);
                         const now = audioCtx.currentTime;
                         updateOsc2FmModulatorParameters(osc2Note, now, voice);
@@ -5213,7 +5230,7 @@ if (osc2FmSourceSwitchElement) {
         }
     });
 
-    // Set initial state - true if osc1, false if sampler
+    // Set initial state
     fmSwitchControl.setValue(osc2FMSource === 'osc1');
 }
 // Initialize the Key-Track button (default: active)
