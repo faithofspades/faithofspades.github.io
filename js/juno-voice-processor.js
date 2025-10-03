@@ -1,4 +1,7 @@
 class JunoVoiceProcessor extends AudioWorkletProcessor {
+    static get numberOfInputs() { return 1; }  // Accept one input for FM
+    static get numberOfOutputs() { return 1; } // Standard output
+    static get outputChannelCount() { return [1]; } // Mono output
     static get parameterDescriptors() {
         return [
             // Which voice this is (0-5 for 6 voices)
@@ -21,7 +24,9 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
             // Gate for this voice
             { name: 'gate', defaultValue: 0, minValue: 0, maxValue: 1 },
             // Phase reset trigger (only used on initial page load)
-            { name: 'resetPhase', defaultValue: 0, minValue: 0, maxValue: 1 }
+            { name: 'resetPhase', defaultValue: 0, minValue: 0, maxValue: 1 },
+            // NEW: FM parameters for through-zero FM
+            { name: 'fmDepth', defaultValue: 0, minValue: 0, maxValue: 22000, automationRate: 'a-rate' }
         ];
     }
 
@@ -76,6 +81,9 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
         
         if (!channel) return true;
         
+        // Get FM input if connected
+        const fmInput = inputs[0] && inputs[0][0];
+        
         const voiceIndex = parameters.voiceIndex[0];
         const clockSource = parameters.clockSource[0];
         const frequency = parameters.frequency;
@@ -86,10 +94,10 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
         const sineLevel = parameters.sineLevel;
         const triangleLevel = parameters.triangleLevel;
         const pulseWidth = parameters.pulseWidth;
-        // Get the quantize amount parameter
         const quantizeAmount = parameters.quantizeAmount;
         const gate = parameters.gate[0];
         const resetPhase = parameters.resetPhase[0];
+        const fmDepth = parameters.fmDepth;
         
         // Only reset phase on first initialization (page load)
         if (!this.hasBeenInitialized && resetPhase > 0.5) {
@@ -128,11 +136,30 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
             
             // Apply frequency ratio
             const ratio = frequencyRatio.length > 1 ? frequencyRatio[i] : frequencyRatio[0];
-            this.localPhase += phaseDelta * ratio;
+            let adjustedPhaseDelta = phaseDelta * ratio;
+            
+            // THROUGH-ZERO FM: Add FM modulation directly to phase increment
+            if (fmInput && i < fmInput.length) {
+    // Don't use fmDepthValue here - the fmDepthGain has already scaled the input
+    // Just convert the signal to phase increment (already scaled by fmDepthGain)
+    const fmModulation = fmInput[i] / this.sampleRate;
+    adjustedPhaseDelta += fmModulation;
+    
+    // DEBUG: Log only when signal is present and significant
+    if (i === 0 && Math.random() < 0.0005 && Math.abs(fmInput[i]) > 0.1) {
+        console.log(`FM input detected: ${fmInput[i].toFixed(3)}`);
+    }
+}
+            
+            // Update phase with FM applied
+            this.localPhase += adjustedPhaseDelta;
             
             // Wrap phase to 0-1 range
             if (this.localPhase >= 1) {
                 this.localPhase -= Math.floor(this.localPhase);
+            } else if (this.localPhase < 0) {
+                // Handle negative phase from TZFM
+                this.localPhase += Math.ceil(-this.localPhase);
             }
             
             // Get pulse width for this sample
@@ -140,23 +167,22 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
             const clampedPW = Math.max(0.05, Math.min(0.95, pw));
             
             // IMPORTANT: Apply PWM to all waveforms by warping the phase
-            // This is similar to how shape-hold-processor.js does it
             let modifiedPhase = this.localPhase;
             
             // Apply phase warping based on pulse width only when different from default
-if (Math.abs(clampedPW - 0.5) > 0.001) {
-    // Map PWM to phase warping - different for each half of the cycle
-    if (this.localPhase < 0.5) {
-        // First half of the waveform - compress/expand
-        modifiedPhase = this.localPhase * (clampedPW * 2);
-    } else {
-        // Second half - compress/expand inversely
-        modifiedPhase = 0.5 + ((this.localPhase - 0.5) * ((1 - clampedPW) * 2));
-    }
-    
-    // Ensure phase stays in 0-1 range
-    modifiedPhase = Math.max(0, Math.min(1, modifiedPhase));
-}
+            if (Math.abs(clampedPW - 0.5) > 0.001) {
+                // Map PWM to phase warping - different for each half of the cycle
+                if (this.localPhase < 0.5) {
+                    // First half of the waveform - compress/expand
+                    modifiedPhase = this.localPhase * (clampedPW * 2);
+                } else {
+                    // Second half - compress/expand inversely
+                    modifiedPhase = 0.5 + ((this.localPhase - 0.5) * ((1 - clampedPW) * 2));
+                }
+                
+                // Ensure phase stays in 0-1 range
+                modifiedPhase = Math.max(0, Math.min(1, modifiedPhase));
+            }
             
             // Generate all waveforms using the modified phase
             

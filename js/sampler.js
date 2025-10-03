@@ -230,7 +230,7 @@ export function createCrossfadedBuffer(audioCtx, originalBuffer, startFraction, 
 
         // Calculate sample indices and loop length
         let startSamplePos = Math.floor(startFraction * totalSamples);
-        const endSamplePos = Math.floor(endFraction * totalSamples);
+        let endSamplePos = Math.floor(endFraction * totalSamples);
         let loopLength = endSamplePos - startSamplePos;
 
         // Check for minimum viable loop length
