@@ -5,17 +5,28 @@ import { initializeModCanvas, getModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
-
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
 const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
 const VOICE_STEAL_SAFETY_BUFFER = 0.000; // 2ms safety buffer for voice stealing
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-Tone.setContext(audioCtx); // <<< ADD THIS LINE
+Tone.setContext(audioCtx);
+
+// Create separate output gains for sampler and oscillators
+let samplerMasterGain = audioCtx.createGain();
+let oscillatorMasterGain = audioCtx.createGain();
+let masterOutputVolume = 0.005;
+samplerMasterGain.gain.setValueAtTime(masterOutputVolume, audioCtx.currentTime);
+oscillatorMasterGain.gain.setValueAtTime(1.0, audioCtx.currentTime); // Oscillators always at full volume
+
+// Connect both to destination
+samplerMasterGain.connect(audioCtx.destination);
+oscillatorMasterGain.connect(audioCtx.destination);
+
+// Now create masterGain and connect oscillators to their dedicated path
 const masterGain = audioCtx.createGain();
 masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
-masterGain.connect(audioCtx.destination);
-// --- Load AudioWorklet with better initialization sequence ---
+// Don't connect masterGain yet - we'll do it selectively below
 let isWorkletReady = false;
 let pendingInitialization = true;
 
@@ -255,8 +266,8 @@ let sampleSource = null;
 let isPlaying = false;
 let sampleStartPosition = 0; // 0-1 range representing portion of audio file
 let sampleEndPosition = 1;   // 0-1 range (default to full sample)
-let sampleCrossfadeAmount = 0; // 0-1 range for crossfade percentage
-let isSampleLoopOn = false; // Will now be controlled by crossfade knob
+let sampleCrossfadeAmount = 0.02; // 0-1 range for crossfade percentage
+let isSampleLoopOn = true; // Will now be controlled by crossfade knob
 let cachedCrossfadedBuffer = null;
 let crossfadeUpdateTimer = null;
 let sampleFadeInAmount = 0;
@@ -276,13 +287,13 @@ let lastPlayedNoteNumber = null; // Tracks the last note triggered for portament
 let sampleGainNode = audioCtx.createGain();
 sampleGainNode.gain.value = 0.5;
 // Update the createNote function to use a reference to the current gain value
-let currentSampleGain = 0.01; // Add this with other global variables
+let currentSampleGain = 1.0; // Add this with other global variables
 let currentSamplePosition = 0; // Add this with other global variables
 const knobDefaults = {
 'sample-start-knob': 0.0,     // Start at beginning of sample
 'sample-end-knob': 1.0,       // End at end of sample
-'sample-crossfade-knob': 0.0, // No crossfade initially
-'sample-volume-knob': 0.01,   // 1% default volume for samples
+'sample-crossfade-knob': 0.02, // No crossfade initially
+'sample-volume-knob': 0.005,   // 100% default volume for samples
 'glide-time-knob': 0.00,      // 100ms (5% of 2000ms)
 'osc1-gain-knob': 0.5, // <<< ADD: Default gain 50%
 'osc1-pitch-knob': 0.5, // <<< ADD: Default pitch 0 cents (center)
@@ -545,20 +556,18 @@ function createVoice(ctx, index) {
     };
 
     // --- Create Sampler Nodes ---
-    const samplerGainNode = ctx.createGain(); // ADSR
-    const samplerSampleNode = ctx.createGain(); // Sample-specific gain
-    const samplerSource = ctx.createBufferSource(); // Placeholder, buffer set later
+    const samplerGainNode = ctx.createGain();
+    const samplerSampleNode = ctx.createGain();
+    const samplerSource = ctx.createBufferSource();
     
-    // CRITICAL: Create FM tap that gets signal AFTER all processing but BEFORE final gain
     const samplerFMTap = ctx.createGain();
-    samplerFMTap.gain.value = 1.0; // Unity gain passthrough
+    samplerFMTap.gain.value = 1.0;
     
-    // CRITICAL FIX: Actually connect the FM tap in the signal chain
-    // The chain should be: source -> sampleNode -> fmTap -> gainNode -> masterGain
+    // CRITICAL FIX: Connect sampler to samplerMasterGain instead of masterGain
     samplerSource.connect(samplerSampleNode);
-    samplerSampleNode.connect(samplerFMTap);  // Signal goes to FM tap
-    samplerFMTap.connect(samplerGainNode);     // FM tap passes through to ADSR
-    samplerGainNode.connect(masterGain);
+    samplerSampleNode.connect(samplerFMTap);
+    samplerFMTap.connect(samplerGainNode);
+    samplerGainNode.connect(samplerMasterGain); // Changed from masterGain
     
     voice.samplerNote = {
         id: `sampler_${index}`,
@@ -567,7 +576,7 @@ function createVoice(ctx, index) {
         source: samplerSource,
         gainNode: samplerGainNode,
         sampleNode: samplerSampleNode,
-        fmTap: samplerFMTap, // This is the key - processed audio tap point
+        fmTap: samplerFMTap,
         startTime: 0,
         state: 'idle',
         scheduledEvents: [],
@@ -580,12 +589,12 @@ function createVoice(ctx, index) {
         parentVoice: voice
     };
 
-    // Create OSC1 with FM capability
+    // Create OSC1 - connected to oscillatorMasterGain
     if (isWorkletReady) {
         const osc1LevelNode = ctx.createGain();
         const osc1GainNode = ctx.createGain();
         const osc1WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
-            numberOfInputs: 1,  // Accept FM input
+            numberOfInputs: 1,
             numberOfOutputs: 1,
             outputChannelCount: [1],
             processorOptions: {
@@ -606,16 +615,16 @@ function createVoice(ctx, index) {
         osc1WorkletNode.parameters.get('quantizeAmount').setValueAtTime(osc1QuantizeValue, 0);
         osc1WorkletNode.parameters.get('fmDepth').setValueAtTime(0, 0);
         
-        // Create FM depth control gain
         const osc1FMDepthGain = ctx.createGain();
         osc1FMDepthGain.gain.value = 0;
         
         osc1LevelNode.gain.value = 0.5;
         osc1GainNode.gain.value = 0;
 
+        // CRITICAL FIX: Connect oscillator to oscillatorMasterGain instead of masterGain
         osc1WorkletNode.connect(osc1LevelNode);
         osc1LevelNode.connect(osc1GainNode);
-        osc1GainNode.connect(masterGain);
+        osc1GainNode.connect(oscillatorMasterGain); // Changed from masterGain
 
         voice.osc1Note = {
             id: `osc1_${index}`,
@@ -632,7 +641,7 @@ function createVoice(ctx, index) {
         };
     }
     
-    // Create OSC2 with FM capability (same pattern as OSC1)
+    // Create OSC2 - connected to oscillatorMasterGain
     if (isWorkletReady) {
         const osc2LevelNode = ctx.createGain();
         const osc2GainNode = ctx.createGain();
@@ -663,9 +672,10 @@ function createVoice(ctx, index) {
         osc2LevelNode.gain.value = 0.5;
         osc2GainNode.gain.value = 0;
 
+        // CRITICAL FIX: Connect oscillator to oscillatorMasterGain instead of masterGain
         osc2WorkletNode.connect(osc2LevelNode);
         osc2LevelNode.connect(osc2GainNode);
-        osc2GainNode.connect(masterGain);
+        osc2GainNode.connect(oscillatorMasterGain); // Changed from masterGain
 
         voice.osc2Note = {
             id: `osc2_${index}`,
@@ -726,9 +736,9 @@ function setJunoWaveform(workletNode, waveformType, customPulseWidth = null) {
     // IMPORTANT: Always use custom pulse width if provided, regardless of waveform type
     // This ensures PWM works for all waveforms
     const pwValue = customPulseWidth !== null ? customPulseWidth : params.pulseWidth;
-    
-    // Ensure pulse width is within valid range (0.05-0.95)
-    const clampedPW = Math.max(0.05, Math.min(0.95, pwValue));
+
+    // Ensure pulse width is within valid range (0-0.95)
+    const clampedPW = Math.max(0, Math.min(0.95, pwValue));
     workletNode.parameters.get('pulseWidth').setValueAtTime(clampedPW, now);
 }
 
@@ -1473,26 +1483,22 @@ const knobInitializations = {
         masterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
         console.log('Master Volume:', value.toFixed(2));
     },
+    
     'sample-volume-knob': (value) => {
-    const tooltip = createTooltipForKnob('sample-volume-knob', value);
-    tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
-    tooltip.style.opacity = '1';
-    
-    // Update global value
-    currentSampleGain = value;
-    
-    // CRITICAL FIX: Update samplerVoicePool, not voicePool
-    const now = audioCtx.currentTime;
-    samplerVoicePool.forEach(voice => {
-        if (voice.state !== 'inactive' && voice.samplerNote && voice.samplerNote.sampleNode) {
-            voice.samplerNote.sampleNode.gain.cancelScheduledValues(now);
-            voice.samplerNote.sampleNode.gain.setValueAtTime(currentSampleGain, now);
-            console.log(`Real-time volume update for sampler voice ${voice.id}: ${value.toFixed(2)}`);
+        const tooltip = createTooltipForKnob('sample-volume-knob', value);
+        
+        if (value === 0) {
+            tooltip.textContent = 'MUTED';
+        } else {
+            tooltip.textContent = `Sampler: ${(value * 100).toFixed(0)}%`;
         }
-    });
-    
-    console.log('Sample Gain:', value.toFixed(2));
-},
+        tooltip.style.opacity = '1';
+        
+        // Update the samplerMasterGain instead of individual sample nodes
+        samplerMasterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
+        
+        console.log('Sampler Master Volume:', value === 0 ? 'MUTED' : `${(value * 100).toFixed(0)}%`);
+    },
 
 'sample-pitch-knob': (value) => {
     // Convert 0-1 range to -1200 to +1200 cents
@@ -1876,7 +1882,8 @@ const knobInitializations = {
     if (value === 0) {
         tooltip.textContent = "PWM: OFF";
     } else {
-        tooltip.textContent = `PW: ${Math.round(5 + value * 90)}%`;
+        // FIXED: Show actual 0-95% range
+        tooltip.textContent = `PW: ${Math.round(value * 95)}%`;
     }
     tooltip.style.opacity = '1';
     
@@ -1884,9 +1891,11 @@ const knobInitializations = {
     const now = audioCtx.currentTime;
     voicePool.forEach(voice => {
         if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
-            // When value is 0, PWM is OFF (use default 0.5 pulse width)
-            // Otherwise calculate actual pulse width (5%-95%)
-            const pulseWidth = (value === 0) ? 0.5 : (0.05 + value * 0.9);
+            // FIXED: When value is 0, PWM is OFF (use waveform default)
+            // Otherwise map 0.01-1.0 to 0.01-0.95
+            const pulseWidth = (value === 0) ? 
+                getJunoWaveformParams(osc1Waveform).pulseWidth : 
+                (value * 0.95);
             
             // Apply to the current waveform
             setJunoWaveform(voice.osc1Note.workletNode, osc1Waveform, pulseWidth);
@@ -1895,9 +1904,9 @@ const knobInitializations = {
     
     // Log with special case for OFF state
     if (value === 0) {
-        console.log(`Osc1 PWM: OFF`);
+        console.log(`Osc1 PWM: OFF (using default for ${osc1Waveform})`);
     } else {
-        console.log(`Osc1 PWM: ${value.toFixed(2)}, Actual PW: ${(0.05 + value * 0.9).toFixed(2)}`);
+        console.log(`Osc1 PWM: ${value.toFixed(2)}, Actual PW: ${(value * 0.95).toFixed(2)}`);
     }
 },
     'osc1-quantize-knob': (value) => {
@@ -1971,7 +1980,8 @@ const knobInitializations = {
     if (value === 0) {
         tooltip.textContent = "PWM: OFF";
     } else {
-        tooltip.textContent = `PW: ${Math.round(5 + value * 90)}%`;
+        // FIXED: Show actual 0-95% range
+        tooltip.textContent = `PW: ${Math.round(value * 95)}%`;
     }
     tooltip.style.opacity = '1';
     
@@ -1979,9 +1989,11 @@ const knobInitializations = {
     const now = audioCtx.currentTime;
     voicePool.forEach(voice => {
         if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
-            // When value is 0, PWM is OFF (use default 0.5 pulse width)
-            // Otherwise calculate actual pulse width (5%-95%)
-            const pulseWidth = (value === 0) ? 0.5 : (0.05 + value * 0.9);
+            // FIXED: When value is 0, PWM is OFF (use waveform default)
+            // Otherwise map 0.01-1.0 to 0.01-0.95
+            const pulseWidth = (value === 0) ? 
+                getJunoWaveformParams(osc2Waveform).pulseWidth : 
+                (value * 0.95);
             
             // Apply to the current waveform
             setJunoWaveform(voice.osc2Note.workletNode, osc2Waveform, pulseWidth);
@@ -1990,9 +2002,9 @@ const knobInitializations = {
     
     // Log with special case for OFF state
     if (value === 0) {
-        console.log(`Osc2 PWM: OFF`);
+        console.log(`Osc2 PWM: OFF (using default for ${osc2Waveform})`);
     } else {
-        console.log(`Osc2 PWM: ${value.toFixed(2)}, Actual PW: ${(0.05 + value * 0.9).toFixed(2)}`);
+        console.log(`Osc2 PWM: ${value.toFixed(2)}, Actual PW: ${(value * 0.95).toFixed(2)}`);
     }
 },
     'osc2-quantize-knob': (value) => {
@@ -2349,20 +2361,18 @@ function createSamplerVoice(ctx, index) {
         samplerNote: null,
     };
 
-    // --- Create Sampler Nodes ---
-    const samplerGainNode = ctx.createGain(); // ADSR
-    const samplerSampleNode = ctx.createGain(); // Sample-specific gain
-    const samplerSource = ctx.createBufferSource(); // Placeholder, buffer set later
+    const samplerGainNode = ctx.createGain();
+    const samplerSampleNode = ctx.createGain();
+    const samplerSource = ctx.createBufferSource();
     
-    // Add FM tap for sampler voice pool too
     const samplerFMTap = ctx.createGain();
     samplerFMTap.gain.value = 1.0;
     
-    // CRITICAL FIX: Connect the chain properly
+    // CRITICAL FIX: Connect to samplerMasterGain
     samplerSource.connect(samplerSampleNode);
-    samplerSampleNode.connect(samplerFMTap);  // Signal to FM tap
-    samplerFMTap.connect(samplerGainNode);    // FM tap to ADSR gain
-    samplerGainNode.connect(masterGain);
+    samplerSampleNode.connect(samplerFMTap);
+    samplerFMTap.connect(samplerGainNode);
+    samplerGainNode.connect(samplerMasterGain); // Changed from masterGain
     
     voice.samplerNote = {
         id: `sampler_${index}`,
@@ -2371,7 +2381,7 @@ function createSamplerVoice(ctx, index) {
         source: samplerSource,
         gainNode: samplerGainNode,
         sampleNode: samplerSampleNode,
-        fmTap: samplerFMTap, // Add the FM tap to the samplerNote
+        fmTap: samplerFMTap,
         startTime: 0,
         state: 'inactive',
         scheduledEvents: [],
@@ -4091,41 +4101,40 @@ function noteOn(noteNumber) {
     
     // CONTINUOUS OSCILLATOR ENVELOPE - OSC1
     if (voice.osc1Note && voice.osc1Note.workletNode) {
-        const osc1 = voice.osc1Note;
-        
-        // Calculate frequencies
-        const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc1OctaveOffset, osc1Detune) : 0;
-        const newFrequency = noteToFrequency(noteNumber, osc1OctaveOffset, osc1Detune);
+    const osc1 = voice.osc1Note;
     
+    // Calculate frequencies
+    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc1OctaveOffset, osc1Detune) : 0;
+    const newFrequency = noteToFrequency(noteNumber, osc1OctaveOffset, osc1Detune);
+
     // Handle frequency changes
     if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
-        // Apply glide by starting at old frequency and ramping to new
         console.log(`Osc1: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
         
         osc1.workletNode.parameters.get('frequency').cancelScheduledValues(now);
         osc1.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
-        // Use exponentialRampToValueAtTime for more natural pitch glides
+        
         if (oldFrequency > 0.01 && newFrequency > 0.01 && Math.abs(oldFrequency - newFrequency) > 0.01) {
             osc1.workletNode.parameters.get('frequency').exponentialRampToValueAtTime(newFrequency, now + effectiveGlideTime);
         } else {
             osc1.workletNode.parameters.get('frequency').linearRampToValueAtTime(newFrequency, now + effectiveGlideTime);
         }
     } else {
-        // No glide - set frequency immediately
         osc1.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
     }
     
-    // Set frequency ratio for octave offset
-    const osc1FreqRatio = Math.pow(2, osc1OctaveOffset);
-    osc1.workletNode.parameters.get('frequencyRatio').setValueAtTime(osc1FreqRatio, now);
-    
+    // CRITICAL FIX: Don't apply frequencyRatio - octave offset is already in the frequency
+    osc1.workletNode.parameters.get('frequencyRatio').setValueAtTime(1.0, now);
+ 
     // Get waveform from selector
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
     const osc1WaveSelector = D('osc1-wave-selector');
     const selectedWaveform = waveformMap[osc1WaveSelector ? parseInt(osc1WaveSelector.value) : 1];
     
-    // Apply waveform with PWM if applicable
-    const pulseWidth = (osc1PWMValue === 0) ? 0.5 : (0.05 + osc1PWMValue * 0.9);
+    // FIXED: Apply waveform with proper PWM - if PWM knob is 0, use waveform default
+    const pulseWidth = (osc1PWMValue === 0) ? 
+        getJunoWaveformParams(selectedWaveform).pulseWidth : 
+        (osc1PWMValue * 0.95);
     setJunoWaveform(osc1.workletNode, selectedWaveform, pulseWidth);
     
     // Ensure gate is open
@@ -4158,12 +4167,12 @@ function noteOn(noteNumber) {
 
     // CONTINUOUS OSCILLATOR ENVELOPE - OSC2
     if (voice.osc2Note && voice.osc2Note.workletNode) {
-        const osc2 = voice.osc2Note;
-        
-        // Calculate frequencies
-        const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc2OctaveOffset, osc2Detune) : 0;
-        const newFrequency = noteToFrequency(noteNumber, osc2OctaveOffset, osc2Detune);
+    const osc2 = voice.osc2Note;
     
+    // Calculate frequencies
+    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc2OctaveOffset, osc2Detune) : 0;
+    const newFrequency = noteToFrequency(noteNumber, osc2OctaveOffset, osc2Detune);
+
     // Handle frequency changes
     if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
         console.log(`Osc2: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
@@ -4180,17 +4189,18 @@ function noteOn(noteNumber) {
         osc2.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
     }
     
-    // Set frequency ratio for octave offset
-    const osc2FreqRatio = Math.pow(2, osc2OctaveOffset);
-    osc2.workletNode.parameters.get('frequencyRatio').setValueAtTime(osc2FreqRatio, now);
-    
+    // CRITICAL FIX: Don't apply frequencyRatio - octave offset is already in the frequency
+    osc2.workletNode.parameters.get('frequencyRatio').setValueAtTime(1.0, now);
+  
     // Get waveform from selector
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
     const osc2WaveSelector = D('osc2-wave-selector');
     const selectedWaveform = waveformMap[osc2WaveSelector ? parseInt(osc2WaveSelector.value) : 1];
     
-    // Apply waveform with PWM if applicable
-    const pulseWidth = (osc2PWMValue === 0) ? 0.5 : (0.05 + osc2PWMValue * 0.9);
+    // FIXED: Apply waveform with proper PWM - if PWM knob is 0, use waveform default
+    const pulseWidth = (osc2PWMValue === 0) ? 
+        getJunoWaveformParams(selectedWaveform).pulseWidth : 
+        (osc2PWMValue * 0.95);
     setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
     
     // Ensure gate is open
@@ -4752,30 +4762,25 @@ if (osc1OctaveSelector) {
 
         // Update frequency of all active Osc1 notes immediately
         const now = audioCtx.currentTime;
-        // <<< CHANGE: Iterate over voicePool >>>
         voicePool.forEach(voice => {
-            // Check if the voice is active and has the necessary Osc1 components
             if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.noteNumber !== null) {
-                const targetFreq = noteToFrequency(voice.osc1Note.noteNumber, osc1OctaveOffset);
+                // CRITICAL FIX: Calculate frequency with octave offset already included
+                const targetFreq = noteToFrequency(voice.osc1Note.noteNumber, osc1OctaveOffset, osc1Detune);
                 const freqParam = voice.osc1Note.workletNode.parameters.get('frequency');
-                if (freqParam) {
+                
+                // CRITICAL FIX: Set frequencyRatio to 1.0 since octave offset is already in the frequency
+                const freqRatioParam = voice.osc1Note.workletNode.parameters.get('frequencyRatio');
+                
+                if (freqParam && freqRatioParam) {
                     console.log(`Updating Worklet note ${voice.osc1Note.id} (Voice ${voice.id}) frequency to ${targetFreq.toFixed(2)} Hz`);
-                    // Use setTargetAtTime for a slightly smoother transition
                     freqParam.setTargetAtTime(targetFreq, now, 0.01);
+                    freqRatioParam.setValueAtTime(1.0, now); // Always 1.0 - octave is in frequency
                 } else {
                     console.warn(`Could not find frequency parameter for Osc1 note ${voice.osc1Note.id} (Voice ${voice.id})`);
                 }
             }
         });
-        // <<< END CHANGE >>>
     });
-
-    // Set initial value on load (optional, if default value="2" isn't sufficient)
-    // const initialSliderValue = parseInt(osc1OctaveSelector.value, 10);
-    // const initialOctaveOffsetMap = [-2, -1, 0, 1, 2];
-    // osc1OctaveOffset = initialOctaveOffsetMap[initialSliderValue] || 0;
-    // console.log(`Osc1 Octave initial offset: ${osc1OctaveOffset}`);
-
 } else {
     console.warn("Oscillator 1 Octave Selector element not found!");
 }
@@ -4799,37 +4804,41 @@ function updatePWMKnobState() {
 }
 // Initialize Oscillator 1 Wave Shape Selector
     const osc1WaveSelector = D('osc1-wave-selector');
-    if (osc1WaveSelector) {
-        // Set initial waveform
-        const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-        osc1Waveform = waveformMap[parseInt(osc1WaveSelector.value)];
-        
-        osc1WaveSelector.addEventListener('change', (e) => {
-            osc1Waveform = waveformMap[parseInt(e.target.value)];
-            console.log(`Osc1 waveform changed to: ${osc1Waveform}`);
-            
-            // Update all active Osc1 notes with new waveform
-            const now = audioCtx.currentTime;
-            voicePool.forEach(voice => {
-                if (voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.state === 'active') {
-                    const pulseWidth = osc1Waveform === 'pulse' ? 0.05 + osc1PWMValue * 0.9 : 0.5;
-                    setJunoWaveform(voice.osc1Note.workletNode, osc1Waveform, pulseWidth);
-                }
-            });
-            
-            updatePWMKnobState(); // Update PWM knob visibility/state
-        });
-    } else {
-        console.warn("Osc1 wave selector not found in DOM");
-    }
-    // Set default sample volume to 1%
-    currentSampleGain = 0.01;
+if (osc1WaveSelector) {
+    // Set initial waveform
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    osc1Waveform = waveformMap[parseInt(osc1WaveSelector.value)];
     
-    // Update the sample volume knob UI to match
-    const sampleVolumeKnob = D('sample-volume-knob');
-    if (sampleVolumeKnob && sampleVolumeKnob.control) {
-        sampleVolumeKnob.control.setValue(0.01, false);
-    }
+    osc1WaveSelector.addEventListener('change', (e) => {
+        osc1Waveform = waveformMap[parseInt(e.target.value)];
+        console.log(`Osc1 waveform changed to: ${osc1Waveform}`);
+        
+        // Update all active Osc1 notes with new waveform
+        const now = audioCtx.currentTime;
+        voicePool.forEach(voice => {
+            if (voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.state === 'active') {
+                // FIXED: Use waveform default if PWM is 0, otherwise use PWM value
+                const pulseWidth = (osc1PWMValue === 0) ? 
+                    getJunoWaveformParams(osc1Waveform).pulseWidth : 
+                    (osc1PWMValue * 0.95);
+                setJunoWaveform(voice.osc1Note.workletNode, osc1Waveform, pulseWidth);
+            }
+        });
+        
+        updatePWMKnobState(); // Update PWM knob visibility/state
+    });
+} else {
+    console.warn("Osc1 wave selector not found in DOM");
+}
+
+// // Set default sample volume to 1%
+    // currentSampleGain = 0.01;
+    
+    // // Update the sample volume knob UI to match
+    // const sampleVolumeKnob = D('sample-volume-knob');
+    // if (sampleVolumeKnob && sampleVolumeKnob.control) {
+    //     sampleVolumeKnob.control.setValue(0.01, false);
+    // }
     
     // Load the noise sample by default after a short delay to ensure audio context is ready
     setTimeout(() => {
@@ -4985,61 +4994,65 @@ console.log('Sample Reverse:', isSampleReversed ? 'ON' : 'OFF');
 
     // Initialize Oscillator 2 Octave Slider
     const osc2OctaveSelector = D('osc2-octave-selector');
-    if (osc2OctaveSelector) {
-        osc2OctaveSelector.addEventListener('input', (event) => {
-            const sliderValue = parseInt(event.target.value, 10);
-            const octaveOffsetMap = [-2, -1, 0, 1, 2];
-            osc2OctaveOffset = octaveOffsetMap[sliderValue] || 0;
-            console.log(`Osc2 Octave Selector value: ${sliderValue}, Offset set to: ${osc2OctaveOffset}`);
-            // Update active Osc2 notes
-            const now = audioCtx.currentTime;
-            // <<< CHANGE: Iterate over voicePool >>>
-            voicePool.forEach(voice => {
-                // Check if the voice is active and has the necessary Osc2 components
-                if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.noteNumber !== null) {
-                    const targetFreq = noteToFrequency(voice.osc2Note.noteNumber, osc2OctaveOffset);
-                    const freqParam = voice.osc2Note.workletNode.parameters.get('frequency');
-                    if (freqParam) {
-                        console.log(`Updating Osc2 Worklet note ${voice.osc2Note.id} (Voice ${voice.id}) frequency to ${targetFreq.toFixed(2)} Hz`);
-                        freqParam.setTargetAtTime(targetFreq, now, 0.01); // Smooth transition
-                    } else {
-                         console.warn(`Could not find frequency parameter for Osc2 note ${voice.osc2Note.id} (Voice ${voice.id})`);
-                    }
+if (osc2OctaveSelector) {
+    osc2OctaveSelector.addEventListener('input', (event) => {
+        const sliderValue = parseInt(event.target.value, 10);
+        const octaveOffsetMap = [-2, -1, 0, 1, 2];
+        osc2OctaveOffset = octaveOffsetMap[sliderValue] || 0;
+        console.log(`Osc2 Octave Selector value: ${sliderValue}, Offset set to: ${osc2OctaveOffset}`);
+        
+        // Update active Osc2 notes
+        const now = audioCtx.currentTime;
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.noteNumber !== null) {
+                // CRITICAL FIX: Calculate frequency with octave offset already included
+                const targetFreq = noteToFrequency(voice.osc2Note.noteNumber, osc2OctaveOffset, osc2Detune);
+                const freqParam = voice.osc2Note.workletNode.parameters.get('frequency');
+                
+                // CRITICAL FIX: Set frequencyRatio to 1.0 since octave offset is already in the frequency
+                const freqRatioParam = voice.osc2Note.workletNode.parameters.get('frequencyRatio');
+                
+                if (freqParam && freqRatioParam) {
+                    console.log(`Updating Osc2 Worklet note ${voice.osc2Note.id} (Voice ${voice.id}) frequency to ${targetFreq.toFixed(2)} Hz`);
+                    freqParam.setTargetAtTime(targetFreq, now, 0.01);
+                    freqRatioParam.setValueAtTime(1.0, now); // Always 1.0 - octave is in frequency
+                } else {
+                    console.warn(`Could not find frequency parameter for Osc2 note ${voice.osc2Note.id} (Voice ${voice.id})`);
                 }
-            });
-            // <<< END CHANGE >>>
+            }
         });
-        // Set initial value based on default
-        const initialSliderValueOsc2 = 2; // Assuming default value="2" (0 offset)
-        const initialOctaveOffsetMapOsc2 = [-2, -1, 0, 1, 2];
-        osc2OctaveOffset = initialOctaveOffsetMapOsc2[initialSliderValueOsc2] || 0;
-    } else { console.warn("Oscillator 2 Octave Selector element not found!"); }
-
+    });
+} else { 
+    console.warn("Oscillator 2 Octave Selector element not found!"); 
+}
     // Initialize Oscillator 2 Wave Shape Selector
     const osc2WaveSelector = D('osc2-wave-selector');
-    if (osc2WaveSelector) {
-        // Set initial waveform
-        const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-        osc2Waveform = waveformMap[parseInt(osc2WaveSelector.value)];
+if (osc2WaveSelector) {
+    // Set initial waveform
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    osc2Waveform = waveformMap[parseInt(osc2WaveSelector.value)];
+    
+    osc2WaveSelector.addEventListener('change', (e) => {
+        osc2Waveform = waveformMap[parseInt(e.target.value)];
+        console.log(`Osc2 waveform changed to: ${osc2Waveform}`);
         
-        osc2WaveSelector.addEventListener('change', (e) => {
-            osc2Waveform = waveformMap[parseInt(e.target.value)];
-            console.log(`Osc2 waveform changed to: ${osc2Waveform}`);
-            
-            // Update all active Osc2 notes with new waveform
-            const now = audioCtx.currentTime;
-            voicePool.forEach(voice => {
-                if (voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.state === 'active') {
-                    const pulseWidth = osc2Waveform === 'pulse' ? 0.05 + osc2PWMValue * 0.9 : 0.5;
-                    setJunoWaveform(voice.osc2Note.workletNode, osc2Waveform, pulseWidth);
-                }
-            });
-            
-            updateOsc2PWMKnobState(); // Update PWM knob visibility/state
+        // Update all active Osc2 notes with new waveform
+        const now = audioCtx.currentTime;
+        voicePool.forEach(voice => {
+            if (voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.state === 'active') {
+                // FIXED: Use waveform default if PWM is 0, otherwise use PWM value
+                const pulseWidth = (osc2PWMValue === 0) ? 
+                    getJunoWaveformParams(osc2Waveform).pulseWidth : 
+                    (osc2PWMValue * 0.95);
+                setJunoWaveform(voice.osc2Note.workletNode, osc2Waveform, pulseWidth);
+            }
         });
-    } else {
-        console.warn("Osc2 wave selector not found in DOM");
-    }
+        
+        updateOsc2PWMKnobState(); // Update PWM knob visibility/state
+    });
+} else {
+    console.warn("Osc2 wave selector not found in DOM");
+}
 // Fix the OSC2 FM Source Switch (already exists around line 5350 but needs correction)
 const osc2FmSourceSwitchElement = D('osc2-fm-source-switch');
 if (osc2FmSourceSwitchElement) {
