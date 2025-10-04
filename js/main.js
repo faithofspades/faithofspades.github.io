@@ -1095,14 +1095,32 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
     }
     osc1Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
     
+    // CRITICAL FIX: Disconnect ALL possible FM sources first
     try {
         osc1Note.fmDepthGain.disconnect();
     } catch(e) {}
     
+    // CRITICAL FIX: Also try to disconnect any sources that might still be connected
+    // This handles the case where we're switching FROM osc2 TO sampler
+    if (voice.osc2Note && voice.osc2Note.workletNode) {
+        try {
+            voice.osc2Note.workletNode.disconnect(osc1Note.fmDepthGain);
+        } catch(e) {}
+    }
+    
+    // CRITICAL FIX: Disconnect any sampler FM taps that might be connected
+    samplerVoicePool.forEach(sv => {
+        if (sv.samplerNote && sv.samplerNote.fmTap) {
+            try {
+                sv.samplerNote.fmTap.disconnect(osc1Note.fmDepthGain);
+            } catch(e) {}
+        }
+    });
+    
     let fmSource = null;
     
     if (osc1FMSource === 'sampler') {
-        // CRITICAL FIX: Find the ACTUAL sampler voice in samplerVoicePool that's playing this note
+        // Find the ACTUAL sampler voice in samplerVoicePool
         const actualSamplerVoice = samplerVoicePool.find(
             sv => sv.noteNumber === voice.noteNumber && 
                   sv.state !== 'inactive' && 
@@ -1112,23 +1130,24 @@ function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
         
         if (actualSamplerVoice && actualSamplerVoice.samplerNote.fmTap) {
             fmSource = actualSamplerVoice.samplerNote.fmTap;
-            console.log(`OSC1 [${noteId}]: Using REAL sampler FM tap from samplerVoice ${actualSamplerVoice.id} (note ${voice.noteNumber})`);
+            console.log(`OSC1 [${noteId}]: Switching to sampler FM tap from samplerVoice ${actualSamplerVoice.id}`);
         } else {
-            console.warn(`OSC1 [${noteId}]: No active sampler found in samplerVoicePool for note ${voice.noteNumber}`);
+            console.warn(`OSC1 [${noteId}]: No active sampler found for FM`);
         }
     } else if (osc1FMSource === 'osc2') {
         if (voice.osc2Note && voice.osc2Note.workletNode) {
             fmSource = voice.osc2Note.workletNode;
-            console.log(`OSC1 [${noteId}]: Using OSC2 worklet from voice ${voice.id}`);
+            console.log(`OSC1 [${noteId}]: Switching to OSC2 worklet from voice ${voice.id}`);
         }
     }
     
     if (fmSource) {
         try {
+            // CRITICAL: Connect the NEW source
             fmSource.connect(osc1Note.fmDepthGain);
             osc1Note.fmDepthGain.connect(osc1Note.workletNode, 0, 0);
             fmDepthParam.setValueAtTime(scaledDepth, now);
-            console.log(`OSC1 [${noteId}]: FM connected with depth ${scaledDepth.toFixed(1)} Hz`);
+            console.log(`OSC1 [${noteId}]: FM reconnected to ${osc1FMSource} with depth ${scaledDepth.toFixed(1)} Hz`);
         } catch(e) {
             console.error(`OSC1 [${noteId}]: FM connection error: ${e.message}`);
             fmDepthParam.setValueAtTime(0, now);
@@ -3704,14 +3723,32 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
     }
     osc2Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
     
+    // CRITICAL FIX: Disconnect ALL possible FM sources first
     try {
         osc2Note.fmDepthGain.disconnect();
     } catch(e) {}
     
+    // CRITICAL FIX: Also try to disconnect any sources that might still be connected
+    // This handles the case where we're switching FROM osc1 TO sampler
+    if (voice.osc1Note && voice.osc1Note.workletNode) {
+        try {
+            voice.osc1Note.workletNode.disconnect(osc2Note.fmDepthGain);
+        } catch(e) {}
+    }
+    
+    // CRITICAL FIX: Disconnect any sampler FM taps that might be connected
+    samplerVoicePool.forEach(sv => {
+        if (sv.samplerNote && sv.samplerNote.fmTap) {
+            try {
+                sv.samplerNote.fmTap.disconnect(osc2Note.fmDepthGain);
+            } catch(e) {}
+        }
+    });
+    
     let fmSource = null;
     
     if (osc2FMSource === 'sampler') {
-        // CRITICAL FIX: Find the ACTUAL sampler voice in samplerVoicePool that's playing this note
+        // Find the ACTUAL sampler voice in samplerVoicePool
         const actualSamplerVoice = samplerVoicePool.find(
             sv => sv.noteNumber === voice.noteNumber && 
                   sv.state !== 'inactive' && 
@@ -3721,23 +3758,24 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
         
         if (actualSamplerVoice && actualSamplerVoice.samplerNote.fmTap) {
             fmSource = actualSamplerVoice.samplerNote.fmTap;
-            console.log(`OSC2 [${noteId}]: Using REAL sampler FM tap from samplerVoice ${actualSamplerVoice.id} (note ${voice.noteNumber})`);
+            console.log(`OSC2 [${noteId}]: Switching to sampler FM tap from samplerVoice ${actualSamplerVoice.id}`);
         } else {
-            console.warn(`OSC2 [${noteId}]: No active sampler found in samplerVoicePool for note ${voice.noteNumber}`);
+            console.warn(`OSC2 [${noteId}]: No active sampler found for FM`);
         }
     } else if (osc2FMSource === 'osc1') {
         if (voice.osc1Note && voice.osc1Note.workletNode) {
             fmSource = voice.osc1Note.workletNode;
-            console.log(`OSC2 [${noteId}]: Using OSC1 worklet from voice ${voice.id}`);
+            console.log(`OSC2 [${noteId}]: Switching to OSC1 worklet from voice ${voice.id}`);
         }
     }
     
     if (fmSource) {
         try {
+            // CRITICAL: Connect the NEW source
             fmSource.connect(osc2Note.fmDepthGain);
             osc2Note.fmDepthGain.connect(osc2Note.workletNode, 0, 0);
             fmDepthParam.setValueAtTime(scaledDepth, now);
-            console.log(`OSC2 [${noteId}]: FM connected with depth ${scaledDepth.toFixed(1)} Hz`);
+            console.log(`OSC2 [${noteId}]: FM reconnected to ${osc2FMSource} with depth ${scaledDepth.toFixed(1)} Hz`);
         } catch(e) {
             console.error(`OSC2 [${noteId}]: FM connection error: ${e.message}`);
             fmDepthParam.setValueAtTime(0, now);
@@ -4667,7 +4705,26 @@ fixSwitchesTouchMode(
     },
     cleanupAllNotes
 );
-
+const fmSourceSwitchElement = D('osc1-fm-source-switch');
+if (fmSourceSwitchElement) {
+    const fmSwitchControl = initializeSwitch(fmSourceSwitchElement, {
+        onText: 'Osc 2',
+        offText: 'Sampler',
+        onChange: (isActive) => {
+            osc1FMSource = isActive ? 'osc2' : 'sampler';
+            console.log(`Osc1 FM Source set to: ${osc1FMSource}`);
+            
+            // Update all voices immediately
+            const now = audioCtx.currentTime;
+            voicePool.forEach(voice => {
+                if (voice.osc1Note) {
+                    updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
+                }
+            });
+        }
+    });
+    fmSwitchControl.setValue(osc1FMSource === 'osc2');
+}
 
 fixMicRecording(audioCtx, handleRecordingComplete);
 preventScrollOnControls();
@@ -4983,7 +5040,7 @@ console.log('Sample Reverse:', isSampleReversed ? 'ON' : 'OFF');
     } else {
         console.warn("Osc2 wave selector not found in DOM");
     }
-// Initialize Osc2 FM Source Switch
+// Fix the OSC2 FM Source Switch (already exists around line 5350 but needs correction)
 const osc2FmSourceSwitchElement = D('osc2-fm-source-switch');
 if (osc2FmSourceSwitchElement) {
     const fmSwitchControl = initializeSwitch(osc2FmSourceSwitchElement, {
@@ -4993,18 +5050,13 @@ if (osc2FmSourceSwitchElement) {
             osc2FMSource = isActive ? 'osc1' : 'sampler';
             console.log(`Osc2 FM Source set to: ${osc2FMSource}`);
             
-            // If switching to sampler, ensure connections are made
-            if (osc2FMSource === 'sampler') {
-                forceFMConnectionUpdate();
-            } else {
-                // For osc1 source, just update all voices
-                const now = audioCtx.currentTime;
-                voicePool.forEach(voice => {
-                    if (voice.osc2Note) {
-                        updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
-                    }
-                });
-            }
+            // Update all voices immediately
+            const now = audioCtx.currentTime;
+            voicePool.forEach(voice => {
+                if (voice.osc2Note) {
+                    updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
+                }
+            });
         }
     });
     fmSwitchControl.setValue(osc2FMSource === 'osc1');
