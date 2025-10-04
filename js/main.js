@@ -194,7 +194,9 @@ function checkReleasingNotesOnResume() {
     }
 }
 // --- End AudioContext Handling ---
-
+const VOICE_PAN_LIMIT = 0.08; // 8% pan variation
+const VOICE_DETUNE_LIMIT = 20; // 20 cents max detune
+const WARBLE_SETTLE_TIME = 0.15; // 150ms to settle
 let masterClockNode = null;
 let masterClockSharedBuffer = null;
 let masterClockPhases = null;
@@ -552,7 +554,11 @@ function createVoice(ctx, index) {
         osc2Note: null,
         scheduledTimers: [],
         currentReleaseId: null,
-        wasStolen: false
+        wasStolen: false,
+        // NEW: Add random pan offsets for this voice (set once, stays consistent)
+        panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT, // Random value between -0.08 and +0.08
+        // NEW: Add random initial warble for pitch instability
+        warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT // Random cents between -8 and +8
     };
 
     // --- Create Sampler Nodes ---
@@ -563,11 +569,16 @@ function createVoice(ctx, index) {
     const samplerFMTap = ctx.createGain();
     samplerFMTap.gain.value = 1.0;
     
-    // CRITICAL FIX: Connect sampler to samplerMasterGain instead of masterGain
+    // NEW: Create pan node for sampler with this voice's random offset
+    const samplerPanner = ctx.createStereoPanner();
+    samplerPanner.pan.value = voice.panOffset;
+    
+    // MODIFIED: Connect sampler through panner
     samplerSource.connect(samplerSampleNode);
     samplerSampleNode.connect(samplerFMTap);
     samplerFMTap.connect(samplerGainNode);
-    samplerGainNode.connect(samplerMasterGain); // Changed from masterGain
+    samplerGainNode.connect(samplerPanner); // Connect to panner
+    samplerPanner.connect(samplerMasterGain); // Panner to master
     
     voice.samplerNote = {
         id: `sampler_${index}`,
@@ -577,6 +588,7 @@ function createVoice(ctx, index) {
         gainNode: samplerGainNode,
         sampleNode: samplerSampleNode,
         fmTap: samplerFMTap,
+        panner: samplerPanner, // NEW: Store panner reference
         startTime: 0,
         state: 'idle',
         scheduledEvents: [],
@@ -589,7 +601,7 @@ function createVoice(ctx, index) {
         parentVoice: voice
     };
 
-    // Create OSC1 - connected to oscillatorMasterGain
+    // Create OSC1 with panning
     if (isWorkletReady) {
         const osc1LevelNode = ctx.createGain();
         const osc1GainNode = ctx.createGain();
@@ -621,10 +633,15 @@ function createVoice(ctx, index) {
         osc1LevelNode.gain.value = 0.5;
         osc1GainNode.gain.value = 0;
 
-        // CRITICAL FIX: Connect oscillator to oscillatorMasterGain instead of masterGain
+        // NEW: Create pan node for osc1 with this voice's random offset
+        const osc1Panner = ctx.createStereoPanner();
+        osc1Panner.pan.value = voice.panOffset;
+
+        // MODIFIED: Connect oscillator through panner
         osc1WorkletNode.connect(osc1LevelNode);
         osc1LevelNode.connect(osc1GainNode);
-        osc1GainNode.connect(oscillatorMasterGain); // Changed from masterGain
+        osc1GainNode.connect(osc1Panner); // Connect to panner
+        osc1Panner.connect(oscillatorMasterGain); // Panner to master
 
         voice.osc1Note = {
             id: `osc1_${index}`,
@@ -634,6 +651,7 @@ function createVoice(ctx, index) {
             levelNode: osc1LevelNode,
             gainNode: osc1GainNode,
             fmDepthGain: osc1FMDepthGain,
+            panner: osc1Panner, // NEW: Store panner reference
             startTime: 0,
             state: 'idle',
             scheduledEvents: [],
@@ -641,7 +659,7 @@ function createVoice(ctx, index) {
         };
     }
     
-    // Create OSC2 - connected to oscillatorMasterGain
+    // Create OSC2 with panning
     if (isWorkletReady) {
         const osc2LevelNode = ctx.createGain();
         const osc2GainNode = ctx.createGain();
@@ -672,10 +690,15 @@ function createVoice(ctx, index) {
         osc2LevelNode.gain.value = 0.5;
         osc2GainNode.gain.value = 0;
 
-        // CRITICAL FIX: Connect oscillator to oscillatorMasterGain instead of masterGain
+        // NEW: Create pan node for osc2 with this voice's random offset
+        const osc2Panner = ctx.createStereoPanner();
+        osc2Panner.pan.value = voice.panOffset;
+
+        // MODIFIED: Connect oscillator through panner
         osc2WorkletNode.connect(osc2LevelNode);
         osc2LevelNode.connect(osc2GainNode);
-        osc2GainNode.connect(oscillatorMasterGain); // Changed from masterGain
+        osc2GainNode.connect(osc2Panner); // Connect to panner
+        osc2Panner.connect(oscillatorMasterGain); // Panner to master
 
         voice.osc2Note = {
             id: `osc2_${index}`,
@@ -685,6 +708,7 @@ function createVoice(ctx, index) {
             levelNode: osc2LevelNode,
             gainNode: osc2GainNode,
             fmDepthGain: osc2FMDepthGain,
+            panner: osc2Panner, // NEW: Store panner reference
             startTime: 0,
             state: 'idle',
             scheduledEvents: [],
@@ -692,7 +716,7 @@ function createVoice(ctx, index) {
         };
     }
 
-    console.log(`Created permanent voice ${index} with Juno processors and FM routing`);
+    console.log(`Created voice ${index} with pan offset: ${(voice.panOffset * 100).toFixed(1)}%, warble offset: ${voice.warbleOffset.toFixed(1)} cents`);
     return voice;
 }
 // Track timers per voice for proper cleanup
@@ -2359,6 +2383,9 @@ function createSamplerVoice(ctx, index) {
         startTime: 0,
         state: 'inactive',
         samplerNote: null,
+        // NEW: Add random pan and warble offsets
+        panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT,
+        warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT
     };
 
     const samplerGainNode = ctx.createGain();
@@ -2368,11 +2395,16 @@ function createSamplerVoice(ctx, index) {
     const samplerFMTap = ctx.createGain();
     samplerFMTap.gain.value = 1.0;
     
-    // CRITICAL FIX: Connect to samplerMasterGain
+    // NEW: Create pan node with random offset
+    const samplerPanner = ctx.createStereoPanner();
+    samplerPanner.pan.value = voice.panOffset;
+    
+    // MODIFIED: Connect through panner
     samplerSource.connect(samplerSampleNode);
     samplerSampleNode.connect(samplerFMTap);
     samplerFMTap.connect(samplerGainNode);
-    samplerGainNode.connect(samplerMasterGain); // Changed from masterGain
+    samplerGainNode.connect(samplerPanner);
+    samplerPanner.connect(samplerMasterGain);
     
     voice.samplerNote = {
         id: `sampler_${index}`,
@@ -2382,6 +2414,7 @@ function createSamplerVoice(ctx, index) {
         gainNode: samplerGainNode,
         sampleNode: samplerSampleNode,
         fmTap: samplerFMTap,
+        panner: samplerPanner, // NEW: Store panner
         startTime: 0,
         state: 'inactive',
         scheduledEvents: [],
@@ -2394,7 +2427,7 @@ function createSamplerVoice(ctx, index) {
         parentVoice: voice,
     };
 
-    console.log(`Created sampler voice ${index} with FM tap`);
+    console.log(`Created sampler voice ${index} with pan: ${(voice.panOffset * 100).toFixed(1)}%, warble: ${voice.warbleOffset.toFixed(1)} cents`);
     return voice;
 }
 
@@ -3794,6 +3827,45 @@ function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
         fmDepthParam.setValueAtTime(0, now);
     }
 }
+// Add warble animation function around line 4000
+function applyPitchWarble(voice, now) {
+    if (!voice) return;
+    
+    const settleTime = WARBLE_SETTLE_TIME;
+    
+    // Apply warble to OSC1
+    if (voice.osc1Note && voice.osc1Note.workletNode) {
+        const detuneParam = voice.osc1Note.workletNode.parameters.get('detune');
+        if (detuneParam) {
+            // Start with the random warble offset
+            detuneParam.setValueAtTime(osc1Detune + voice.warbleOffset, now);
+            // Settle back to base detune over 150ms
+            detuneParam.linearRampToValueAtTime(osc1Detune, now + settleTime);
+        }
+    }
+    
+    // Apply warble to OSC2
+    if (voice.osc2Note && voice.osc2Note.workletNode) {
+        const detuneParam = voice.osc2Note.workletNode.parameters.get('detune');
+        if (detuneParam) {
+            detuneParam.setValueAtTime(osc2Detune + voice.warbleOffset, now);
+            detuneParam.linearRampToValueAtTime(osc2Detune, now + settleTime);
+        }
+    }
+}
+
+// Apply warble to sampler voices around line 4200
+function applySamplerWarble(samplerVoice, now) {
+    if (!samplerVoice || !samplerVoice.samplerNote || !samplerVoice.samplerNote.source) return;
+    
+    const source = samplerVoice.samplerNote.source;
+    const settleTime = WARBLE_SETTLE_TIME;
+    
+    // Apply warble to sampler detune
+    const baseDetune = currentSampleDetune;
+    source.detune.setValueAtTime(baseDetune + samplerVoice.warbleOffset, now);
+    source.detune.linearRampToValueAtTime(baseDetune, now + settleTime);
+}
 // Also ensure noteOn properly sets up the envelope from zero
 function noteOn(noteNumber) {
     if (isModeTransitioning) return;
@@ -3865,7 +3937,7 @@ function noteOn(noteNumber) {
 
     // Set master clock rates based on the note
     setMasterClockRate(1, noteNumber, osc1Detune);
-    setMasterClockRate(2, noteNumber, osc2Detune);
+    setMasterClockRate(2, noteNumber + 12, osc2Detune); // Add 12 semitones (1 octave) to OSC2
 
     // Check voice states
     const isRetrigger = voice.noteNumber === noteNumber && voice.state === 'active';
@@ -3973,7 +4045,8 @@ function noteOn(noteNumber) {
             samplerNote.calculatedLoopStart = samplerNote.source.loopStart;
             samplerNote.calculatedLoopEnd = samplerNote.source.loopEnd;
         }
-        
+        // NEW: Apply pitch warble to sampler
+    applySamplerWarble(samplerVoice, now);
         // Connect the audio path
         samplerNote.source.connect(samplerNote.sampleNode);
         
@@ -4125,7 +4198,7 @@ function noteOn(noteNumber) {
     
     // CRITICAL FIX: Don't apply frequencyRatio - octave offset is already in the frequency
     osc1.workletNode.parameters.get('frequencyRatio').setValueAtTime(1.0, now);
- 
+    applyPitchWarble(voice, now);
     // Get waveform from selector
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
     const osc1WaveSelector = D('osc1-wave-selector');
@@ -4169,13 +4242,16 @@ function noteOn(noteNumber) {
     if (voice.osc2Note && voice.osc2Note.workletNode) {
     const osc2 = voice.osc2Note;
     
-    // Calculate frequencies
-    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc2OctaveOffset, osc2Detune) : 0;
-    const newFrequency = noteToFrequency(noteNumber, osc2OctaveOffset, osc2Detune);
+    // CRITICAL FIX: Add +1 octave offset to OSC2 to make it permanently one octave higher
+    const adjustedOsc2Offset = osc2OctaveOffset + 1;
+    
+    // Calculate frequencies with the adjusted offset
+    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, adjustedOsc2Offset, osc2Detune) : 0;
+    const newFrequency = noteToFrequency(noteNumber, adjustedOsc2Offset, osc2Detune);
 
     // Handle frequency changes
     if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
-        console.log(`Osc2: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
+        console.log(`Osc2: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s (with +1 octave offset)`);
         
         osc2.workletNode.parameters.get('frequency').cancelScheduledValues(now);
         osc2.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
@@ -4189,9 +4265,9 @@ function noteOn(noteNumber) {
         osc2.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
     }
     
-    // CRITICAL FIX: Don't apply frequencyRatio - octave offset is already in the frequency
+    // Don't apply frequencyRatio - octave offset is already in the frequency
     osc2.workletNode.parameters.get('frequencyRatio').setValueAtTime(1.0, now);
-  
+    applyPitchWarble(voice, now);
     // Get waveform from selector
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
     const osc2WaveSelector = D('osc2-wave-selector');
@@ -4999,23 +5075,25 @@ if (osc2OctaveSelector) {
         const sliderValue = parseInt(event.target.value, 10);
         const octaveOffsetMap = [-2, -1, 0, 1, 2];
         osc2OctaveOffset = octaveOffsetMap[sliderValue] || 0;
-        console.log(`Osc2 Octave Selector value: ${sliderValue}, Offset set to: ${osc2OctaveOffset}`);
+        
+        // CRITICAL FIX: Add +1 to the offset for the permanent octave shift
+        const adjustedOsc2Offset = osc2OctaveOffset + 1;
+        
+        console.log(`Osc2 Octave Selector value: ${sliderValue}, Base Offset: ${osc2OctaveOffset}, Adjusted Offset: ${adjustedOsc2Offset}`);
         
         // Update active Osc2 notes
         const now = audioCtx.currentTime;
         voicePool.forEach(voice => {
             if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.noteNumber !== null) {
-                // CRITICAL FIX: Calculate frequency with octave offset already included
-                const targetFreq = noteToFrequency(voice.osc2Note.noteNumber, osc2OctaveOffset, osc2Detune);
+                // Use the adjusted offset (+1 octave)
+                const targetFreq = noteToFrequency(voice.osc2Note.noteNumber, adjustedOsc2Offset, osc2Detune);
                 const freqParam = voice.osc2Note.workletNode.parameters.get('frequency');
-                
-                // CRITICAL FIX: Set frequencyRatio to 1.0 since octave offset is already in the frequency
                 const freqRatioParam = voice.osc2Note.workletNode.parameters.get('frequencyRatio');
                 
                 if (freqParam && freqRatioParam) {
                     console.log(`Updating Osc2 Worklet note ${voice.osc2Note.id} (Voice ${voice.id}) frequency to ${targetFreq.toFixed(2)} Hz`);
                     freqParam.setTargetAtTime(targetFreq, now, 0.01);
-                    freqRatioParam.setValueAtTime(1.0, now); // Always 1.0 - octave is in frequency
+                    freqRatioParam.setValueAtTime(1.0, now);
                 } else {
                     console.warn(`Could not find frequency parameter for Osc2 note ${voice.osc2Note.id} (Voice ${voice.id})`);
                 }
