@@ -1,49 +1,101 @@
 import { createiOSStartupOverlay } from './ios.js';
 import { initializeKnob } from './controls.js'; 
-import { fixMicRecording, createCrossfadedBuffer } from './sampler.js'; 
+import { fixMicRecording, createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
 import { initializeModCanvas, getModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
-
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
+const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
+const VOICE_STEAL_SAFETY_BUFFER = 0.000; // 2ms safety buffer for voice stealing
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-Tone.setContext(audioCtx); // <<< ADD THIS LINE
+Tone.setContext(audioCtx);
+
+// Create separate output gains for sampler and oscillators
+let samplerMasterGain = audioCtx.createGain();
+let oscillatorMasterGain = audioCtx.createGain();
+let masterOutputVolume = 0.005;
+samplerMasterGain.gain.setValueAtTime(masterOutputVolume, audioCtx.currentTime);
+oscillatorMasterGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
+
+// Create masterGain node
 const masterGain = audioCtx.createGain();
 masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+
+// CORRECT ROUTING: Connect both through masterGain to destination
+samplerMasterGain.connect(masterGain);
+oscillatorMasterGain.connect(masterGain);
 masterGain.connect(audioCtx.destination);
-// --- Load AudioWorklet ---
+// Don't connect masterGain yet - we'll do it selectively below
 let isWorkletReady = false;
-// <<< CHANGE FILENAME AND PROCESSOR NAME >>>
-audioCtx.audioWorklet.addModule('js/shape-hold-processor.js').then(() => {
-    console.log('ShapeHoldProcessor AudioWorklet loaded successfully.'); // <<< Updated log
-    isWorkletReady = true;
-}).catch(error => {
-    console.error('Failed to load ShapeHoldProcessor AudioWorklet:', error); // <<< Updated log
-    // Handle error appropriately
-});
-// --- End Load AudioWorklet ---
+let pendingInitialization = true;
+
+// Update worklet initialization to include master clock
+const workletReadyPromise = initializeMasterClock()
+    .then(() => audioCtx.audioWorklet.addModule('js/shape-hold-processor.js'))
+    .then(() => {
+        console.log('All AudioWorklets loaded successfully.');
+        isWorkletReady = true;
+        
+        console.log("Initializing oscillator and sampler voice pools...");
+        initializeVoicePool();
+        initializeSamplerVoicePool();
+        
+        pendingInitialization = false;
+        console.log("All voice pools initialized - synth is ready");
+        return true;
+    })
+    .catch(error => {
+        console.error('Failed to load AudioWorklets:', error);
+        pendingInitialization = false;
+        return false;
+    });
+
+// Function to set master clock rate based on a MIDI note number
+function setMasterClockRate(clockNumber, noteNumber, detune = 0) {
+    if (!masterClockNode) return;
+    
+    const frequency = noteToFrequency(noteNumber, 0, detune);
+    const paramName = clockNumber === 1 ? 'clock1Rate' : 'clock2Rate';
+    const clockParam = masterClockNode.parameters.get(paramName);
+    
+    if (clockParam) {
+        const now = audioCtx.currentTime;
+        clockParam.setValueAtTime(frequency, now);
+        console.log(`Set master clock ${clockNumber} to ${frequency.toFixed(2)} Hz (note ${noteNumber})`);
+    }
+}
+
 
 // --- Handle AudioContext Suspension/Resumption ---
 function handleVisibilityChange() {
-    if (!audioCtx) return; // Exit if context not initialized
+    if (!audioCtx) return;
 
     if (document.hidden) {
         console.log("Page hidden, AudioContext might suspend. Clearing release timers.");
-        // --- Cancel Pending Release Timers ---
-        Object.values(activeVoices).forEach(voice => {
-            if (voice) {
-                [voice.samplerNote, voice.osc1Note].forEach(note => {
-                    if (note && note.state === 'releasing' && note.killTimerId) {
-                        console.log(`Clearing release timer ${note.killTimerId} for hidden note ${note.id}`);
-                        clearTimeout(note.killTimerId);
-                        note.killTimerId = null; // Clear the stored ID
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (voice.state === 'releasing') { // Check the voice state first
+                // Check each component within the releasing voice
+                [voice.samplerNote, voice.osc1Note, voice.osc2Note].forEach(note => {
+                    if (note && note.state === 'releasing') { // Double-check component state
+                        // Find the timeout event associated with this note's release
+                        const releaseTimeoutEvent = note.scheduledEvents?.find(event => event.type === "timeout");
+                        if (releaseTimeoutEvent && releaseTimeoutEvent.id) {
+                            console.log(`Clearing release timer ${releaseTimeoutEvent.id} for hidden note ${note.id}`);
+                            // Use trackClearTimeout, passing the note object to ensure removal from scheduledEvents
+                            trackClearTimeout(releaseTimeoutEvent.id, note);
+                            // No need to nullify killTimerId as trackClearTimeout handles scheduledEvents
+                        } else if (note.killTimerId) { // Fallback for legacy timer ID
+                            console.log(`Clearing legacy release timer ${note.killTimerId} for hidden note ${note.id}`);
+                            trackClearTimeout(note.killTimerId, note); // Pass note here too
+                            note.killTimerId = null; // Clear legacy ID
+                        }
                     }
                 });
             }
         });
-        // --- End Cancel Timers ---
     } else {
         console.log("Page visible, ensuring AudioContext is running.");
         if (audioCtx.state === 'suspended') {
@@ -79,76 +131,97 @@ window.addEventListener('focus', () => {
     // Call the same handler
     handleVisibilityChange();
 });
-
+function noteHasActiveTimeout(note) {
+    if (!note || !note.scheduledEvents) return false;
+    return note.scheduledEvents.some(event => 
+        event.type === "timeout" && activeSynthTimers.has(event.id)
+    );
+}
 // Function to check releasing notes after resume
 function checkReleasingNotesOnResume() {
     console.log("Checking state of releasing notes on resume/focus...");
     const now = audioCtx.currentTime; // Get current time after resume/focus
     let notesKilledOnResume = 0;
 
-    Object.keys(activeVoices).forEach(noteNumber => { // Iterate using keys for safe deletion
-         const voice = activeVoices[noteNumber];
-         if (voice) {
+    voicePool.forEach(voice => {
+        if (voice.state === 'releasing') { // Check voice state directly
             // Check Sampler Note
             const samplerNote = voice.samplerNote;
-            // <<< MODIFICATION: Force gain to 0 and kill if state was 'releasing' and timer was cleared >>>
-            if (samplerNote && samplerNote.state === 'releasing' && !samplerNote.killTimerId) {
-                console.log(`Forcing gain to 0 and killing sampler note ${samplerNote.id} immediately on resume (was releasing when focus lost).`);
-                try {
-                    // Force gain to 0 immediately
-                    samplerNote.gainNode.gain.cancelScheduledValues(now);
-                    samplerNote.gainNode.gain.setValueAtTime(0, now);
-                } catch (e) {
-                    console.warn(`Error forcing gain to 0 for sampler note ${samplerNote.id}:`, e);
-                }
-                killSamplerNote(samplerNote); // Kill directly
-                notesKilledOnResume++;
-            }
+            // Force gain to 0 and kill if state was 'releasing' and timer was cleared
+            if (samplerNote && !samplerNote.killTimerId && !noteHasActiveTimeout(samplerNote)) {
+    console.log(`Forcing gain to 0 and killing sampler note ${samplerNote.id} immediately on resume (was releasing when focus lost).`);
+    try {
+        samplerNote.gainNode.gain.cancelScheduledValues(now);
+        // Add tiny ramp instead of immediate value
+        samplerNote.gainNode.gain.setValueAtTime(samplerNote.gainNode.gain.value, now);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(0, now + STANDARD_FADE_TIME);
+        setTimeout(() => killSamplerNote(samplerNote), STANDARD_FADE_TIME * 1000 + 5);
+    } catch (e) { console.warn("Error setting gain to 0 on resume:", e); }
+    notesKilledOnResume++;
+}
 
             // Check Osc1 Note
             const osc1Note = voice.osc1Note;
-             // <<< MODIFICATION: Force gain to 0 and kill if state was 'releasing' and timer was cleared >>>
-             if (osc1Note && osc1Note.state === 'releasing' && !osc1Note.killTimerId) {
-                 console.log(`Forcing gain to 0 and killing osc1 note ${osc1Note.id} immediately on resume (was releasing when focus lost).`);
-                 try {
-                    // Force gain to 0 immediately
+            if (osc1Note && !osc1Note.killTimerId && !noteHasActiveTimeout(osc1Note)) { // Check for active tracked timer
+                console.log(`Forcing gain to 0 and killing osc1 note ${osc1Note.id} immediately on resume (was releasing when focus lost).`);
+                try {
                     osc1Note.gainNode.gain.cancelScheduledValues(now);
                     osc1Note.gainNode.gain.setValueAtTime(0, now);
-                 } catch (e) {
-                    console.warn(`Error forcing gain to 0 for osc1 note ${osc1Note.id}:`, e);
-                 }
-                 killOsc1Note(osc1Note); // Kill directly
-                 notesKilledOnResume++;
+                } catch (e) { console.warn("Error setting gain to 0 on resume:", e); }
+                killOsc1Note(osc1Note); // Use existing kill function
+                notesKilledOnResume++;
             }
-         }
+
+            // Check Osc2 Note
+            const osc2Note = voice.osc2Note;
+            if (osc2Note && !osc2Note.killTimerId && !noteHasActiveTimeout(osc2Note)) { // Check for active tracked timer
+                console.log(`Forcing gain to 0 and killing osc2 note ${osc2Note.id} immediately on resume (was releasing when focus lost).`);
+                try {
+                    osc2Note.gainNode.gain.cancelScheduledValues(now);
+                    osc2Note.gainNode.gain.setValueAtTime(0, now);
+                } catch (e) { console.warn("Error setting gain to 0 on resume:", e); }
+                killOsc2Note(osc2Note); // Use existing kill function
+                notesKilledOnResume++;
+            }
+        }
     });
 
     if (notesKilledOnResume > 0) {
         console.log(`Force-killed ${notesKilledOnResume} note components that were releasing when focus was lost.`);
-        updateVoiceDisplay(); // Update UI if notes were killed
-        updateKeyboardDisplay();
-    } else {
+        updateVoiceDisplay_Pool(); // Use the new display function
+    updateKeyboardDisplay_Pool(); // Use the new display function
+} else {
         console.log("No releasing notes needed immediate cleanup on resume/focus.");
     }
 }
 // --- End AudioContext Handling ---
-
-
+const VOICE_PAN_LIMIT = 0.08; // 8% pan variation
+const VOICE_DETUNE_LIMIT = 20; // 20 cents max detune
+const WARBLE_SETTLE_TIME = 0.15; // 150ms to settle
+let masterClockNode = null;
+let masterClockSharedBuffer = null;
+let masterClockPhases = null;
 // Add this after the masterGain initialization
 let currentVolume = 0.5; // Initial volume
 masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
 // Add these global variables at the top with other audio-related variables
 // Add to your global variables
 let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
+let currentMonoSamplerVoice = null;
 let isEmuModeOn = false;
 let currentModSource = 'lfo';
 let isSampleKeyTrackingOn = true;
 let mediaRecorder = null;
 let isSampleReversed = false;
-
+let isModeTransitioning = false;
 let originalBuffer = null;
+let audioBuffer = null; // <<< ADD THIS LINE: Initialize audioBuffer to null
 let recordedChunks = [];
 let isRecording = false;
+let recordingMode = 'external'; // 'internal' or 'external'
+let internalRecordingNode = null;
+let internalRecordingDestination = null;
+let externalRecorder = null; // <<< ADD THIS LINE
 let recordingStartTime = null;
 let fadedBufferOriginalDuration = null;
 let emuFilterNode = null;
@@ -180,21 +253,28 @@ let osc2FMAmount = 0.0; // 0.0 to 1.0 (Control knob value)
 let osc2FMSource = 'sampler'; // 'sampler' or 'osc1'
 const osc2FMDepthScale = 22000; // Max frequency deviation in Hz
 let lastActualOsc2Freq = null; // For portamento glide start
-
+// Store previous pitch values *before* updating voice state, needed for glide calculations
+let glideStartRate = null;
+let glideStartFreqOsc1 = null;
+let glideStartFreqOsc2 = null;
+let glideStartFreqFmOsc1 = null; // <<< ADD: Start freq for Osc1's FM source if it's Osc2
+let glideStartDetuneFmOsc1 = null; // <<< ADD: Start detune for Osc1's FM source if it's Osc2
+let glideStartFreqFmOsc2 = null; // <<< ADD: Start freq for Osc2's FM source if it's Osc1
+let glideStartDetuneFmOsc2 = null; // <<< ADD: Start detune for Osc2's FM source if it's Osc1
 
 let isMonoMode = false;
 let isLegatoMode = false;
 let isPortamentoOn = false;
-let glideTime = 0.1; // seconds
+let glideTime = 0.0; // seconds
 let heldNotes = []; // Keep track of held notes in mono mode
-
-
+let nodeMonitorInterval = null; // To store the interval ID
+const activeSynthTimers = new Set(); // <<< ADD: Track active setTimeout IDs
 let sampleSource = null;
 let isPlaying = false;
 let sampleStartPosition = 0; // 0-1 range representing portion of audio file
 let sampleEndPosition = 1;   // 0-1 range (default to full sample)
-let sampleCrossfadeAmount = 0; // 0-1 range for crossfade percentage
-let isSampleLoopOn = false; // Will now be controlled by crossfade knob
+let sampleCrossfadeAmount = 0.02; // 0-1 range for crossfade percentage
+let isSampleLoopOn = true; // Will now be controlled by crossfade knob
 let cachedCrossfadedBuffer = null;
 let crossfadeUpdateTimer = null;
 let sampleFadeInAmount = 0;
@@ -214,13 +294,14 @@ let lastPlayedNoteNumber = null; // Tracks the last note triggered for portament
 let sampleGainNode = audioCtx.createGain();
 sampleGainNode.gain.value = 0.5;
 // Update the createNote function to use a reference to the current gain value
-let currentSampleGain = 0.5; // Add this with other global variables
+let currentSampleGain = 1.0; // Add this with other global variables
 let currentSamplePosition = 0; // Add this with other global variables
 const knobDefaults = {
 'sample-start-knob': 0.0,     // Start at beginning of sample
 'sample-end-knob': 1.0,       // End at end of sample
-'sample-crossfade-knob': 0.0, // No crossfade initially
-'glide-time-knob': 0.05,      // 100ms (5% of 2000ms)
+'sample-crossfade-knob': 0.02, // No crossfade initially
+'sample-volume-knob': 0.005,   // 100% default volume for samples
+'glide-time-knob': 0.00,      // 100ms (5% of 2000ms)
 'osc1-gain-knob': 0.5, // <<< ADD: Default gain 50%
 'osc1-pitch-knob': 0.5, // <<< ADD: Default pitch 0 cents (center)
 'osc1-pwm-knob': 0.0, // Default: 50% duty cycle / minimal shape distortion
@@ -233,7 +314,803 @@ const knobDefaults = {
 'osc2-fm-knob': 0.0, // <<< ADD: Default FM amount
 // All other knobs default to 0.5
 };
+// Try to create SharedArrayBuffer for clock synchronization
+function initializeMasterClock() {
+    // Check if SharedArrayBuffer is available (requires CORS headers)
+    let sharedBuffer = null;
+    try {
+        sharedBuffer = new SharedArrayBuffer(8); // 2 floats (phase1, phase2)
+        masterClockPhases = new Float32Array(sharedBuffer);
+        console.log('SharedArrayBuffer available for master clock');
+    } catch (e) {
+        console.log('SharedArrayBuffer not available, using message passing for clock sync');
+    }
+    
+    // Load the master clock processor
+    const clockProcessorPromise = audioCtx.audioWorklet.addModule('js/master-clock-processor.js')
+        .then(() => {
+            console.log('Master clock processor loaded');
+            
+            // Create the master clock node
+            masterClockNode = new AudioWorkletNode(audioCtx, 'master-clock-processor', {
+                processorOptions: {
+                    sharedBuffer: sharedBuffer
+                }
+            });
+            
+            // Don't connect to output by default (silent operation)
+            // Uncomment next line to hear the master clocks for debugging
+            // masterClockNode.connect(masterGain);
+            
+            // Listen for phase updates (for UI or fallback)
+            masterClockNode.port.onmessage = (event) => {
+                if (event.data.type === 'phaseUpdate') {
+                    // Update local phase tracking for UI or debugging
+                    if (!sharedBuffer) {
+                        // Broadcast phases to voice processors if no shared memory
+                        voicePool.forEach(voice => {
+                            if (voice.osc1Note?.workletNode) {
+                                voice.osc1Note.workletNode.port.postMessage({
+                                    type: 'phaseUpdate',
+                                    phase1: event.data.phase1,
+                                    phase2: event.data.phase2
+                                });
+                            }
+                            if (voice.osc2Note?.workletNode) {
+                                voice.osc2Note.workletNode.port.postMessage({
+                                    type: 'phaseUpdate',
+                                    phase1: event.data.phase1,
+                                    phase2: event.data.phase2
+                                });
+                            }
+                        });
+                    }
+                }
+            };
+            
+            masterClockSharedBuffer = sharedBuffer;
+            return true;
+        })
+        .catch(error => {
+            console.error('Failed to load master clock processor:', error);
+            return false;
+        });
+    
+    // Load the Juno voice processor
+    const voiceProcessorPromise = audioCtx.audioWorklet.addModule('js/juno-voice-processor.js')
+        .then(() => {
+            console.log('Juno voice processor loaded');
+            return true;
+        })
+        .catch(error => {
+            console.error('Failed to load Juno voice processor:', error);
+            return false;
+        });
+    
+    return Promise.all([clockProcessorPromise, voiceProcessorPromise]);
+}
 // --- Helper Functions ---
+// Update helper function to map waveform names to Juno parameters
+function getJunoWaveformParams(waveformName) {
+    switch(waveformName) {
+        case 'sine':
+            return { sawLevel: 0, pulseLevel: 0, sineLevel: 1, triangleLevel: 0, pulseWidth: 0.5 };
+        case 'sawtooth':
+            return { sawLevel: 1, pulseLevel: 0, sineLevel: 0, triangleLevel: 0, pulseWidth: 0.5 };
+        case 'triangle':
+            return { sawLevel: 0, pulseLevel: 0, sineLevel: 0, triangleLevel: 1, pulseWidth: 0.5 };
+        case 'square':
+            return { sawLevel: 0, pulseLevel: 1, sineLevel: 0, triangleLevel: 0, pulseWidth: 0.5 };
+        case 'pulse':
+            return { sawLevel: 0, pulseLevel: 1, sineLevel: 0, triangleLevel: 0, pulseWidth: 0.25 }; // 25% duty cycle
+        default:
+            return { sawLevel: 1, pulseLevel: 0, sineLevel: 0, triangleLevel: 0, pulseWidth: 0.5 };
+    }
+}
+function restartSamplerFMSources() {
+    const now = audioCtx.currentTime;
+    
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            // Check OSC1 FM
+            if (osc1FMSource === 'sampler' && 
+                voice.osc1Note && 
+                voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                
+                // Check if the source has ended (playback state would be 'finished')
+                // We need to restart it
+                console.log(`Restarting OSC1 FM sampler source for voice ${voice.id}`);
+                updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
+            }
+            
+            // Check OSC2 FM
+            if (osc2FMSource === 'sampler' && 
+                voice.osc2Note && 
+                voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                
+                console.log(`Restarting OSC2 FM sampler source for voice ${voice.id}`);
+                updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
+            }
+        }
+    });
+}
+function ensureSamplerFmTapsExist() {
+    voicePool.forEach(voice => {
+        if (voice.samplerNote) {
+            // Create FM tap if missing
+            if (!voice.samplerNote.fmTap) {
+                console.log(`Creating missing FM tap for voice ${voice.id}`);
+                voice.samplerNote.fmTap = audioCtx.createGain();
+                voice.samplerNote.fmTap.gain.value = 1.0;
+            }
+            
+            // If there's a source and sampleNode but no connection to fmTap
+            if (voice.samplerNote.source && voice.samplerNote.sampleNode) {
+                try {
+                    // Reconnect the chain properly
+                    voice.samplerNote.sampleNode.disconnect();
+                    voice.samplerNote.sampleNode.connect(voice.samplerNote.fmTap);
+                    voice.samplerNote.fmTap.connect(voice.samplerNote.gainNode);
+                    console.log(`Rebuilt FM tap connections for voice ${voice.id}`);
+                } catch (e) {
+                    console.error(`Error connecting FM tap: ${e.message}`);
+                }
+            }
+        }
+    });
+}
+// Add this function to explicitly ensure FM connections are made
+function forceFMConnectionUpdate() {
+    console.log("Force-updating all FM connections...");
+    const now = audioCtx.currentTime;
+    
+    // First make sure all FM taps exist
+    voicePool.forEach(voice => {
+        if (voice.samplerNote) {
+            // Create FM tap if missing
+            if (!voice.samplerNote.fmTap) {
+                voice.samplerNote.fmTap = audioCtx.createGain();
+                voice.samplerNote.fmTap.gain.value = 1.0;
+            }
+            
+            // Ensure proper connections
+            if (voice.samplerNote.source && voice.samplerNote.sampleNode) {
+                try {
+                    // Disconnect and reconnect to ensure correct signal path
+                    voice.samplerNote.sampleNode.disconnect();
+                    voice.samplerNote.sampleNode.connect(voice.samplerNote.fmTap);
+                    voice.samplerNote.fmTap.connect(voice.samplerNote.gainNode);
+                    console.log(`Rebuilt FM connections for voice ${voice.id}`);
+                } catch (e) {
+                    console.error(`Error connecting FM tap: ${e.message}`);
+                }
+            }
+        }
+    });
+    
+    // Then force FM update on all voices, even with zero depth
+    voicePool.forEach(voice => {
+        if (voice.osc1Note) {
+            // Force non-zero FM amount temporarily to ensure connections are made
+            const savedAmount = osc1FMAmount;
+            if (osc1FMAmount <= 0.001) osc1FMAmount = 0.002;
+            updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
+            osc1FMAmount = savedAmount; // Restore
+        }
+        
+        if (voice.osc2Note) {
+            // Force non-zero FM amount temporarily to ensure connections are made
+            const savedAmount = osc2FMAmount;
+            if (osc2FMAmount <= 0.001) osc2FMAmount = 0.002;
+            updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
+            osc2FMAmount = savedAmount; // Restore
+        }
+    });
+}
+// Add this function to your code to check if a new FM source needs to be created
+function refreshFMSources() {
+    const now = audioCtx.currentTime;
+    
+    // Check all voices and refresh their FM sources if needed
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            // Check OSC1 FM
+            if (osc1FMSource === 'sampler' && voice.osc1Note) {
+                const osc1Note = voice.osc1Note;
+                
+                // Create a new FM source if needed
+                if (!osc1Note.fmModulatorSource || 
+                    !(osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) ||
+                    !audioBuffer) {
+                    updateOsc1FmModulatorParameters(osc1Note, now, voice);
+                }
+            }
+            
+            // Check OSC2 FM
+            if (osc2FMSource === 'sampler' && voice.osc2Note) {
+                const osc2Note = voice.osc2Note;
+                
+                // Create a new FM source if needed
+                if (!osc2Note.fmModulatorSource || 
+                    !(osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) ||
+                    !audioBuffer) {
+                    updateOsc2FmModulatorParameters(osc2Note, now, voice);
+                }
+            }
+        }
+    });
+}
+/**
+ * Creates and initializes all audio nodes for a single permanent voice.
+ * Uses Juno voice processors that read from master clock.
+ * @param {AudioContext} ctx - The Audio Context.
+ * @param {number} index - The index of this voice in the pool (0-5).
+ * @returns {object} The initialized voice object.
+ */
+function createVoice(ctx, index) {
+    const voice = {
+        id: `voice_${index}`,
+        index: index,
+        noteNumber: null,
+        startTime: 0,
+        state: 'idle',
+        samplerNote: null,
+        osc1Note: null,
+        osc2Note: null,
+        scheduledTimers: [],
+        currentReleaseId: null,
+        wasStolen: false,
+        // NEW: Add random pan offsets for this voice (set once, stays consistent)
+        panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT, // Random value between -0.08 and +0.08
+        // NEW: Add random initial warble for pitch instability
+        warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT // Random cents between -8 and +8
+    };
+
+    // --- Create Sampler Nodes ---
+    const samplerGainNode = ctx.createGain();
+    const samplerSampleNode = ctx.createGain();
+    const samplerSource = ctx.createBufferSource();
+    
+    const samplerFMTap = ctx.createGain();
+    samplerFMTap.gain.value = 1.0;
+    
+    // NEW: Create pan node for sampler with this voice's random offset
+    const samplerPanner = ctx.createStereoPanner();
+    samplerPanner.pan.value = voice.panOffset;
+    
+    // MODIFIED: Connect sampler through panner
+    samplerSource.connect(samplerSampleNode);
+    samplerSampleNode.connect(samplerFMTap);
+    samplerFMTap.connect(samplerGainNode);
+    samplerGainNode.connect(samplerPanner); // Connect to panner
+    samplerPanner.connect(samplerMasterGain); // Panner to master
+    
+    voice.samplerNote = {
+        id: `sampler_${index}`,
+        type: 'sampler',
+        noteNumber: null,
+        source: samplerSource,
+        gainNode: samplerGainNode,
+        sampleNode: samplerSampleNode,
+        fmTap: samplerFMTap,
+        panner: samplerPanner, // NEW: Store panner reference
+        startTime: 0,
+        state: 'idle',
+        scheduledEvents: [],
+        looping: false,
+        usesProcessedBuffer: false,
+        crossfadeActive: false,
+        calculatedLoopStart: 0,
+        calculatedLoopEnd: 0,
+        isBeingUpdated: false,
+        parentVoice: voice
+    };
+
+    // Create OSC1 with panning
+    if (isWorkletReady) {
+        const osc1LevelNode = ctx.createGain();
+        const osc1GainNode = ctx.createGain();
+        const osc1WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [1],
+            processorOptions: {
+                sharedBuffer: masterClockSharedBuffer,
+                voiceIndex: index
+            }
+        });
+        
+        // Initialize parameters
+        osc1WorkletNode.parameters.get('voiceIndex').setValueAtTime(index, 0);
+        osc1WorkletNode.parameters.get('clockSource').setValueAtTime(0, 0);
+        osc1WorkletNode.parameters.get('gate').setValueAtTime(0, 0);
+        osc1WorkletNode.parameters.get('sawLevel').setValueAtTime(0, 0);
+        osc1WorkletNode.parameters.get('pulseLevel').setValueAtTime(0, 0);
+        osc1WorkletNode.parameters.get('sineLevel').setValueAtTime(0, 0);
+        osc1WorkletNode.parameters.get('triangleLevel').setValueAtTime(0, 0);
+        osc1WorkletNode.parameters.get('pulseWidth').setValueAtTime(0.5, 0);
+        osc1WorkletNode.parameters.get('quantizeAmount').setValueAtTime(osc1QuantizeValue, 0);
+        osc1WorkletNode.parameters.get('fmDepth').setValueAtTime(0, 0);
+        
+        const osc1FMDepthGain = ctx.createGain();
+        osc1FMDepthGain.gain.value = 0;
+        
+        osc1LevelNode.gain.value = 0.5;
+        osc1GainNode.gain.value = 0;
+
+        // NEW: Create pan node for osc1 with this voice's random offset
+        const osc1Panner = ctx.createStereoPanner();
+        osc1Panner.pan.value = voice.panOffset;
+
+        // MODIFIED: Connect oscillator through panner
+        osc1WorkletNode.connect(osc1LevelNode);
+        osc1LevelNode.connect(osc1GainNode);
+        osc1GainNode.connect(osc1Panner); // Connect to panner
+        osc1Panner.connect(oscillatorMasterGain); // Panner to master
+
+        voice.osc1Note = {
+            id: `osc1_${index}`,
+            type: 'osc1',
+            noteNumber: null,
+            workletNode: osc1WorkletNode,
+            levelNode: osc1LevelNode,
+            gainNode: osc1GainNode,
+            fmDepthGain: osc1FMDepthGain,
+            panner: osc1Panner, // NEW: Store panner reference
+            startTime: 0,
+            state: 'idle',
+            scheduledEvents: [],
+            parentVoice: voice
+        };
+    }
+    
+    // Create OSC2 with panning
+    if (isWorkletReady) {
+        const osc2LevelNode = ctx.createGain();
+        const osc2GainNode = ctx.createGain();
+        const osc2WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [1],
+            processorOptions: {
+                sharedBuffer: masterClockSharedBuffer,
+                voiceIndex: index
+            }
+        });
+        
+        osc2WorkletNode.parameters.get('voiceIndex').setValueAtTime(index, 0);
+        osc2WorkletNode.parameters.get('clockSource').setValueAtTime(1, 0);
+        osc2WorkletNode.parameters.get('gate').setValueAtTime(0, 0);
+        osc2WorkletNode.parameters.get('sawLevel').setValueAtTime(0, 0);
+        osc2WorkletNode.parameters.get('pulseLevel').setValueAtTime(0, 0);
+        osc2WorkletNode.parameters.get('sineLevel').setValueAtTime(0, 0);
+        osc2WorkletNode.parameters.get('triangleLevel').setValueAtTime(0, 0);
+        osc2WorkletNode.parameters.get('pulseWidth').setValueAtTime(0.5, 0);
+        osc2WorkletNode.parameters.get('quantizeAmount').setValueAtTime(osc2QuantizeValue, 0);
+        osc2WorkletNode.parameters.get('fmDepth').setValueAtTime(0, 0);
+        
+        const osc2FMDepthGain = ctx.createGain();
+        osc2FMDepthGain.gain.value = 0;
+        
+        osc2LevelNode.gain.value = 0.5;
+        osc2GainNode.gain.value = 0;
+
+        // NEW: Create pan node for osc2 with this voice's random offset
+        const osc2Panner = ctx.createStereoPanner();
+        osc2Panner.pan.value = voice.panOffset;
+
+        // MODIFIED: Connect oscillator through panner
+        osc2WorkletNode.connect(osc2LevelNode);
+        osc2LevelNode.connect(osc2GainNode);
+        osc2GainNode.connect(osc2Panner); // Connect to panner
+        osc2Panner.connect(oscillatorMasterGain); // Panner to master
+
+        voice.osc2Note = {
+            id: `osc2_${index}`,
+            type: 'osc2',
+            noteNumber: null,
+            workletNode: osc2WorkletNode,
+            levelNode: osc2LevelNode,
+            gainNode: osc2GainNode,
+            fmDepthGain: osc2FMDepthGain,
+            panner: osc2Panner, // NEW: Store panner reference
+            startTime: 0,
+            state: 'idle',
+            scheduledEvents: [],
+            parentVoice: voice
+        };
+    }
+
+    console.log(`Created voice ${index} with pan offset: ${(voice.panOffset * 100).toFixed(1)}%, warble offset: ${voice.warbleOffset.toFixed(1)} cents`);
+    return voice;
+}
+// Track timers per voice for proper cleanup
+function trackVoiceTimer(voice, callback, delay) {
+    const timerId = setTimeout(() => {
+        // Remove from tracking when executed
+        voice.scheduledTimers = voice.scheduledTimers.filter(t => t !== timerId);
+        callback();
+    }, delay);
+    
+    // Store the timer ID in the voice
+    voice.scheduledTimers.push(timerId);
+    return timerId;
+}
+
+// Clear all timers for a specific voice
+function clearVoiceTimers(voice) {
+    if (!voice || !voice.scheduledTimers) return;
+    
+    // Clear all scheduled timers
+    voice.scheduledTimers.forEach(timerId => {
+        clearTimeout(timerId);
+    });
+    voice.scheduledTimers = [];
+    
+    console.log(`Cleared all timers for voice ${voice.index}`);
+}
+// --- Helper function to set waveform mix for Juno voices ---
+function setJunoWaveform(workletNode, waveformType, customPulseWidth = null) {
+    if (!workletNode) return;
+    
+    const now = audioCtx.currentTime;
+    const params = getJunoWaveformParams(waveformType);
+    
+    // Set all waveform levels
+    workletNode.parameters.get('sawLevel').setValueAtTime(params.sawLevel, now);
+    workletNode.parameters.get('pulseLevel').setValueAtTime(params.pulseLevel, now);
+    workletNode.parameters.get('sineLevel').setValueAtTime(params.sineLevel, now);
+    workletNode.parameters.get('triangleLevel').setValueAtTime(params.triangleLevel, now);
+    
+    // IMPORTANT: Always use custom pulse width if provided, regardless of waveform type
+    // This ensures PWM works for all waveforms
+    const pwValue = customPulseWidth !== null ? customPulseWidth : params.pulseWidth;
+
+    // Ensure pulse width is within valid range (0-0.95)
+    const clampedPW = Math.max(0, Math.min(0.95, pwValue));
+    workletNode.parameters.get('pulseWidth').setValueAtTime(clampedPW, now);
+}
+
+/**
+ * Initializes the voice pool with 6 permanent voices.
+ * Called once at startup after AudioWorklet is ready.
+ */
+function initializeVoicePool() {
+    if (!isWorkletReady) {
+        console.error("Cannot initialize voice pool: AudioWorklet not ready.");
+        return;
+    }
+    
+    console.log("Initializing permanent voice pool with 6 voices...");
+    voicePool.length = 0;
+    voiceQueue.length = 0;
+    
+    for (let i = 0; i < 6; i++) {
+        const voice = createVoice(audioCtx, i);
+        
+        if (voice.osc1Note && voice.osc1Note.workletNode) {
+            voice.osc1Note.workletNode.parameters.get('resetPhase').setValueAtTime(1, 0);
+            voice.osc1Note.workletNode.parameters.get('resetPhase').setValueAtTime(0, 0.001);
+        }
+        if (voice.osc2Note && voice.osc2Note.workletNode) {
+            voice.osc2Note.workletNode.parameters.get('resetPhase').setValueAtTime(1, 0);
+            voice.osc2Note.workletNode.parameters.get('resetPhase').setValueAtTime(0, 0.001);
+        }
+        
+        voicePool.push(voice);
+    }
+    
+    nextVoiceIndex = 0;
+    voiceAssignments = new Map();
+    
+    // REMOVED THE FM INITIALIZATION FROM HERE - it was forcing FM to 0
+    // The FM will be properly initialized after knobs are set up in DOMContentLoaded
+    
+    console.log(`Permanent voice pool initialized with ${voicePool.length} voices.`);
+}
+
+// Add helper function to check if voice is fully inactive
+function isVoiceFullyInactive(voice) {
+    if (!voice) return true;
+    
+    const samplerInactive = !voice.samplerNote || 
+                           voice.samplerNote.state === 'inactive' || 
+                           voice.samplerNote.state === 'idle';
+    const osc1Inactive = !voice.osc1Note || 
+                         voice.osc1Note.state === 'inactive' || 
+                         voice.osc1Note.state === 'idle';
+    const osc2Inactive = !voice.osc2Note || 
+                         voice.osc2Note.state === 'inactive' || 
+                         voice.osc2Note.state === 'idle';
+    
+    return samplerInactive && osc1Inactive && osc2Inactive;
+}
+function initializeSamplerFmSources() {
+    // Wait for audioBuffer to be available
+    if (!audioBuffer) return;
+    
+    // Set up FM taps for all voices
+    voicePool.forEach(voice => {
+        if (voice.samplerNote && !voice.samplerNote.fmTap) {
+            voice.samplerNote.fmTap = audioCtx.createGain();
+            voice.samplerNote.fmTap.gain.value = 1.0;
+            
+            // Connect properly if source exists
+            if (voice.samplerNote.source && voice.samplerNote.sampleNode) {
+                voice.samplerNote.sampleNode.connect(voice.samplerNote.fmTap);
+                console.debug(`Created and connected FM tap for voice ${voice.id}`);
+            }
+        }
+    });
+}
+/**
+ * Modified voice allocation system:
+ * - Always use a new voice for each note press
+ * - When all voices are used, steal the oldest instance of the same note
+ * - If no instances of that note exist, steal the oldest voice overall
+ * 
+ * @param {number} noteNumber - The MIDI note number to play
+ * @returns {object|null} The assigned voice object
+ */
+function findAvailableVoice(noteNumber) {
+    if (voicePool.length === 0) {
+        console.error("Voice pool is empty!");
+        return null;
+    }
+
+    // In mono mode, always use voice 0
+    if (isMonoMode) {
+        const monoVoice = voicePool[0];
+        currentMonoVoice = monoVoice; // Track the mono voice
+        
+        // CRITICAL FIX: Track mono voice in voiceAssignments
+        if (!voiceAssignments.has(noteNumber)) {
+            voiceAssignments.set(noteNumber, []);
+        }
+        
+        const assignments = voiceAssignments.get(noteNumber);
+        if (!assignments.includes(monoVoice)) {
+            assignments.push(monoVoice);
+        }
+        
+        return monoVoice;
+    }
+    
+    let selectedVoice = null;
+    
+    // First, try to find an idle voice using round-robin
+    let startIndex = nextVoiceIndex;
+    for (let i = 0; i < voicePool.length; i++) {
+        const idx = (startIndex + i) % voicePool.length;
+        const voice = voicePool[idx];
+        if (voice.state === 'idle') {
+            selectedVoice = voice;
+            nextVoiceIndex = (idx + 1) % voicePool.length;
+            console.log(`Found idle voice ${voice.index} for note ${noteNumber}`);
+            break;
+        }
+    }
+    
+    // If no idle voice, look for the oldest voice playing the same note
+    if (!selectedVoice) {
+        // Find all voices playing this note and sort by start time
+        const sameNoteVoices = voicePool
+            .filter(v => v.noteNumber === noteNumber && v.state === 'active')
+            .sort((a, b) => a.startTime - b.startTime);
+            
+        if (sameNoteVoices.length > 0) {
+            // Take the oldest voice playing this note
+            selectedVoice = sameNoteVoices[0];
+            console.log(`Stealing oldest voice ${selectedVoice.index} playing same note ${noteNumber}`);
+        }
+    }
+    
+    // If still no voice, steal the oldest voice overall
+    if (!selectedVoice) {
+        // Sort all voices by start time
+        const oldestVoices = [...voicePool].sort((a, b) => a.startTime - b.startTime);
+        selectedVoice = oldestVoices[0];
+        console.log(`Stealing oldest voice ${selectedVoice.index} (was playing note ${selectedVoice.noteNumber})`);
+    }
+    
+    // Update voice queue (for tracking order)
+    if (voiceQueue.includes(selectedVoice)) {
+        // Move to end of queue if already in queue
+        voiceQueue = voiceQueue.filter(v => v !== selectedVoice);
+    }
+    voiceQueue.push(selectedVoice);
+    
+    // If this voice is already playing a note, remove it from that note's assignments
+    if (selectedVoice.noteNumber !== null && selectedVoice.noteNumber !== noteNumber) {
+        const oldAssignments = voiceAssignments.get(selectedVoice.noteNumber) || [];
+        const updatedOldAssignments = oldAssignments.filter(v => v !== selectedVoice);
+        
+        if (updatedOldAssignments.length === 0) {
+            voiceAssignments.delete(selectedVoice.noteNumber);
+        } else {
+            voiceAssignments.set(selectedVoice.noteNumber, updatedOldAssignments);
+        }
+    }
+    
+    // Multiple assignments are now possible (same note in different voices)
+    // We'll keep track of all assignments in an array
+    if (!voiceAssignments.has(noteNumber)) {
+        voiceAssignments.set(noteNumber, []);
+    }
+    
+    // Add this voice to the assignments for this note
+    const assignments = voiceAssignments.get(noteNumber);
+    if (!assignments.includes(selectedVoice)) {
+        assignments.push(selectedVoice);
+    }
+    
+    return selectedVoice;
+}
+
+/**
+ * Wrapper for setTimeout that tracks the timer ID.
+ * @param {Function} callback The function to execute.
+ * @param {number} delay The delay in milliseconds.
+ * @param {object} [note] Optional: The note object to associate the timer with.
+ * @returns {number} The timeout ID.
+ */
+function trackSetTimeout(callback, delay, note = null) {
+    const timerId = setTimeout(() => {
+        activeSynthTimers.delete(timerId); // Remove ID when callback executes
+        // Remove from note's scheduledEvents if associated
+        if (note && Array.isArray(note.scheduledEvents)) {
+            const index = note.scheduledEvents.findIndex(event => event.type === "timeout" && event.id === timerId);
+            if (index > -1) {
+                note.scheduledEvents.splice(index, 1);
+            }
+        }
+        callback();
+    }, delay);
+    activeSynthTimers.add(timerId); // Add ID to the set
+    // Optionally associate with note for easier clearing later
+    if (note && note.scheduledEvents) {
+         // Avoid duplicate entries if somehow called multiple times for the same timer
+         if (!note.scheduledEvents.some(event => event.type === "timeout" && event.id === timerId)) {
+             note.scheduledEvents.push({ type: "timeout", id: timerId });
+         }
+    }
+    // console.log(`trackSetTimeout: Added timer ${timerId}, Total: ${activeSynthTimers.size}`); // Optional detailed log
+    return timerId;
+}
+/**
+ * Wrapper for clearTimeout that removes the ID from tracking.
+ * @param {number} timerId The timeout ID to clear.
+ */
+function trackClearTimeout(timerId, note = null) { // <<< Add optional note parameter
+    if (timerId) {
+        clearTimeout(timerId);
+        const deleted = activeSynthTimers.delete(timerId);
+        // Remove from note's scheduledEvents if associated
+        if (note && Array.isArray(note.scheduledEvents)) {
+            const index = note.scheduledEvents.findIndex(event => event.type === "timeout" && event.id === timerId);
+            if (index > -1) {
+                note.scheduledEvents.splice(index, 1);
+            }
+        }
+        // if (deleted) console.log(`trackClearTimeout: Removed timer ${timerId}, Total: ${activeSynthTimers.size}`); // Optional detailed log
+    }
+}
+/**
+ * Counts and logs the number of specific Web Audio nodes, active timers,
+ * and AudioContext properties.
+ */
+function logNodeCounts() {
+    const counts = {
+        // Sources
+        AudioBufferSourceNode: 0,
+        OscillatorNode: 0,
+        AudioWorkletNode: 0,
+        // Processing/Effects
+        GainNode: 0,
+        BiquadFilterNode: 0, // <<< ADDED
+        DelayNode: 0,        // <<< ADDED
+        ConvolverNode: 0,    // <<< ADDED
+        DynamicsCompressorNode: 0, // <<< ADDED
+        WaveShaperNode: 0,   // <<< ADDED
+        // Other potential nodes...
+    };
+
+    try {
+        // --- Count Nodes in voicePool ---
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (!voice || voice.state === 'inactive') return; // Skip inactive voices
+
+            // Helper to count a node (remains the same)
+            const countNode = (node) => {
+                if (!node) return;
+                const constructorName = node.constructor.name;
+                if (counts.hasOwnProperty(constructorName)) {
+                    counts[constructorName]++;
+                } else {
+                    // Log unexpected node types
+                    // console.log(`Found unexpected node type: ${constructorName}`);
+                }
+            };
+
+            // Sampler Nodes
+            if (voice.samplerNote) {
+                countNode(voice.samplerNote.source);
+                countNode(voice.samplerNote.gainNode);
+                countNode(voice.samplerNote.sampleNode);
+                // Add any filter/effect nodes specific to sampler notes if they exist
+            }
+
+            // Osc1 Nodes
+            if (voice.osc1Note) {
+                countNode(voice.osc1Note.workletNode);
+                countNode(voice.osc1Note.levelNode);
+                countNode(voice.osc1Note.gainNode);
+                // Osc1 FM Nodes
+                countNode(voice.osc1Note.fmModulatorSource); // Could be BufferSource or Oscillator
+                countNode(voice.osc1Note.fmDepthGain);
+            }
+
+            // Osc2 Nodes
+            if (voice.osc2Note) {
+                countNode(voice.osc2Note.workletNode);
+                countNode(voice.osc2Note.levelNode);
+                countNode(voice.osc2Note.gainNode);
+                // Osc2 FM Nodes
+                countNode(voice.osc2Note.fmModulatorSource); // Could be BufferSource or Oscillator
+                countNode(voice.osc2Note.fmDepthGain);
+            }
+        });
+
+        // --- Log Counts and Context Info ---
+        console.groupCollapsed(`--- Synth Monitor (${new Date().toLocaleTimeString()}) ---`); // Use group for better readability
+        console.log(`AudioContext State: ${audioCtx?.state}, Current Time: ${audioCtx?.currentTime.toFixed(3)}`);
+        console.log(`Base Latency: ${(audioCtx?.baseLatency * 1000).toFixed(1)}ms, Output Latency: ${(audioCtx?.outputLatency * 1000).toFixed(1)}ms`);
+        const activeVoiceCount = voicePool.filter(v => v.state !== 'inactive').length;
+        console.log(`Active Voices (Pool): ${activeVoiceCount}`); // <<< LOG ACTIVE VOICE COUNT
+        console.log(`Tracked Timers: ${activeSynthTimers.size}`); // <<< LOG TIMER COUNT
+        console.table(counts);
+        console.groupEnd();
+
+
+        // --- Optional Warnings (Adjust thresholds as needed) ---
+        const gainThreshold = MAX_POLYPHONY * 8 + 20; // Increased threshold slightly
+        const sourceThreshold = MAX_POLYPHONY * 4 + 10; // Increased threshold slightly
+        const timerThreshold = MAX_POLYPHONY * 3 + 50; // Threshold for timers
+
+        if (counts.GainNode > gainThreshold) {
+            console.warn(`High GainNode count: ${counts.GainNode}`);
+        }
+        if (counts.AudioBufferSourceNode > sourceThreshold) {
+             console.warn(`High AudioBufferSourceNode count: ${counts.AudioBufferSourceNode}`);
+        }
+         if (counts.AudioWorkletNode > MAX_POLYPHONY * 2 + 5) {
+             console.warn(`High AudioWorkletNode count: ${counts.AudioWorkletNode}`);
+         }
+         if (activeSynthTimers.size > timerThreshold) { // <<< WARNING FOR TIMERS
+             console.warn(`High active timer count: ${activeSynthTimers.size}`);
+         }
+         // Add warnings for other node types if necessary
+
+    } catch (error) {
+        console.error("Error during node/timer counting:", error);
+        if (console.groupCollapsed) console.groupEnd(); // Ensure group is closed on error
+    }
+}
+
+/**
+ * Starts the periodic node monitoring.
+ * @param {number} intervalMs - The interval in milliseconds (e.g., 5000 for 5 seconds).
+ */
+function startNodeMonitoring(intervalMs = 5000) {
+    if (nodeMonitorInterval) {
+        clearInterval(nodeMonitorInterval); // Clear existing interval if any
+    }
+    console.log(`Starting node monitoring every ${intervalMs}ms.`);
+    logNodeCounts(); // Log immediately on start
+    nodeMonitorInterval = setInterval(logNodeCounts, intervalMs);
+}
+
 /**
  * Updates or creates the FM modulator source and gain for an existing Osc1 note.
  * Handles both 'sampler' and 'osc2' as FM sources.
@@ -241,222 +1118,83 @@ const knobDefaults = {
  * @param {number} now - The current audio context time.
  * @param {object} [voice] - Optional: The parent voice object containing both osc1Note and osc2Note. Needed for 'osc2' source.
  */
-function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) { // <<< Add optional voice parameter
-    // <<< Add Log >>>
-    console.log(`updateOsc1FmModulatorParameters ENTER: noteId=${osc1Note?.id}, global osc1FMSource=${osc1FMSource}, voice provided: ${!!voice}, voice.osc2Note exists: ${!!voice?.osc2Note}`);
-    // --- Prerequisites Check ---
-    const freqParam = osc1Note?.workletNode?.parameters.get('frequency');
-    const prerequisitesMet = osc1Note &&
-                              osc1Note.workletNode &&
-                              freqParam &&
-                              osc1FMAmount > 0.001;
-
-    if (!prerequisitesMet) {
-        const reason = !osc1Note ? "no osc1Note" :
-                       !osc1Note.workletNode ? "no workletNode" :
-                       !freqParam ? "no frequency parameter" :
-                       osc1FMAmount <= 0.001 ? "FM amount is zero" : "unknown";
-        // Only log if trying to disable an existing modulator
-        if (osc1Note?.fmModulatorSource || osc1Note?.fmDepthGain) {
-             console.log(`updateOsc1FmModulatorParameters [${osc1Note?.id}]: Prerequisites not met (${reason}). Stopping/disconnecting any existing FM.`);
-        }
-
-        // Stop and disconnect old source if it exists
-        if (osc1Note?.fmModulatorSource) {
-            try {
-                osc1Note.fmModulatorSource.stop(0);
-                osc1Note.fmModulatorSource.disconnect();
-            } catch(e) {}
-            osc1Note.fmModulatorSource = null;
-        }
-        // Disconnect from frequency parameter if disconnecting gain
-        if (osc1Note?.fmDepthGain) {
-            try {
-                if (freqParam) osc1Note.fmDepthGain.disconnect(freqParam); // Use checked freqParam
-                osc1Note.fmDepthGain.disconnect();
-            } catch(e) {}
-            console.log(`updateOsc1FmModulatorParameters [${osc1Note?.id}]: Nullifying fmDepthGain due to unmet prerequisites (${reason}).`);
-            osc1Note.fmDepthGain = null; // <<< Ensure nullified
-        }
-        return; // Exit if prerequisites aren't met
+function updateOsc1FmModulatorParameters(osc1Note, now, voice = null) {
+    if (!osc1Note || !osc1Note.workletNode || !voice) {
+        return;
     }
-    // --- End Prerequisites Check ---
-
-
-    const noteId = osc1Note.id;
-    const noteNumber = osc1Note.noteNumber;
-    console.log(`updateOsc1FmModulatorParameters [${noteId}]: Updating FM modulator (Source: ${osc1FMSource}, Amount: ${osc1FMAmount.toFixed(3)}).`);
-
-    // --- Stop and disconnect old source ---
-    if (osc1Note.fmModulatorSource) {
-        try {
-            osc1Note.fmModulatorSource.stop(0);
-            osc1Note.fmModulatorSource.disconnect();
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Stopped and disconnected old FM source.`);
-        } catch(e) { /* Ignore errors */ }
-        osc1Note.fmModulatorSource = null;
+    
+    const fmDepthParam = osc1Note.workletNode.parameters.get('fmDepth');
+    if (!fmDepthParam) return;
+    
+    const noteId = osc1Note.id || 'unknown';
+    const scaledDepth = osc1FMAmount * osc1FMDepthScale;
+    
+    if (!osc1Note.fmDepthGain) {
+        osc1Note.fmDepthGain = audioCtx.createGain();
     }
-
-    // --- Disconnect old depth gain (but don't nullify yet) ---
-    if (osc1Note.fmDepthGain) {
+    osc1Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
+    
+    // CRITICAL FIX: Disconnect ALL possible FM sources first
+    try {
+        osc1Note.fmDepthGain.disconnect();
+    } catch(e) {}
+    
+    // CRITICAL FIX: Also try to disconnect any sources that might still be connected
+    // This handles the case where we're switching FROM osc2 TO sampler
+    if (voice.osc2Note && voice.osc2Note.workletNode) {
         try {
-            // freqParam is guaranteed to exist here due to prerequisite check
-            osc1Note.fmDepthGain.disconnect(freqParam);
-            osc1Note.fmDepthGain.disconnect(); // Disconnect from others
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Disconnected old FM depth gain connections.`);
+            voice.osc2Note.workletNode.disconnect(osc1Note.fmDepthGain);
         } catch(e) {}
     }
-
-    // --- Create/Configure Nodes ---
-    try {
-        // --- Create fmDepthGain if it doesn't exist ---
-        if (!osc1Note.fmDepthGain) {
-            osc1Note.fmDepthGain = audioCtx.createGain();
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Created NEW FM depth gain.`);
+    
+    // CRITICAL FIX: Disconnect any sampler FM taps that might be connected
+    samplerVoicePool.forEach(sv => {
+        if (sv.samplerNote && sv.samplerNote.fmTap) {
+            try {
+                sv.samplerNote.fmTap.disconnect(osc1Note.fmDepthGain);
+            } catch(e) {}
+        }
+    });
+    
+    let fmSource = null;
+    
+    if (osc1FMSource === 'sampler') {
+        // Find the ACTUAL sampler voice in samplerVoicePool
+        const actualSamplerVoice = samplerVoicePool.find(
+            sv => sv.noteNumber === voice.noteNumber && 
+                  sv.state !== 'inactive' && 
+                  sv.samplerNote && 
+                  sv.samplerNote.fmTap
+        );
+        
+        if (actualSamplerVoice && actualSamplerVoice.samplerNote.fmTap) {
+            fmSource = actualSamplerVoice.samplerNote.fmTap;
+            console.log(`OSC1 [${noteId}]: Switching to sampler FM tap from samplerVoice ${actualSamplerVoice.id}`);
         } else {
-             console.log(`updateOsc1FmModulatorParameters [${noteId}]: Reusing existing FM depth gain.`);
+            console.warn(`OSC1 [${noteId}]: No active sampler found for FM`);
         }
-        // Set initial gain value
-        const scaledDepth = osc1FMAmount * osc1FMDepthScale;
-        osc1Note.fmDepthGain.gain.cancelScheduledValues(now); // Cancel ramps before setting
-        osc1Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
-
-        let newFmSource = null; // <<< Initialize newFmSource >>>
-
-        // --- Create Modulator Based on Source ---
-        if (osc1FMSource === 'sampler') {
-            // <<< Check sampler-specific prerequisites >>>
-            if (!audioBuffer) {
-                 console.error(`updateOsc1FmModulatorParameters [${noteId}]: Sampler FM selected, but no audioBuffer loaded. Skipping FM connection.`);
-                 if (osc1Note.fmDepthGain) { try { osc1Note.fmDepthGain.disconnect(); } catch(e) {} osc1Note.fmDepthGain = null; } // Clean up gain node
-                 return; // Don't proceed
-            }
-
-            newFmSource = audioCtx.createBufferSource();
-
-            // --- Mirror Buffer Selection --- (Existing Logic is Good)
-            let useOriginalBuffer = true;
-            let sourceBuffer = audioBuffer;
-            let bufferType = "original_fm";
-            if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-                sourceBuffer = cachedCrossfadedBuffer; useOriginalBuffer = false; bufferType = "crossfaded_fm";
-            } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-                sourceBuffer = fadedBuffer; useOriginalBuffer = false; bufferType = "faded_fm";
-            }
-            if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer)) {
-                 console.error(`updateOsc1FmModulatorParameters [${noteId}]: Invalid sourceBuffer selected (type: ${bufferType}). Skipping FM connection.`);
-                 if (osc1Note.fmDepthGain) { try { osc1Note.fmDepthGain.disconnect(); } catch(e) {} osc1Note.fmDepthGain = null; }
-                 return;
-            }
-            newFmSource.buffer = sourceBuffer;
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Using ${bufferType} buffer for FM.`);
-
-            // --- Mirror Pitch/Rate --- (Existing Logic is Good)
-            let calculatedRate = 1.0;
-            if (isSampleKeyTrackingOn) {
-                calculatedRate = TR2 ** (noteNumber - 12);
-                newFmSource.playbackRate.value = calculatedRate;
-                newFmSource.detune.setValueAtTime(currentSampleDetune, now);
-            } else {
-                newFmSource.playbackRate.value = 1.0;
-                newFmSource.detune.value = currentSampleDetune;
-            }
-
-            // --- Mirror Loop Settings --- (Existing Logic is Good)
-            let loopStartTime = 0;
-            let loopEndTime = sourceBuffer.duration;
-            if (useOriginalBuffer) {
-                if (isSampleLoopOn) {
-                    newFmSource.loop = true;
-                    loopStartTime = sampleStartPosition * audioBuffer.duration;
-                    loopEndTime = sampleEndPosition * audioBuffer.duration;
-                    newFmSource.loopStart = Math.max(0, loopStartTime);
-                    newFmSource.loopEnd = Math.min(audioBuffer.duration, loopEndTime);
-                     if (newFmSource.loopEnd <= newFmSource.loopStart) {
-                         newFmSource.loopEnd = audioBuffer.duration; newFmSource.loopStart = 0;
-                     }
-                } else { newFmSource.loop = false; }
-            } else {
-                newFmSource.loop = isSampleLoopOn;
-            }
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Loop=${newFmSource.loop}, Start=${newFmSource.loopStart.toFixed(3)}, End=${newFmSource.loopEnd.toFixed(3)}`);
-
-        } else if (osc1FMSource === 'osc2') {
-            // <<< ADD OSC2 SOURCE LOGIC >>>
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Creating OscillatorNode modulator based on Osc2.`);
-            // Find the corresponding osc2Note (requires 'voice' parameter or lookup)
-            const osc2Note = voice?.osc2Note; // Assumes 'voice' is passed in
-
-            // <<< Check if osc2Note and its workletNode exist >>>
-            if (osc2Note && osc2Note.workletNode) {
-                newFmSource = audioCtx.createOscillator();
-                // Mirror basic Osc2 settings initially
-                newFmSource.type = osc2Waveform === 'pulse' ? 'square' : osc2Waveform; // Map pulse to square for basic oscillator
-                const baseOsc2Freq = noteToFrequency(noteNumber, osc2OctaveOffset); // Use Osc2's octave offset for base freq
-                newFmSource.frequency.setValueAtTime(baseOsc2Freq, now);
-                newFmSource.detune.setValueAtTime(osc2Detune, now); // Use Osc2's global detune initially
-
-                // <<< ADD: Try to get current values from the active osc2Note worklet >>>
-                try {
-                    const currentFreqParam = osc2Note.workletNode.parameters.get('frequency');
-                    const currentDetuneParam = osc2Note.workletNode.parameters.get('detune');
-                    // Override with current values if available
-                    if (currentFreqParam) {
-                        newFmSource.frequency.setValueAtTime(currentFreqParam.value, now);
-                        console.log(`updateOsc1FmModulatorParameters [${noteId}]: Set FM Osc freq from active osc2Note: ${currentFreqParam.value.toFixed(2)}`);
-                    }
-                    if (currentDetuneParam) {
-                        newFmSource.detune.setValueAtTime(currentDetuneParam.value, now);
-                         console.log(`updateOsc1FmModulatorParameters [${noteId}]: Set FM Osc detune from active osc2Note: ${currentDetuneParam.value.toFixed(2)}`);
-                    }
-                    console.log(`updateOsc1FmModulatorParameters [${noteId}]: Using basic OscillatorNode (${newFmSource.type}) mirroring active Osc2 note parameters.`);
-                } catch(e) {
-                    console.warn(`updateOsc1FmModulatorParameters [${noteId}]: Error getting current Osc2 params, using globals. Error: ${e}`);
-                    // Fallback to globals already set above
-                    console.log(`updateOsc1FmModulatorParameters [${noteId}]: Using basic OscillatorNode (${newFmSource.type}) mirroring global Osc2 settings (error reading active note).`);
-                }
-                // <<< END ADD >>>
-
-            } else {
-                // <<< Fallback if no active osc2Note or workletNode found >>>
-                console.log(`updateOsc1FmModulatorParameters [${noteId}]: No active Osc2 note/worklet found. Creating basic OscillatorNode mirroring global Osc2 settings.`);
-                newFmSource = audioCtx.createOscillator();
-                newFmSource.type = osc2Waveform === 'pulse' ? 'square' : osc2Waveform;
-                const osc2Freq = noteToFrequency(noteNumber, osc2OctaveOffset);
-                newFmSource.frequency.setValueAtTime(osc2Freq, now);
-                newFmSource.detune.setValueAtTime(osc2Detune, now);
-                // <<< REMOVED Redundant Warning/Return Block >>>
-            }
-            // <<< END OSC2 SOURCE LOGIC >>>
-        }
-
-       // --- Connect and Start ---
-       // Prerequisites (freqParam, fmDepthGain) are guaranteed here unless buffer/osc2 was invalid
-       if (newFmSource && osc1Note.fmDepthGain && freqParam) { // <<< Check newFmSource exists >>>
-            newFmSource.connect(osc1Note.fmDepthGain);
-            osc1Note.fmDepthGain.connect(freqParam); // Connect gain to frequency parameter
-            newFmSource.start(now);
-            osc1Note.fmModulatorSource = newFmSource; // <<< Store the new source >>>
-            console.log(`updateOsc1FmModulatorParameters [${noteId}]: Started and connected new FM modulator source (${osc1FMSource}) to frequency.`);
-       } else {
-            console.warn(`updateOsc1FmModulatorParameters [${noteId}]: Failed to create or connect new FM source (${osc1FMSource}). FM will be inactive.`);
-            // Ensure gain node is cleaned up if source creation/connection failed
-            if (osc1Note.fmDepthGain) { try { osc1Note.fmDepthGain.disconnect(); } catch(e) {} osc1Note.fmDepthGain = null; }
-       }
-
-    } catch (error) {
-        console.error(`updateOsc1FmModulatorParameters [${noteId}]: Error creating/starting new FM source:`, error);
-        // Nullify references on error
-        if (osc1Note.fmModulatorSource) { try { osc1Note.fmModulatorSource.disconnect(); } catch(e){} }
-        osc1Note.fmModulatorSource = null;
-        if (osc1Note.fmDepthGain) {
-             try { osc1Note.fmDepthGain.disconnect(); } catch(e){}
-             console.log(`updateOsc1FmModulatorParameters [${noteId}]: Nullifying fmDepthGain due to error during creation/start.`);
-             osc1Note.fmDepthGain = null; // <<< Ensure nullified on error
+    } else if (osc1FMSource === 'osc2') {
+        if (voice.osc2Note && voice.osc2Note.workletNode) {
+            fmSource = voice.osc2Note.workletNode;
+            console.log(`OSC1 [${noteId}]: Switching to OSC2 worklet from voice ${voice.id}`);
         }
     }
+    
+    if (fmSource) {
+        try {
+            // CRITICAL: Connect the NEW source
+            fmSource.connect(osc1Note.fmDepthGain);
+            osc1Note.fmDepthGain.connect(osc1Note.workletNode, 0, 0);
+            fmDepthParam.setValueAtTime(scaledDepth, now);
+            console.log(`OSC1 [${noteId}]: FM reconnected to ${osc1FMSource} with depth ${scaledDepth.toFixed(1)} Hz`);
+        } catch(e) {
+            console.error(`OSC1 [${noteId}]: FM connection error: ${e.message}`);
+            fmDepthParam.setValueAtTime(0, now);
+        }
+    } else {
+        fmDepthParam.setValueAtTime(0, now);
+    }
 }
-
 function noteToFrequency(noteNumber, octaveOffset = 0, detuneCents = 0) {
     const baseNote = 69; // MIDI note number for A4
     const baseFreq = 440;
@@ -607,19 +1345,25 @@ return ('ontouchstart' in window) ||
  */
 function clearScheduledEventsForNote(note) {
     if (note && Array.isArray(note.scheduledEvents)) {
-        // console.log(`Clearing ${note.scheduledEvents.length} scheduled events for note ${note.id}`);
-        note.scheduledEvents.forEach(event => {
+        // Iterate backwards to safely remove elements while iterating
+        for (let i = note.scheduledEvents.length - 1; i >= 0; i--) {
+            const event = note.scheduledEvents[i];
             if (event.type === "timeout" && event.id) {
-                clearTimeout(event.id);
-                // console.log(`Cleared timeout ID: ${event.id}`);
+                // Use trackClearTimeout WITHOUT passing the note again to avoid infinite recursion
+                trackClearTimeout(event.id);
+                // No need to splice here, trackClearTimeout handles removal if note was passed initially
             }
-            // Add handling for other event types if needed (e.g., Tone.Transport events)
-            // else if (event.type === "toneDispose" && event.id) {
-            //    Tone.Transport.clear(event.id);
-            // }
-        });
-        note.scheduledEvents = []; // Clear the array
+            // Add handling for other event types if needed (e.g., Tone.js events)
+            // else if (event.type === "toneDispose") { ... }
+        }
+        note.scheduledEvents = []; // Clear the array after processing
     }
+     // Also clear the legacy killTimerId if it exists
+     if (note && note.killTimerId) {
+         // Use trackClearTimeout WITHOUT passing the note again
+         trackClearTimeout(note.killTimerId);
+         note.killTimerId = null;
+     }
 }
 
 
@@ -682,88 +1426,52 @@ return newBuffer;
  * @param {AudioBuffer} recordedBuffer - The buffer containing the recorded audio.
  */
 function handleRecordingComplete(recordedBuffer) {
-  if (!recordedBuffer) {
-      console.error("handleRecordingComplete received null buffer.");
-      return;
-  }
-  console.log("Handling completed recording in main.js");
-
-  // 2) Update global audioBuffer
-  audioBuffer = recordedBuffer;
-  originalBuffer = recordedBuffer.slice(); // Store the original buffer
-
-  // Apply reverse if needed
-  if (isSampleReversed) {
-    reverseBufferIfNeeded(false); // Reverse if needed, don't trigger FM update yet
-}
-updateSampleProcessing();
-
-
-  // 4) Reset crossfade data
-  cachedCrossfadedBuffer = null;
-  lastCachedStartPos = null;
-  lastCachedEndPos = null;
-  lastCachedCrossfade = null;
-
-  // 5) Create and connect a new source node
-  if (sampleSource) {
-      try { sampleSource.stop(); } catch(e){}
-  }
-  sampleSource = audioCtx.createBufferSource();
-  sampleSource.buffer = audioBuffer; // Use the new buffer
-  sampleSource.connect(sampleGainNode);
-  sampleSource.start();
-
-  // 6) Set UI label
-  const fileLabel = document.querySelector('label[for="audio-file"]');
-  if (fileLabel) {
-      fileLabel.textContent = 'Recording (mic)';
-  }
-
-  // 7) Create crossfaded buffer if needed
-  if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
-      console.log("Creating crossfaded buffer for recorded sample");
-      const result = createCrossfadedBuffer(
-        audioCtx, // Use the global audioCtx
-          audioBuffer, // Use the new buffer
-          sampleStartPosition,
-          sampleEndPosition,
-          sampleCrossfadeAmount
-      );
-      if (result && result.buffer) {
-          console.log("Successfully created crossfaded buffer for recorded sample");
-          cachedCrossfadedBuffer = result.buffer;
-          lastCachedStartPos = sampleStartPosition;
-          lastCachedEndPos = sampleEndPosition;
-          lastCachedCrossfade = sampleCrossfadeAmount;
-      }
-  }
-// <<< ADD: Update active Osc1 FM modulators AFTER buffer processing >>>
-const nowRec = audioCtx.currentTime;
-Object.values(activeVoices).forEach(voice => {
-    if (voice && voice.osc1Note) {
-        updateOsc1FmModulatorParameters(voice.osc1Note, nowRec, voice);
+    if (!recordedBuffer) {
+        console.error("handleRecordingComplete received null buffer.");
+        return;
     }
-});
-// <<< END ADD >>>
-  // 8) Update any active notes to use the new buffer
-  Object.values(activeVoices).forEach(note => {
-    if (note && note.source) {
-        // Skip held notes
-        if (heldNotes.includes(note.noteNumber)) {
-              console.log(`Note ${note.id} is held; will update on release.`);
-              return;
-          }
-          console.log(`Updating note ${note.id} to use recorded sample`);
-          note.usesProcessedBuffer = false;
-          note.crossfadeActive = false;
-          if (isSampleLoopOn) {
-              note.looping = true;
-              setupLoopCrossfade(note); // Assumes this uses global audioBuffer/cachedCrossfadedBuffer
-          }
-          updateSamplePlaybackParameters(note); // Assumes this uses global audioBuffer/cachedCrossfadedBuffer
-      }
-  });
+    console.log("Handling completed recording in main.js");
+
+    // 2) Update global audioBuffer
+    audioBuffer = recordedBuffer;
+    originalBuffer = recordedBuffer.slice(); // Store the original buffer
+
+    // Apply reverse if needed
+    if (isSampleReversed) {
+        reverseBufferIfNeeded(false); // Reverse if needed, don't trigger FM update yet
+    }
+    
+    // Process the buffer and wait for processing to complete
+    console.log("Processing recorded buffer...");
+    updateSampleProcessing();
+    
+    // Use a timeout to ensure processing has time to complete
+    setTimeout(() => {
+        console.log("Updating all active sampler notes with new recorded buffer");
+        
+        // Force update ALL sampler notes, even held ones
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.samplerNote) {
+                console.log(`Forced update of sampler note ${voice.samplerNote.id} to use new recording`);
+                updateSamplePlaybackParameters(voice.samplerNote);
+            }
+        });
+        
+        // Update the source for UI preview
+        if (sampleSource) {
+            try { sampleSource.stop(); } catch(e) {}
+            sampleSource = audioCtx.createBufferSource();
+            sampleSource.buffer = audioBuffer;
+            sampleSource.connect(sampleGainNode);
+            sampleSource.start();
+        }
+        
+        // Update display
+        const fileLabel = document.querySelector('label[for="audio-file"]');
+        if (fileLabel) {
+            fileLabel.textContent = 'Recording (mic)';
+        }
+    }, 200); // Give enough time for updateSampleProcessing to do its work
 }
 function preventScrollOnControls() {
 // More targeted approach - add touch event handlers to each UI control type individually
@@ -794,6 +1502,7 @@ button.click();
 }
 
 
+
 // Knob initializations (only one set)
 const knobInitializations = {
     'master-volume-knob': (value) => {
@@ -803,44 +1512,58 @@ const knobInitializations = {
         masterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
         console.log('Master Volume:', value.toFixed(2));
     },
+    
     'sample-volume-knob': (value) => {
         const tooltip = createTooltipForKnob('sample-volume-knob', value);
-        tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
+        
+        if (value === 0) {
+            tooltip.textContent = 'MUTED';
+        } else {
+            tooltip.textContent = `Sampler: ${(value * 100).toFixed(0)}%`;
+        }
         tooltip.style.opacity = '1';
-        currentSampleGain = value;
-        // Update all active sampler notes' sample gain
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.samplerNote && voice.samplerNote.sampleNode) {
-                voice.samplerNote.sampleNode.gain.value = currentSampleGain;
-            }
-        });
-        console.log('Sample Gain:', value.toFixed(2));
+        
+        // Update the samplerMasterGain instead of individual sample nodes
+        samplerMasterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
+        
+        console.log('Sampler Master Volume:', value === 0 ? 'MUTED' : `${(value * 100).toFixed(0)}%`);
     },
-    'sample-pitch-knob': (value) => {
-        // Convert 0-1 range to -1200 to +1200 cents
-        currentSampleDetune = (value * 2400) - 1200;
-        const now = audioCtx.currentTime;
 
-        // Show and update tooltip
-        const tooltip = createTooltipForKnob('sample-pitch-knob', value); // Use specific tooltip helper
-        tooltip.textContent = `${currentSampleDetune.toFixed(0)} cents`;
-        tooltip.style.opacity = '1';
+'sample-pitch-knob': (value) => {
+    // Convert 0-1 range to -1200 to +1200 cents
+    currentSampleDetune = (value * 2400) - 1200;
+    const now = audioCtx.currentTime;
 
-        // Update all active sampler notes' pitch AND their corresponding FM modulators
-        Object.values(activeVoices).forEach(voice => {
-            // Update main sampler note
-            if (voice && voice.samplerNote && voice.samplerNote.source) {
-                voice.samplerNote.source.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
+    // Show and update tooltip
+    const tooltip = createTooltipForKnob('sample-pitch-knob', value);
+    tooltip.textContent = `${currentSampleDetune.toFixed(0)} cents`;
+    tooltip.style.opacity = '1';
+
+    // CRITICAL FIX: Update samplerVoicePool, not voicePool
+    samplerVoicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.samplerNote && voice.samplerNote.source) {
+            voice.samplerNote.source.detune.cancelScheduledValues(now);
+            voice.samplerNote.source.detune.setValueAtTime(currentSampleDetune, now);
+            console.log(`Real-time pitch update for sampler voice ${voice.id}: ${currentSampleDetune.toFixed(0)} cents`);
+        }
+    });
+
+    // Also update FM modulators that use sampler in the voicePool
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            // Update Osc1 FM if using sampler
+            if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                voice.osc1Note.fmModulatorSource.detune.setValueAtTime(currentSampleDetune, now);
             }
-            // <<< ADD: Update corresponding FM modulator detune >>>
-            if (voice && voice.osc1Note && voice.osc1Note.fmModulatorSource) {
-                voice.osc1Note.fmModulatorSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
+            // Update Osc2 FM if using sampler
+            if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                voice.osc2Note.fmModulatorSource.detune.setValueAtTime(currentSampleDetune, now);
             }
-            // <<< END ADD >>>
-        });
+        }
+    });
 
-        console.log('Sample Pitch:', currentSampleDetune.toFixed(0) + ' cents');
-    },
+    console.log('Sample Pitch:', currentSampleDetune.toFixed(0) + ' cents');
+},
     'osc1-gain-knob': (value) => {
         const tooltip = createTooltipForKnob('osc1-gain-knob', value);
         tooltip.textContent = `Gain: ${(value * 100).toFixed(0)}%`;
@@ -849,14 +1572,15 @@ const knobInitializations = {
 
         // --- REAL-TIME UPDATE FOR ACTIVE NOTES (Control levelNode) ---
         const now = audioCtx.currentTime;
-        Object.values(activeVoices).forEach(voice => {
-            // Check if the voice and the specific osc1 levelNode exist
-            if (voice && voice.osc1Note && voice.osc1Note.levelNode) {
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            // Check if the voice is active and the specific osc1 levelNode exist
+            if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.levelNode) {
                 const levelNode = voice.osc1Note.levelNode;
-                // Smoothly transition the levelNode's gain to the new global value
-                levelNode.gain.setTargetAtTime(osc1GainValue, now, 0.015); // Use setTargetAtTime for smoothness
+                levelNode.gain.setTargetAtTime(osc1GainValue, now, 0.015);
             }
         });
+        // <<< END CHANGE >>>
         // --- END REAL-TIME UPDATE ---
 
         console.log('Osc1 Gain:', value.toFixed(2));
@@ -870,15 +1594,20 @@ const knobInitializations = {
         tooltip.style.opacity = '1';
 
         const now = audioCtx.currentTime;
-        Object.values(activeVoices).forEach(voice => {
-            // <<< Simplify: Only target workletNode >>>
-            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
                 const oscDetuneParam = voice.osc1Note.workletNode.parameters.get('detune');
                 if (oscDetuneParam) {
                     oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
                 }
+                // <<< ADD: Update Osc1 FM source if it's Osc2 >>>
+                if (osc2FMSource === 'osc1' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof OscillatorNode) {
+                    voice.osc2Note.fmModulatorSource.detune.setTargetAtTime(osc1Detune, now, 0.01);
+                }
             }
         });
+        // <<< END CHANGE >>>
         console.log('Osc1 Detune:', osc1Detune.toFixed(2));
     },
     'osc1-fm-knob': (value) => {
@@ -899,8 +1628,9 @@ const knobInitializations = {
         tooltip.style.opacity = '1';
 
         // --- UPDATE Per-Voice ---
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc1Note) {
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc1Note) {
                 // Check if the fmDepthGain node exists for this voice.
                 if (voice.osc1Note.fmDepthGain) {
                     // <<< Node exists: Just update gain smoothly >>>
@@ -919,223 +1649,137 @@ const knobInitializations = {
                 // <<< If !isNowOn and node exists, the gain ramp above will handle turning it down >>>
             }
         });
+        // <<< END CHANGE >>>
         // --- END UPDATE ---
 
         // Log values
         console.log(`Osc1 FM Knob Raw: ${value.toFixed(3)}, Curved: ${osc1FMAmount.toFixed(3)}, Depth: ${scaledDepth.toFixed(1)} Hz`);
     },
     'sample-start-knob': (value) => {
-        const minLoopFractionRequired = 0.001; // Minimum gap always required
-        const minLoopFractionForCrossfade = 0.01; // Minimum 1% loop length if crossfading
+    const minLoopFractionRequired = 0.001;
+    const minLoopFractionForCrossfade = 0.01;
+    const effectiveMinGap = isSampleLoopOn
+        ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
+        : minLoopFractionRequired;
 
-        // Determine the effective minimum gap based on loop state
-        const effectiveMinGap = isSampleLoopOn
-            ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
-            : minLoopFractionRequired;
+    const maxAllowedStart = sampleEndPosition - effectiveMinGap;
+    let newStartPosition = Math.min(value, maxAllowedStart);
+    newStartPosition = Math.max(0, newStartPosition);
 
-        // Calculate the maximum allowed start position
-        const maxAllowedStart = sampleEndPosition - effectiveMinGap;
-
-        // Clamp the incoming value
-        let newStartPosition = Math.min(value, maxAllowedStart);
-        newStartPosition = Math.max(0, newStartPosition); // Ensure not less than 0
-
-        // Only update if the value actually changed
-        // --- CORRECTED BLOCK ---
-        if (newStartPosition !== sampleStartPosition) { // <<< FIX: Check newStartPosition against sampleStartPosition
-            sampleStartPosition = newStartPosition; // <<< FIX: Assign newStartPosition to sampleStartPosition
-
-            // Update processing immediately (this handles trimming/fading AND schedules crossfade creation if needed)
-            updateSampleProcessing();
-
-            const tooltip = createTooltipForKnob('sample-start-knob', value); // Use original value for tooltip positioning
-            tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
-            tooltip.style.opacity = '1';
-            console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%');
-
-            // Debounce note updates (NO buffer creation here)
-            if (startUpdateTimer) { clearTimeout(startUpdateTimer); } // <<< FIX: Use startUpdateTimer
-            startUpdateTimer = setTimeout(() => { // <<< FIX: Use startUpdateTimer
-                // updateSampleProcessing should have finished or scheduled buffer creation by now.
-                // updateSamplePlaybackParameters will pick the correct buffer.
-                console.log("Start knob settled - updating active notes.");
-                Object.values(activeVoices).forEach(voice => {
-                    if (voice && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
-                        console.log(`Updating sampler note ${voice.samplerNote.id} after start change.`);
-                        updateSamplePlaybackParameters(voice.samplerNote);
-                    } else if (voice && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
-                        console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after start change.`);
-                    }
-                });
-                startUpdateTimer = null; // <<< FIX: Use startUpdateTimer
-            }, 150); // Delay to allow updateSampleProcessing's timeouts to potentially finish
-        // --- END CORRECTED BLOCK ---
-        } else {
-             // If the clamped value is the same as the current, still show tooltip briefly
-             const tooltip = createTooltipForKnob('sample-start-knob', value);
-             tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
-             tooltip.style.opacity = '1';
+    if (newStartPosition !== sampleStartPosition) {
+        // SNAP TO ZERO CROSSING - If we have a buffer to analyze
+        if (audioBuffer) {
+            // Convert fraction to sample position
+            const totalSamples = audioBuffer.length;
+            const rawStartSample = Math.floor(newStartPosition * totalSamples);
+            
+            // Find best zero crossing (search backward for start position)
+            const snappedSample = findBestZeroCrossing(
+                audioBuffer, 
+                rawStartSample, 
+                1, // Direction: forward to find zero crossing after peak/trough
+                Math.floor(totalSamples * 0.02) // Search within 2% of total length
+            );
+            
+            // Convert back to fraction
+            newStartPosition = snappedSample / totalSamples;
+            console.log(`Start position snapped to zero crossing: ${(newStartPosition * 100).toFixed(2)}%`);
         }
-    },
-    'sample-end-knob': (value) => {
-        const minLoopFractionRequired = 0.001; // Minimum gap always required
-        const minLoopFractionForCrossfade = 0.01; // Minimum 1% loop length if crossfading
-
-        // Determine the effective minimum gap based on loop state
-        const effectiveMinGap = isSampleLoopOn
-            ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
-            : minLoopFractionRequired;
-
-        // Calculate the minimum allowed end position
-        const minAllowedEnd = sampleStartPosition + effectiveMinGap;
-
-        // Clamp the incoming value
-        let newEndPosition = Math.max(value, minAllowedEnd);
-        newEndPosition = Math.min(1, newEndPosition); // Ensure not more than 1
-
-        // Only update if the value actually changed
-        if (newEndPosition !== sampleEndPosition) {
-            sampleEndPosition = newEndPosition;
-
-            // Update processing immediately (this handles trimming/fading)
-            updateSampleProcessing();
-
-            const tooltip = createTooltipForKnob('sample-end-knob', value); // Use original value for tooltip positioning
-            tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
-            tooltip.style.opacity = '1';
-            console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
-
-            // Debounce crossfade buffer creation and note updates (existing logic)
-            if (endUpdateTimer) { clearTimeout(endUpdateTimer); }
-            endUpdateTimer = setTimeout(() => {
-                if (audioBuffer) {
-                    // Create crossfaded buffer if needed (uses processed/faded buffer)
-                    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
-                        console.log("Creating new crossfaded buffer after end position settled");
-                        const bufferToCrossfade = fadedBuffer || audioBuffer; // Use faded if available
-                        const result = createCrossfadedBuffer(
-                            audioCtx,
-                            bufferToCrossfade,
-                            0, // Use entire processed buffer
-                            1, // Use entire processed buffer
-                            sampleCrossfadeAmount
-                        );
-
-                        if (result && result.buffer) {
-                            // Apply Emu processing AFTER crossfade if enabled
-                            cachedCrossfadedBuffer = isEmuModeOn ? applyEmuProcessing(result.buffer) : result.buffer;
-                            lastCachedStartPos = sampleStartPosition; // Store original requested start
-                            lastCachedEndPos = sampleEndPosition;     // Store original requested end
-                            lastCachedCrossfade = sampleCrossfadeAmount;
-                            console.log("Crossfaded buffer updated after end change.");
-                        } else {
-                            console.warn("Crossfaded buffer creation failed after end change.");
-                            cachedCrossfadedBuffer = null; // Invalidate cache on failure
-                        }
-                    } else {
-                        cachedCrossfadedBuffer = null; // Invalidate if crossfade turned off
-                    }
-
-                    // Update any active (non-held) sampler notes
-                    Object.values(activeVoices).forEach(voice => {
-                         if (voice && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
-                            console.log(`Updating sampler note ${voice.samplerNote.id} after end change.`);
-                            updateSamplePlaybackParameters(voice.samplerNote);
-                        } else if (voice && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
-                            console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after end change.`);
-                        }
-                    });
-                }
-                endUpdateTimer = null;
-            }, 150); // Delay
-        } else {
-             // If the clamped value is the same as the current, still show tooltip briefly
-             const tooltip = createTooltipForKnob('sample-end-knob', value);
-             tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
-             tooltip.style.opacity = '1';
-        }
-    },
-    'sample-crossfade-knob': (value) => {
-        const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
-        tooltip.textContent = `Crossfade: ${(value * 100).toFixed(0)}%`;
-        tooltip.style.opacity = '1';
-
-        const prevCrossfade = sampleCrossfadeAmount;
-        const prevLoopState = isSampleLoopOn;
-
-        sampleCrossfadeAmount = value;
-        isSampleLoopOn = value > 0.01; // Loop is ON if crossfade > 1%
-
-        // If enabling crossfade, disable and reset manual fades
-        if (isSampleLoopOn && !prevLoopState) {
-            console.log("Crossfade enabled, resetting manual fades.");
-            sampleFadeInAmount = 0;
-            sampleFadeOutAmount = 0;
-            const fadeKnob = D('sample-fade-knob');
-            if (fadeKnob && fadeKnob.control) { // Check if control object exists
-                fadeKnob.control.setValue(0.5); // Reset fade knob UI to center
-            }
-        }
-
-        // --- REMOVE THIS ENTIRE INCORRECT BLOCK ---
-        /*
-        // Only update if the value actually changed to prevent unnecessary processing
-        if (newStartPosition !== sampleStartPosition) { // <<< ERROR: newStartPosition not defined here
-            sampleStartPosition = newStartPosition;
-
-            // Update processing immediately (this handles trimming/fading AND schedules crossfade creation if needed)
-            updateSampleProcessing();
-
-            // ... (tooltip update logic) ..
-            tooltip.textContent = 'Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%'; // <<< Incorrect tooltip
-            tooltip.style.opacity = '1';
-
-            // Debounce note updates (NO buffer creation here)
-            if (startUpdateTimer) { clearTimeout(startUpdateTimer); } // <<< Incorrect timer
-            startUpdateTimer = setTimeout(() => { // <<< Incorrect timer
-                // updateSampleProcessing should have finished or scheduled buffer creation by now.
-                // updateSamplePlaybackParameters will pick the correct buffer.
-                console.log("Start knob settled - updating active notes.");
-                Object.values(activeVoices).forEach(voice => {
-                    if (voice && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
-                        console.log(`Updating sampler note ${voice.samplerNote.id} after start change.`);
-                        updateSamplePlaybackParameters(voice.samplerNote);
-                    } else if (voice && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
-                        console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after start change.`);
-                    }
-                });
-                startUpdateTimer = null; // <<< Incorrect timer
-            }, 150); // Delay to allow updateSampleProcessing's timeouts to potentially finish
-        } else {
-            tooltip.textContent = 'Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%'; // <<< Incorrect tooltip
-            tooltip.style.opacity = '1';
-        }
-        */
-        // --- END REMOVED BLOCK ---
-
-        // --- ADD CORRECT DEBOUNCED NOTE UPDATE ---
-        // Update sample processing immediately
+        
+        sampleStartPosition = newStartPosition;
         updateSampleProcessing();
 
-        // Debounce note updates using the correct timer
-        if (crossfadeUpdateTimer) { clearTimeout(crossfadeUpdateTimer); }
-        crossfadeUpdateTimer = setTimeout(() => {
-            // updateSampleProcessing should have finished or scheduled buffer creation by now.
-            // updateSamplePlaybackParameters will pick the correct buffer.
-            console.log("Crossfade knob settled - updating active notes.");
-            Object.values(activeVoices).forEach(voice => {
-                if (voice && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
-                    console.log(`Updating sampler note ${voice.samplerNote.id} after crossfade change.`);
-                    updateSamplePlaybackParameters(voice.samplerNote);
-                } else if (voice && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
-                    console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after crossfade change.`);
-                }
-            });
-            crossfadeUpdateTimer = null;
-        }, 150); // Delay to allow updateSampleProcessing's timeouts to potentially finish
-        // --- END CORRECT DEBOUNCED NOTE UPDATE ---
+        const tooltip = createTooltipForKnob('sample-start-knob', value);
+        tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%');
 
-    }, // End of 'sample-crossfade-knob'
+        if (startUpdateTimer) { trackClearTimeout(startUpdateTimer); }
+        startUpdateTimer = null;
+    } else {
+        const tooltip = createTooltipForKnob('sample-start-knob', value);
+        tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+    }
+},
+
+// Around line 1480 - Update sample-end-knob
+'sample-end-knob': (value) => {
+    const minLoopFractionRequired = 0.001;
+    const minLoopFractionForCrossfade = 0.01;
+    const effectiveMinGap = isSampleLoopOn
+        ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
+        : minLoopFractionRequired;
+
+    const minAllowedEnd = sampleStartPosition + effectiveMinGap;
+    let newEndPosition = Math.max(value, minAllowedEnd);
+    newEndPosition = Math.min(1, newEndPosition);
+
+    if (newEndPosition !== sampleEndPosition) {
+        // SNAP TO ZERO CROSSING - If we have a buffer to analyze
+        if (audioBuffer) {
+            // Convert fraction to sample position
+            const totalSamples = audioBuffer.length;
+            const rawEndSample = Math.floor(newEndPosition * totalSamples);
+            
+            // Find best zero crossing (search forward for end position)
+            const snappedSample = findBestZeroCrossing(
+                audioBuffer, 
+                rawEndSample, 
+                -1, // Direction: backward to find zero crossing after peak/trough
+                Math.floor(totalSamples * 0.02) // Search within 2% of total length
+            );
+            
+            // Convert back to fraction
+            newEndPosition = snappedSample / totalSamples;
+            console.log(`End position snapped to zero crossing: ${(newEndPosition * 100).toFixed(2)}%`);
+        }
+        
+        sampleEndPosition = newEndPosition;
+        updateSampleProcessing();
+
+        const tooltip = createTooltipForKnob('sample-end-knob', value);
+        tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
+
+        if (endUpdateTimer) { trackClearTimeout(endUpdateTimer); }
+        endUpdateTimer = null;
+    } else {
+        const tooltip = createTooltipForKnob('sample-end-knob', value);
+        tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+    }
+},
+    'sample-crossfade-knob': (value) => {
+    const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
+    tooltip.textContent = `Crossfade: ${(value * 100).toFixed(0)}%`;
+    tooltip.style.opacity = '1';
+
+    const prevCrossfade = sampleCrossfadeAmount;
+    const prevLoopState = isSampleLoopOn;
+
+    sampleCrossfadeAmount = value;
+    isSampleLoopOn = value > 0.01;
+
+    if (isSampleLoopOn && !prevLoopState) {
+        console.log("Crossfade enabled, resetting manual fades.");
+        sampleFadeInAmount = 0;
+        sampleFadeOutAmount = 0;
+        const fadeKnob = D('sample-fade-knob');
+        if (fadeKnob && fadeKnob.control) {
+            fadeKnob.control.setValue(0.5);
+        }
+    }
+
+    updateSampleProcessing();
+
+    // CRITICAL FIX: Don't update playing notes
+    if (crossfadeUpdateTimer) { trackClearTimeout(crossfadeUpdateTimer); }
+    crossfadeUpdateTimer = null;
+    
+    console.log("Crossfade changed - will affect next noteOn only");
+}, // End of 'sample-crossfade-knob'
 
     'sample-fade-knob': (value) => {
         const fadeValue = value * 2 - 1; // Convert 0-1 range to -1 to +1 range
@@ -1175,144 +1819,192 @@ const knobInitializations = {
         updateSampleProcessing();
 
         // Debounce note updates (similar to start/end knobs)
-        // Use a separate timer if needed, or reuse one if logic is identical
-        if (fadeProcessTimer) { clearTimeout(fadeProcessTimer); }
-        fadeProcessTimer = setTimeout(() => {
+        if (fadeProcessTimer) { trackClearTimeout(fadeProcessTimer); } // <<< Use trackClearTimeout
+        fadeProcessTimer = trackSetTimeout(() => {
              if (audioBuffer) {
                  // Update any active (non-held) sampler notes
-                 Object.values(activeVoices).forEach(voice => {
-                     if (voice && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
+                 // <<< CHANGE: Iterate over voicePool >>>
+                 voicePool.forEach(voice => {
+                     if (voice.state !== 'inactive' && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
                          console.log(`Updating sampler note ${voice.samplerNote.id} after fade change.`);
                          // updateSamplePlaybackParameters will pick up the new fadedBuffer
                          updateSamplePlaybackParameters(voice.samplerNote);
-                     } else if (voice && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
+                     } else if (voice.state !== 'inactive' && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
                          console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after fade change.`);
                      }
                  });
+                 // <<< END CHANGE >>>
              }
              fadeProcessTimer = null;
         }, 150); // Delay
     },
     'glide-time-knob': (value) => {
-        const tooltip = createTooltipForKnob('glide-time-knob', value);
-        const timeMs = value * 2000; // 0 to 2000ms
-        tooltip.textContent = `${timeMs.toFixed(0)}ms`;
-        tooltip.style.opacity = '1';
-        glideTime = timeMs / 1000; // Convert ms to seconds for Web Audio API
-        console.log('Glide Time:', glideTime.toFixed(3) + 's');
-    },
-    'osc1-pwm-knob': (value) => {
-        osc1PWMValue = value; // Update global hold amount
-
-        const holdAmount = osc1PWMValue; // Value is 0-1
-
-        const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
-        // <<< Simplified tooltip >>>
-        tooltip.textContent = `Shape: ${(holdAmount * 100).toFixed(0)}%`;
-        tooltip.style.opacity = '1';
-
-        // Update active notes
-        const now = audioCtx.currentTime;
-        Object.values(activeVoices).forEach(voice => {
-            // <<< Simplify: Only target workletNode >>>
-            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
-                const holdParam = voice.osc1Note.workletNode.parameters.get('holdAmount');
-                if (holdParam) {
-                    holdParam.setTargetAtTime(holdAmount, now, 0.015);
-                }
-            }
-        });
-        // <<< Simplified log >>>
-        console.log(`Osc1 PWM/Shape Knob: ${holdAmount.toFixed(2)}`);
-    },
-
-    // <<< ADD Quantize Knob Callback >>>
+    const tooltip = createTooltipForKnob('glide-time-knob', value);
+    const timeMs = value * 2000; // 0 to 2000ms
+    tooltip.textContent = `${timeMs.toFixed(0)}ms`;
+    tooltip.style.opacity = '1';
+    glideTime = timeMs / 1000; // Convert ms to seconds for Web Audio API
+    console.log('Glide Time:', glideTime.toFixed(3) + 's');
+},
+    // Update the PWM knob callbacks to work with the new system
+// In knobInitializations object:
+'osc1-pwm-knob': (value) => {
+    // Always update the global value first
+    osc1PWMValue = value;
+    
+    const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
+    
+    // Update display text - show "OFF" when at zero
+    if (value === 0) {
+        tooltip.textContent = "PWM: OFF";
+    } else {
+        // FIXED: Show actual 0-95% range
+        tooltip.textContent = `PW: ${Math.round(value * 95)}%`;
+    }
+    tooltip.style.opacity = '1';
+    
+    // Update active notes with pulse width
+    const now = audioCtx.currentTime;
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
+            // FIXED: When value is 0, PWM is OFF (use waveform default)
+            // Otherwise map 0.01-1.0 to 0.01-0.95
+            const pulseWidth = (value === 0) ? 
+                getJunoWaveformParams(osc1Waveform).pulseWidth : 
+                (value * 0.95);
+            
+            // Apply to the current waveform
+            setJunoWaveform(voice.osc1Note.workletNode, osc1Waveform, pulseWidth);
+        }
+    });
+    
+    // Log with special case for OFF state
+    if (value === 0) {
+        console.log(`Osc1 PWM: OFF (using default for ${osc1Waveform})`);
+    } else {
+        console.log(`Osc1 PWM: ${value.toFixed(2)}, Actual PW: ${(value * 0.95).toFixed(2)}`);
+    }
+},
     'osc1-quantize-knob': (value) => {
-        osc1QuantizeValue = value; // Update global quantize amount
-
-        const quantizeAmount = osc1QuantizeValue; // Value is 0-1
-
-        const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
-        tooltip.textContent = `Quant: ${(quantizeAmount * 100).toFixed(0)}%`;
-        tooltip.style.opacity = '1';
-
-        // Update active notes
-        const now = audioCtx.currentTime;
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
-                const quantizeParam = voice.osc1Note.workletNode.parameters.get('quantizeAmount');
-                if (quantizeParam) {
-                    quantizeParam.setTargetAtTime(quantizeAmount, now, 0.015);
-                }
+    osc1QuantizeValue = value;
+    
+    const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
+    tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
+    tooltip.style.opacity = '1';
+    
+    // Update active notes
+    const now = audioCtx.currentTime;
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
+            // Get worklet parameter
+            const quantizeParam = voice.osc1Note.workletNode.parameters.get('quantizeAmount');
+            if (quantizeParam) {
+                // Set parameter smoothly
+                quantizeParam.setTargetAtTime(value, now, 0.01);
             }
-        });
-        console.log(`Osc1 Quantize Knob: ${quantizeAmount.toFixed(2)}`);
-    },
-    // <<< ADD OSC 2 KNOBS >>>
+        }
+    });
+    
+    console.log(`Osc1 Quantize: ${value.toFixed(2)}`);
+},
     'osc2-gain-knob': (value) => {
         osc2GainValue = value;
         const tooltip = createTooltipForKnob('osc2-gain-knob', value);
         tooltip.textContent = `Gain: ${Math.round(value * 100)}%`;
         tooltip.style.opacity = '1';
         // Update active Osc2 notes
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc2Note && voice.osc2Note.levelNode) {
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.levelNode) {
                 voice.osc2Note.levelNode.gain.setTargetAtTime(osc2GainValue, audioCtx.currentTime, 0.01);
             }
         });
+        // <<< END CHANGE >>>
         console.log(`Osc2 Gain set to: ${value.toFixed(2)}`);
     },
     'osc2-pitch-knob': (value) => {
-        // Map 0-1 to -1200 to +1200 cents
+        // Map 0-1 to -100 to +100 cents (adjust range as needed)
         osc2Detune = (value - 0.5) * 200;
         const tooltip = createTooltipForKnob('osc2-pitch-knob', value);
         tooltip.textContent = `Pitch: ${osc2Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
+        const now = audioCtx.currentTime;
         // Update active Osc2 notes
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc2Note && voice.osc2Note.workletNode) {
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
                 const detuneParam = voice.osc2Note.workletNode.parameters.get('detune');
                 if (detuneParam) {
-                    detuneParam.setTargetAtTime(osc2Detune, audioCtx.currentTime, 0.01);
+                    detuneParam.setTargetAtTime(osc2Detune, now, 0.01);
+                }
+                // <<< ADD: Update Osc2 FM source if it's Osc1 >>>
+                if (osc1FMSource === 'osc2' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof OscillatorNode) {
+                    voice.osc1Note.fmModulatorSource.detune.setTargetAtTime(osc2Detune, now, 0.01);
                 }
             }
         });
+        // <<< END CHANGE >>>
         console.log(`Osc2 Detune set to: ${osc2Detune.toFixed(1)} cents`);
     },
     'osc2-pwm-knob': (value) => {
+    // Always update the global value first
     osc2PWMValue = value;
+    
     const tooltip = createTooltipForKnob('osc2-pwm-knob', value);
-    tooltip.textContent = `Shape: ${Math.round(value * 100)}%`; // Use Shape for consistency
+    
+    // Update display text - show "OFF" when at zero
+    if (value === 0) {
+        tooltip.textContent = "PWM: OFF";
+    } else {
+        // FIXED: Show actual 0-95% range
+        tooltip.textContent = `PW: ${Math.round(value * 95)}%`;
+    }
     tooltip.style.opacity = '1';
+    
+    // Update active notes with pulse width
     const now = audioCtx.currentTime;
-    // <<< REMOVE THE IF CHECK WRAPPING THE LOOP >>>
-    // Update active Osc2 notes regardless of waveform
-    Object.values(activeVoices).forEach(voice => {
-        if (voice && voice.osc2Note && voice.osc2Note.workletNode) {
-            const holdParam = voice.osc2Note.workletNode.parameters.get('holdAmount');
-            if (holdParam) {
-                holdParam.setTargetAtTime(osc2PWMValue, now, 0.015); // Use the updated global value
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
+            // FIXED: When value is 0, PWM is OFF (use waveform default)
+            // Otherwise map 0.01-1.0 to 0.01-0.95
+            const pulseWidth = (value === 0) ? 
+                getJunoWaveformParams(osc2Waveform).pulseWidth : 
+                (value * 0.95);
+            
+            // Apply to the current waveform
+            setJunoWaveform(voice.osc2Note.workletNode, osc2Waveform, pulseWidth);
+        }
+    });
+    
+    // Log with special case for OFF state
+    if (value === 0) {
+        console.log(`Osc2 PWM: OFF (using default for ${osc2Waveform})`);
+    } else {
+        console.log(`Osc2 PWM: ${value.toFixed(2)}, Actual PW: ${(value * 0.95).toFixed(2)}`);
+    }
+},
+    'osc2-quantize-knob': (value) => {
+    osc2QuantizeValue = value;
+    
+    const tooltip = createTooltipForKnob('osc2-quantize-knob', value);
+    tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
+    tooltip.style.opacity = '1';
+    
+    // Update active notes
+    const now = audioCtx.currentTime;
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
+            // Get worklet parameter
+            const quantizeParam = voice.osc2Note.workletNode.parameters.get('quantizeAmount');
+            if (quantizeParam) {
+                // Set parameter smoothly
+                quantizeParam.setTargetAtTime(value, now, 0.01);
             }
         }
     });
-    console.log(`Osc2 PWM/Shape set to: ${value.toFixed(2)}`);
+    
+    console.log(`Osc2 Quantize: ${value.toFixed(2)}`);
 },
-    'osc2-quantize-knob': (value) => {
-        osc2QuantizeValue = value;
-        const tooltip = createTooltipForKnob('osc2-quantize-knob', value);
-        tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
-        tooltip.style.opacity = '1';
-        // Update active Osc2 notes
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc2Note && voice.osc2Note.workletNode) {
-                const quantParam = voice.osc2Note.workletNode.parameters.get('quantizeAmount');
-                if (quantParam) {
-                    quantParam.setTargetAtTime(osc2QuantizeValue, audioCtx.currentTime, 0.015);
-                }
-            }
-        });
-        console.log(`Osc2 Quantize set to: ${value.toFixed(2)}`);
-    },
     'osc2-fm-knob': (value) => {
         // Apply exponential curve
         const curvedValue = value * value;
@@ -1331,8 +2023,9 @@ const knobInitializations = {
         tooltip.style.opacity = '1';
 
         // --- UPDATE Per-Voice ---
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc2Note) {
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc2Note) {
                 // Check if the fmDepthGain node exists for this voice.
                 if (voice.osc2Note.fmDepthGain) {
                     // <<< Node exists: Just update gain smoothly >>>
@@ -1352,25 +2045,24 @@ const knobInitializations = {
                 // <<< If !isNowOn and node exists, the gain ramp above will handle turning it down >>>
             }
         });
+        // <<< END CHANGE >>>
         // --- END UPDATE ---
 
         console.log(`Osc2 FM Knob Raw: ${value.toFixed(3)}, Curved: ${osc2FMAmount.toFixed(3)}, Depth: ${scaledDepth.toFixed(1)} Hz`);
     },
-    // <<< END ADD OSC 2 KNOBS >>>
-
-    // ... other knobs like glide-time ...
 };
 /**
  * Updates an existing sampler note's playback parameters (buffer, loop, rate, etc.)
  * by aggressively replacing its source and gain nodes.
- * @param {object} note - The sampler note object (e.g., activeVoices[noteNumber].samplerNote).
+ * @param {object} note - The sampler note object 
  * @returns {object|null} The updated note object or null if update failed.
  */
 function updateSamplePlaybackParameters(note) {
     // --- Safety Checks ---
-    if (!note || !(note.source instanceof AudioBufferSourceNode) || !(note.gainNode instanceof GainNode) || !(note.sampleNode instanceof GainNode)) {
-        console.warn(`updateSamplePlaybackParameters: Skipping update for note ${note?.id}. Invalid note object, source, gainNode, or sampleNode.`);
-        return note; // Return original note if invalid
+    if (!note || !(note.source instanceof AudioBufferSourceNode) || 
+        !(note.gainNode instanceof GainNode) || !(note.sampleNode instanceof GainNode)) {
+        console.warn(`updateSamplePlaybackParameters: Invalid note object`);
+        return note;
     }
     if (!audioBuffer) {
         console.warn(`updateSamplePlaybackParameters: Skipping update for note ${note.id}. Global audioBuffer is missing.`);
@@ -1405,17 +2097,39 @@ function updateSamplePlaybackParameters(note) {
         oldGainNode.disconnect();
     } catch (e) {
         // Ignore errors if source was already stopped or disconnected
-        if (!e.message.includes("already stopped") && !e.message.includes("invalid state")) {
-            console.error(`updateSamplePlaybackParameters [${note.id}]: Error stopping/disconnecting old source:`, e);
-        }
     }
+    
     // Clear references on the note object temporarily
     note.source = null;
     note.gainNode = null;
     note.sampleNode = null;
-    // --- End Aggressive Cleanup ---
 
     try {
+        // CRITICAL FIX: Don't rebuild FM connections during sample parameter updates
+        // Only rebuild if the sample buffer itself has changed
+        
+        // Save references to FM connections before replacing
+        const affectedOsc1Notes = [];
+        const affectedOsc2Notes = [];
+        
+        // Only track voices that are ACTUALLY using this specific sampler note as FM source
+        voicePool.forEach(voice => {
+            // Check if OSC1 is using sampler FM AND the modulator source exists
+            if (voice.osc1Note && 
+                voice.osc1Note.state !== 'inactive' && 
+                osc1FMSource === 'sampler' &&
+                voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                affectedOsc1Notes.push({note: voice.osc1Note, voice: voice});
+            }
+            
+            // Check if OSC2 is using sampler FM AND the modulator source exists
+            if (voice.osc2Note && 
+                voice.osc2Note.state !== 'inactive' && 
+                osc2FMSource === 'sampler' &&
+                voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                affectedOsc2Notes.push({note: voice.osc2Note, voice: voice});
+            }
+        });
         // --- Create Replacement Note Structure ---
         console.log(`updateSamplePlaybackParameters [${note.id}]: Creating new source/nodes.`);
 
@@ -1424,43 +2138,44 @@ function updateSamplePlaybackParameters(note) {
         let sourceBuffer = audioBuffer; // Default to original (potentially reversed) buffer
         let bufferType = "original";
 
-        // Prioritize crossfaded buffer if loop/crossfade active and buffer exists
         if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
             sourceBuffer = cachedCrossfadedBuffer;
             useOriginalBuffer = false;
             bufferType = "crossfaded";
         }
-        // Otherwise, use faded buffer if fades are active (and not looping/crossfading)
         else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
             sourceBuffer = fadedBuffer;
             useOriginalBuffer = false;
             bufferType = "faded";
         }
-        // If Emu mode is on and we ended up with the original buffer, apply Emu processing now
         else if (isEmuModeOn && useOriginalBuffer) {
-             // This case should ideally be covered by updateSampleProcessing storing the emu version in fadedBuffer
-             // But as a fallback, process it here if needed.
-             console.warn(`updateSamplePlaybackParameters [${note.id}]: Applying Emu processing fallback.`);
              sourceBuffer = applyEmuProcessing(audioBuffer);
-             useOriginalBuffer = false; // Technically using a processed version now
+             useOriginalBuffer = false;
              bufferType = "original_emu";
         }
 
-
         if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer) || sourceBuffer.length === 0) {
-            console.error(`updateSamplePlaybackParameters [${note.id}]: Invalid sourceBuffer selected (type: ${bufferType}, length: ${sourceBuffer?.length}). Cannot create replacement.`);
-            killSamplerNote(note); // Attempt to kill the note entirely
-            return null; // Indicate failure
+            console.error(`updateSamplePlaybackParameters [${note.id}]: Invalid sourceBuffer. Cannot create replacement.`);
+            killSamplerNote(note);
+            return null;
         }
+        
         console.log(`updateSamplePlaybackParameters [${note.id}]: Selected buffer for replacement: ${bufferType}`);
 
         // Create new nodes
         const newSource = audioCtx.createBufferSource();
         const newGainNode = audioCtx.createGain(); // For ADSR
         const newSampleNode = audioCtx.createGain(); // For sample-specific gain
-
+        
+        // CRITICAL: Reuse existing FM tap or create new one
+        let fmTap = note.fmTap;
+        if (!fmTap) {
+            fmTap = audioCtx.createGain();
+            fmTap.gain.value = 1.0;
+        }
+        
         newSource.buffer = sourceBuffer;
-        newSampleNode.gain.value = currentSampleGain; // Use global sample gain
+        newSampleNode.gain.value = (note.state === 'playing') ? currentSampleGain : 0;
 
         // Apply playback rate / detune
         let calculatedRate = 1.0;
@@ -1473,10 +2188,11 @@ function updateSamplePlaybackParameters(note) {
             newSource.detune.value = currentSampleDetune;
         }
 
-        // Connect new nodes: source -> sampleNode -> gainNode -> destination (masterGain)
+        // Connect with FM tap in the chain
         newSource.connect(newSampleNode);
-        newSampleNode.connect(newGainNode);
-        newGainNode.connect(masterGain);
+        newSampleNode.connect(fmTap);  // FM tap gets processed signal
+        fmTap.connect(newGainNode);    // Pass through to ADSR
+        newGainNode.connect(samplerMasterGain); // FIX: Connect to samplerMasterGain instead
 
         // Apply loop settings
         let loopStartTime = 0;
@@ -1485,7 +2201,6 @@ function updateSamplePlaybackParameters(note) {
             // Looping the original buffer requires start/end points based on global settings
             if (isSampleLoopOn) {
                 newSource.loop = true;
-                // Use the original buffer's duration for calculating loop points
                 loopStartTime = sampleStartPosition * audioBuffer.duration;
                 loopEndTime = sampleEndPosition * audioBuffer.duration;
                 newSource.loopStart = loopStartTime;
@@ -1494,75 +2209,85 @@ function updateSamplePlaybackParameters(note) {
                 newSource.loop = false;
             }
         } else {
-            // Looping a processed buffer (faded or crossfaded) loops the whole buffer
+            // Looping a processed buffer loops the whole buffer
             newSource.loop = isSampleLoopOn;
-            // loopStart/End default to 0 and buffer duration if loop is true
         }
 
-        // Update the note object with new nodes and state
+        // Update the note object
         note.source = newSource;
         note.gainNode = newGainNode;
         note.sampleNode = newSampleNode;
+        note.fmTap = fmTap; // Maintain FM tap reference
         note.usesProcessedBuffer = !useOriginalBuffer;
-        note.crossfadeActive = bufferType === "crossfaded"; // Only true if using the specific crossfaded buffer
-        note.looping = newSource.loop; // Reflect the actual loop state
-        note.calculatedLoopStart = loopStartTime; // Store for reference
-        note.calculatedLoopEnd = loopEndTime;     // Store for reference
+        note.crossfadeActive = bufferType === "crossfaded";
+        note.looping = newSource.loop;
+        note.calculatedLoopStart = loopStartTime;
+        note.calculatedLoopEnd = loopEndTime;
 
         // Start the new source
         console.log(`updateSamplePlaybackParameters [${note.id}]: Starting new source.`);
         const now = audioCtx.currentTime;
-        newSource.start(now); // Start immediately
+        newSource.start(now);
 
-        // Restore gain smoothly to the level it was at before replacement
-        note.gainNode.gain.cancelScheduledValues(now);
-        note.gainNode.gain.setValueAtTime(0, now); // Start at 0
-        note.gainNode.gain.linearRampToValueAtTime(currentGainValue, now + 0.01); // Quick ramp (10ms)
+        // CRITICAL FIX: Only restore gain for notes that were actually playing
+        if (note.state === 'playing') {
+            // Restore gain smoothly to the level it was at before replacement
+            note.gainNode.gain.cancelScheduledValues(now);
+            note.gainNode.gain.setValueAtTime(0, now); // Start at 0
+            note.gainNode.gain.exponentialRampToValueAtTime(Math.max(0.001, currentGainValue), now + 0.005); // Smooth fade in
+        } else {
+            // For non-playing notes, keep gain at 0
+            note.gainNode.gain.setValueAtTime(0, now);
+        }
 
         // Schedule stop if not looping
         if (!note.looping) {
             let originalDuration;
-            // Determine the duration based on which buffer is playing
             if (bufferType === "faded" && fadedBufferOriginalDuration) {
-                 originalDuration = fadedBufferOriginalDuration; // Use stored duration before fades
+                 originalDuration = fadedBufferOriginalDuration;
             } else if (bufferType === "crossfaded") {
-                 originalDuration = sourceBuffer.duration; // Crossfaded buffer duration is the loop length
+                 originalDuration = sourceBuffer.duration;
             } else if (bufferType === "original_emu") {
-                 // Duration of the original segment before Emu processing
                  originalDuration = (sampleEndPosition - sampleStartPosition) * audioBuffer.duration;
             } else { // Original buffer
                  originalDuration = (sampleEndPosition - sampleStartPosition) * audioBuffer.duration;
             }
 
-            const playbackRate = newSource.playbackRate.value; // Use the actual rate
+            const playbackRate = newSource.playbackRate.value;
             const adjustedDuration = originalDuration / playbackRate;
-            const safetyMargin = 0.05; // Small margin
+            const safetyMargin = 0.05;
             const stopTime = now + adjustedDuration + safetyMargin;
 
             try {
                 newSource.stop(stopTime);
                 console.log(`updateSamplePlaybackParameters [${note.id}]: New source scheduled to stop at ${stopTime.toFixed(3)}`);
             } catch (e) {
-                console.error(`updateSamplePlaybackParameters [${note.id}]: Error scheduling stop for new source:`, e);
+                console.error(`updateSamplePlaybackParameters [${note.id}]: Error scheduling stop:`, e);
             }
         }
         console.log(`updateSamplePlaybackParameters [${note.id}]: Successfully updated note with new source/nodes.`);
-// <<< ADD: Update corresponding FM modulator AFTER main note is updated >>>
-const voice = Object.values(activeVoices).find(v => v && v.samplerNote === note);
-if (voice && voice.osc1Note) {
-    updateOsc1FmModulatorParameters(voice.osc1Note, audioCtx.currentTime, voice);
-}
-// <<< END ADD >>>
-
+        
+        // CRITICAL FIX: Only rebuild FM if we actually have buffer sources to replace
+        // Don't rebuild every time - only when necessary
+        // After updating the sampler, update FM for oscillators in the same voice
+        const parentVoice = note.parentVoice || voicePool.find(v => v.samplerNote === note);
+        if (parentVoice) {
+            const updateTime = audioCtx.currentTime;
+            if (parentVoice.osc1Note) {
+                updateOsc1FmModulatorParameters(parentVoice.osc1Note, updateTime, parentVoice);
+            }
+            if (parentVoice.osc2Note) {
+                updateOsc2FmModulatorParameters(parentVoice.osc2Note, updateTime, parentVoice);
+            }
+        }
+        
     } catch (error) {
-        console.error(`updateSamplePlaybackParameters [${note.id}]: Error during replacement process:`, error);
-        killSamplerNote(note); // Attempt to kill the note if replacement fails badly
-        return null; // Indicate failure
-    } finally {
-        note.isBeingUpdated = false; // Release the update lock
-        console.log(`updateSamplePlaybackParameters: Finished update for note ${note.id}`);
+        console.error(`updateSamplePlaybackParameters: Error during replacement:`, error);
+        killSamplerNote(note);
+        return null;
     }
-    return note; // Return the updated note object
+    
+    return note;
 }
 
 /**
@@ -1591,17 +2316,108 @@ updateSampleProcessing();
 
 // Add to global variables
 
-const MAX_MONO = 1;
-let audioBuffer = null;
+// --- Voice Pool Management ---
 const MAX_POLYPHONY = 6;
-const activeVoices = []; // FIFO queue of active notes with their key info
+const voicePool = []; // Array to hold all voice objects
+let nextVoiceIndex = 0; // Round-robin counter
+let voiceAssignments = new Map(); // Track which notes are assigned to which voices
+let voiceQueue = []; // FIFO queue to track voice usage order// New sampler voice pool
+const MAX_SAMPLER_POLYPHONY = 6; // New constant for sampler voices
+const samplerVoicePool = []; // Array to hold all sampler voice objects
+let nextSamplerVoiceIndex = 0; // To cycle through sampler voices for allocation/stealing
 
-const playingNotes = [];
-let playingNoteCount = 0;
+// Function to create a sampler voice
+function createSamplerVoice(ctx, index) {
+    const voice = {
+        id: `sampler_voice_${index}`,
+        index: index,
+        noteNumber: null,
+        startTime: 0,
+        state: 'inactive',
+        samplerNote: null,
+        // NEW: Add random pan and warble offsets
+        panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT,
+        warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT
+    };
 
+    const samplerGainNode = ctx.createGain();
+    const samplerSampleNode = ctx.createGain();
+    const samplerSource = ctx.createBufferSource();
+    
+    const samplerFMTap = ctx.createGain();
+    samplerFMTap.gain.value = 1.0;
+    
+    // NEW: Create pan node with random offset
+    const samplerPanner = ctx.createStereoPanner();
+    samplerPanner.pan.value = voice.panOffset;
+    
+    // MODIFIED: Connect through panner
+    samplerSource.connect(samplerSampleNode);
+    samplerSampleNode.connect(samplerFMTap);
+    samplerFMTap.connect(samplerGainNode);
+    samplerGainNode.connect(samplerPanner);
+    samplerPanner.connect(samplerMasterGain);
+    
+    voice.samplerNote = {
+        id: `sampler_${index}`,
+        type: 'sampler',
+        noteNumber: null,
+        source: samplerSource,
+        gainNode: samplerGainNode,
+        sampleNode: samplerSampleNode,
+        fmTap: samplerFMTap,
+        panner: samplerPanner, // NEW: Store panner
+        startTime: 0,
+        state: 'inactive',
+        scheduledEvents: [],
+        looping: false,
+        usesProcessedBuffer: false,
+        crossfadeActive: false,
+        calculatedLoopStart: 0,
+        calculatedLoopEnd: 0,
+        isBeingUpdated: false,
+        parentVoice: voice,
+    };
 
+    console.log(`Created sampler voice ${index} with pan: ${(voice.panOffset * 100).toFixed(1)}%, warble: ${voice.warbleOffset.toFixed(1)} cents`);
+    return voice;
+}
 
+// Function to initialize the sampler voice pool
+function initializeSamplerVoicePool() {
+    console.log("Initializing sampler voice pool...");
+    samplerVoicePool.length = 0; // Clear any previous pool
+    for (let i = 0; i < MAX_SAMPLER_POLYPHONY; i++) {
+        samplerVoicePool.push(createSamplerVoice(audioCtx, i));
+    }
+    console.log(`Sampler voice pool initialized with ${samplerVoicePool.length} voices.`);
+}
+// Call this function after the AudioWorklet is ready
 
+// Function to find an available sampler voice in the pool
+function findAvailableSamplerVoice(noteNumber) {
+    if (samplerVoicePool.length === 0) return null;
+
+    // In mono mode, always use the same voice
+    if (isMonoMode && currentMonoSamplerVoice) {
+        const voiceToSteal = currentMonoSamplerVoice;
+        voiceToSteal.wasStolen = voiceToSteal.state !== 'inactive';
+        return voiceToSteal;
+    }
+    
+    // For poly mode, use round-robin and ignore safety periods completely
+    const index = nextSamplerVoiceIndex % samplerVoicePool.length;
+    const candidate = samplerVoicePool[index];
+    nextSamplerVoiceIndex = (index + 1) % samplerVoicePool.length;
+    
+    // Mark as stolen if it's currently active. noteOn will handle the rest.
+    candidate.wasStolen = candidate.state !== 'inactive';
+    if (candidate.wasStolen) {
+        console.log(`findAvailableSamplerVoice: Stealing sampler voice ${candidate.id} for note ${noteNumber}.`);
+    }
+    
+    return candidate;
+}
 // Add interface updating functions
 function updateSliderValues() {
 // Always format to 2 decimal places for consistent width
@@ -1666,49 +2482,51 @@ graph.innerHTML = '';
 graph.appendChild(canvas);
 }
 
-// Update the voice monitoring display
-// Update the voice display function to handle releasing state
-// Update the updateVoiceDisplay function
-// Update the updateVoiceDisplay function to also update keyboard
-function updateVoiceDisplay() {
+// Update the voice monitoring display based on the voicePool
+function updateVoiceDisplay_Pool() {
     const displayEl = D('voice-display');
-    if (!displayEl) return;
-    displayEl.innerHTML = ''; // Clear previous display
-
-    // Count unique active note numbers where at least one component is playing
-    let playingNoteCount = 0;
-    const playingNoteNumbers = new Set();
-
-    for (const noteNumber in activeVoices) {
-        const voice = activeVoices[noteNumber];
-        if (voice) {
-            const isSamplerPlaying = voice.samplerNote && voice.samplerNote.state === 'playing';
-            const isOsc1Playing = voice.osc1Note && voice.osc1Note.state === 'playing';
-            // Add || voice.osc2Note... later
-
-            if (isSamplerPlaying || isOsc1Playing) {
-                playingNoteNumbers.add(parseInt(noteNumber));
-            }
-        }
-    }
-    playingNoteCount = playingNoteNumbers.size;
-
-    // Update count display
     const voiceCountEl = D('voice-count');
-    if (voiceCountEl) {
-        voiceCountEl.textContent = Math.min(playingNoteCount, MAX_POLYPHONY);
-    }
+    if (!displayEl || !voiceCountEl) return;
 
-    // Update visual key indicators
-    keys.forEach((key, index) => {
-        const voiceItem = document.createElement('div');
-        voiceItem.className = 'voice-item';
-        voiceItem.textContent = key;
-        if (playingNoteNumbers.has(index)) {
-            voiceItem.classList.add('active-voice');
-        }
-        displayEl.appendChild(voiceItem);
-    });
+    displayEl.innerHTML = ''; // Clear previous display
+    
+    // --- CORRECTED LOGIC ---
+    // 1. Get all truly active notes from both pools.
+    const activeNotes = new Map();
+    const countNote = (noteNum) => {
+        if (noteNum === null) return;
+        activeNotes.set(noteNum, (activeNotes.get(noteNum) || 0) + 1);
+    };
+
+    voicePool.forEach(v => { if (v.state !== 'inactive') countNote(v.noteNumber); });
+    samplerVoicePool.forEach(v => { if (v.state !== 'inactive') countNote(v.noteNumber); });
+
+    // 2. Update the voice count based on the number of active voices.
+    const activeVoiceCount = voicePool.filter(v => v.state !== 'inactive').length;
+    const totalActiveVoices = (isMonoMode && activeVoiceCount > 0) ? 1 : activeVoiceCount;
+    voiceCountEl.textContent = totalActiveVoices;
+
+    // 3. Display visual key indicators based on the active notes found in the pools.
+    if (typeof keys !== 'undefined' && Array.isArray(keys)) {
+        keys.forEach((key, index) => {
+            const voiceItem = document.createElement('div');
+            voiceItem.className = 'voice-item';
+            
+            const count = activeNotes.get(index) || 0;
+            if (count > 0) {
+                voiceItem.classList.add('active-voice');
+                if (count > 1 && !isMonoMode) {
+                    voiceItem.textContent = `${key}×${count}`;
+                    voiceItem.style.fontWeight = 'bold';
+                } else {
+                    voiceItem.textContent = key;
+                }
+            } else {
+                voiceItem.textContent = key;
+            }
+            displayEl.appendChild(voiceItem);
+        });
+    }
 }
 
 // you're the best <3 and you should put french fries in my car so that my car smells like fries forever :) - from Asher to Faith
@@ -1728,19 +2546,31 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-function updateKeyboardDisplay() {
+function updateKeyboardDisplay_Pool() {
+    const activeNoteNumbers = new Set();
+
+    // --- CORRECTED LOGIC: Check both pools for active notes ---
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.noteNumber !== null) {
+            activeNoteNumbers.add(voice.noteNumber);
+        }
+    });
+    samplerVoicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.noteNumber !== null) {
+            activeNoteNumbers.add(voice.noteNumber);
+        }
+    });
+    // --- END CORRECTION ---
+
     document.querySelectorAll('.key').forEach(keyElement => {
         const noteIndex = parseInt(keyElement.dataset.noteIndex);
-        let isNotePlaying = false;
-        const voice = activeVoices[noteIndex];
-        if (voice) {
-             const isSamplerPlaying = voice.samplerNote && voice.samplerNote.state === 'playing';
-             const isOsc1Playing = voice.osc1Note && voice.osc1Note.state === 'playing';
-             isNotePlaying = isSamplerPlaying || isOsc1Playing;
-        }
-        // Also consider physically held keys for visual feedback
-        const isHeld = heldNotes.includes(noteIndex);
-        keyElement.classList.toggle('pressed', isNotePlaying || isHeld);
+        if (isNaN(noteIndex)) return;
+
+        // A key is "pressed" if it's active in any voice pool OR still physically held.
+        const isNoteActiveInPool = activeNoteNumbers.has(noteIndex);
+        const isPhysicallyHeld = heldNotes.includes(noteIndex);
+
+        keyElement.classList.toggle('pressed', isNoteActiveInPool || isPhysicallyHeld);
     });
 }
 
@@ -1811,35 +2641,38 @@ audioCtx.decodeAudioData(arrayBuffer).then(buffer => {
                 lastCachedCrossfade = sampleCrossfadeAmount;
             }
         }
-        // <<< ADD: Update active Osc1 FM modulators AFTER buffer processing >>>
-const nowFile = audioCtx.currentTime;
-Object.values(activeVoices).forEach(voice => {
-    if (voice && voice.osc1Note) {
-        updateOsc1FmModulatorParameters(voice.osc1Note, nowFile, voice);
-    }
-});
-// <<< END ADD >>>
-        // Update any active notes to use the new buffer
-        Object.values(activeVoices).forEach(note => {
-            if (note && note.source) {
-              // Skip held notes to avoid interruption
-              if (heldNotes.includes(note.noteNumber)) {
-                    console.log(`Note ${note.id} is held; will update on release.`);
+        // <<< ADD: Update active FM modulators AFTER buffer processing >>>
+        const nowFile = audioCtx.currentTime;
+trackSetTimeout(() => {
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            if (voice.osc1Note && osc1FMSource === 'sampler') {
+                updateOsc1FmModulatorParameters(voice.osc1Note, nowFile, voice);
+            }
+            if (voice.osc2Note && osc2FMSource === 'sampler') {
+                updateOsc2FmModulatorParameters(voice.osc2Note, nowFile, voice);
+            }
+        }
+    });
+}, STANDARD_FADE_TIME * 1000); // Use standard time instead of arbitrary 20ms
+        // Update any active sampler notes to use the new buffer
+        // <<< CHANGE: Iterate over voicePool >>>
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.samplerNote) {
+                const note = voice.samplerNote; // Get the samplerNote component
+                // Skip held notes to avoid interruption
+                if (heldNotes.includes(voice.noteNumber)) { // Check voice.noteNumber
+                    console.log(`Sampler note ${note.id} (Voice ${voice.id}) is held; will update on release.`);
                     return;
                 }
-                
-                console.log(`Updating note ${note.id} to use new sample`);
-                note.usesProcessedBuffer = false;
-                note.crossfadeActive = false;
-                
-                if (isSampleLoopOn) {
-                    note.looping = true; 
-                    setupLoopCrossfade(note);
-                }
+
+                console.log(`Updating sampler note ${note.id} (Voice ${voice.id}) to use new sample`);
+                // Call updateSamplePlaybackParameters which handles buffer switching etc.
                 updateSamplePlaybackParameters(note);
             }
-        }).catch(e => console.error("Error decoding audio data:", e));
-    });
+        });
+        // <<< END CHANGE >>>
+    }).catch(e => console.error("Error decoding audio data:", e));
 };
 reader.readAsArrayBuffer(file);
 }
@@ -1848,29 +2681,73 @@ reader.readAsArrayBuffer(file);
 
 D('audio-file').addEventListener('change', handleFileSelect);
 
-// Clean up everything
-// Clean up everything
+// Update cleanupAllNotes to clear voice timers
 function cleanupAllNotes() {
-    console.log("Cleaning up all notes...");
-    const notesToKill = Object.keys(activeVoices);
-    notesToKill.forEach(noteNumber => {
-        const voice = activeVoices[noteNumber];
-        if (voice) {
-            // Use quick fade out for immediate silence
-            if (voice.samplerNote) quickFadeOutSampler(voice.samplerNote, 0.01);
-            if (voice.osc1Note) quickFadeOutOsc1(voice.osc1Note, 0.01);
-            if (voice.osc2Note) quickFadeOutOsc2(voice.osc2Note, 0.01); // <<< Kill Osc2
+    console.log("Performing complete synth reset...");
+    
+    const now = audioCtx.currentTime;
+    const quickRelease = 0.01; // Very quick release for cleanup
+
+    // Close all gates and reset all voices
+    voicePool.forEach(voice => {
+        // Clear any scheduled timers first
+        clearVoiceTimers(voice);
+        
+        // Release Osc1 with quick fade
+        if (voice.osc1Note?.workletNode) {
+            voice.osc1Note.gainNode.gain.cancelScheduledValues(now);
+            voice.osc1Note.gainNode.gain.setValueAtTime(voice.osc1Note.gainNode.gain.value, now);
+            voice.osc1Note.gainNode.gain.linearRampToValueAtTime(0, now + quickRelease);
+            
+            // Close gate after quick release
+            trackVoiceTimer(voice, () => {
+                voice.osc1Note.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+            }, quickRelease * 1000);
+            
+            voice.osc1Note.state = 'idle';
+            voice.osc1Note.noteNumber = null;
         }
-        // kill functions will handle removing from activeVoices after fade
+        
+        // Release Osc2 with quick fade
+        if (voice.osc2Note?.workletNode) {
+            voice.osc2Note.gainNode.gain.cancelScheduledValues(now);
+            voice.osc2Note.gainNode.gain.setValueAtTime(voice.osc2Note.gainNode.gain.value, now);
+            voice.osc2Note.gainNode.gain.linearRampToValueAtTime(0, now + quickRelease);
+            
+            // Close gate after quick release
+            trackSetTimeout(() => {
+                voice.osc2Note.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+            }, quickRelease * 1000);
+            
+            voice.osc2Note.state = 'idle';
+            voice.osc2Note.noteNumber = null;
+        }
+        
+        // Reset voice state
+        voice.state = 'idle';
+        voice.noteNumber = null;
+        voice.startTime = 0;
     });
-
-    resetKeyStates();
+    
+    // Clear all assignments and queue
+    voiceAssignments.clear();
+    voiceQueue.length = 0;
+    nextVoiceIndex = 0;
+    
+    // Reset mono tracking
     currentMonoVoice = null;
+    currentMonoSamplerVoice = null;
+    
+    // Clear held notes
     heldNotes = [];
-    // lastPlayedNoteNumber = null; // Keep for portamento
-
-    updateVoiceDisplay();
-    updateKeyboardDisplay();
+    lastPlayedNoteNumber = null;
+    
+    // Reset UI
+    resetKeyStates();
+    updateVoiceDisplay_Pool();
+    updateKeyboardDisplay_Pool();
+    
+    console.log("Complete synth reset finished - all voices idle");
 }
 
 // Add additional safety with blur/focus event handling
@@ -1885,10 +2762,10 @@ document.addEventListener('visibilitychange', () => {
 // Initialize interface
 
 updateSliderValues();
-updateVoiceDisplay();
+updateVoiceDisplay_Pool();
 updateADSRVisualization();
 // Initialize Keyboard Module
-initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay)
+initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool)
 
 
 function createTooltipForKnob(knobId, value) {
@@ -2060,15 +2937,18 @@ if (!loopSwitch) return;
 
 // Toggle “active” class on click
 loopSwitch.addEventListener('click', () => {
-loopSwitch.classList.toggle('active');
-isSampleLoopOn = loopSwitch.classList.contains('active');
-// Update any playing samples
-Object.values(activeVoices).forEach(note => {
-    if (note.source) updateSamplePlaybackParameters(note);
+    loopSwitch.classList.toggle('active');
+    isSampleLoopOn = loopSwitch.classList.contains('active');
+    // <<< CHANGE: Iterate over voicePool >>>
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.samplerNote) {
+            updateSamplePlaybackParameters(voice.samplerNote);
+        }
     });
-    console.log('Sample Loop:', isSampleLoopOn ? 'ON' : 'OFF');
-});
-}
+    // <<< END CHANGE >>>
+        console.log('Sample Loop:', isSampleLoopOn ? 'ON' : 'OFF');
+    });
+    }
 document.addEventListener('DOMContentLoaded', () => {
 // Call this after other setup
 initializeSampleLoopSwitch();
@@ -2171,109 +3051,122 @@ dropdown.classList.remove('show');
 
 // Function to load preset samples
 function loadPresetSample(filename) {
-console.log(`Loading preset sample: ${filename}`);
+    console.log(`Loading preset sample: ${filename}`);
 
-// Build the URL to the sample file
-const sampleUrl = `samples/${filename}`;
+    // Build the URL to the sample file
+    const sampleUrl = `samples/${filename}`;
 
-// Fetch the sample file
-fetch(sampleUrl)
-.then(response => {
-if (!response.ok) {
-throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
-}
-return response.arrayBuffer();
-})
-.then(arrayBuffer => {
-// Decode the audio data
-return audioCtx.decodeAudioData(arrayBuffer);
-})
-.then(buffer => {
-// Use the buffer as the sample
-audioBuffer = buffer;
-originalBuffer = buffer.slice(); // Store the original buffer
+    // Fetch the sample file
+    fetch(sampleUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
+        }
+        return response.arrayBuffer();
+    })
+    .then(arrayBuffer => {
+        // Decode the audio data
+        return audioCtx.decodeAudioData(arrayBuffer);
+    })
+    .then(buffer => {
+        audioBuffer = buffer;
+        originalBuffer = buffer.slice();
+        
+        // Apply reverse if needed
+        if (isSampleReversed) {
+            reverseBufferIfNeeded(false);
+        }
+        
+        // Process fades and crossfades
+        updateSampleProcessing();
+        
+        // Create new source node
+        if (sampleSource) {
+            sampleSource.stop();
+        }
+        sampleSource = audioCtx.createBufferSource();
+        sampleSource.buffer = buffer;
+        sampleSource.connect(sampleGainNode);
+        sampleSource.start();
+        
+        // UPDATE LABEL
+        const fileLabel = document.querySelector('label[for="audio-file"]');
+        if (fileLabel) {
+            fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
+        }
+        
+        // CRITICAL FIX: Force FM connection update after sample is loaded
+        setTimeout(() => {
+    // REMOVED: forceFMConnectionUpdate(); // Don't force update here - it resets depths
+    
+    // Update any active sampler notes
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.samplerNote) {
+            if (!heldNotes.includes(voice.noteNumber)) {
+                updateSamplePlaybackParameters(voice.samplerNote);
+            }
+        }
+    });
+}, 100);
 
-// Apply reverse if needed
-if (isSampleReversed) {
-reverseBufferIfNeeded();
-}
-// Process fades and crossfades whenever a new preset is loaded
-updateSampleProcessing();
 
 
-// Reset cached crossfade buffer when loading a new sample
-cachedCrossfadedBuffer = null;
-lastCachedStartPos = null;
-lastCachedEndPos = null;
-lastCachedCrossfade = null;
+        // Create crossfaded buffer if needed
+        if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
+            console.log("Creating crossfaded buffer for preset sample");
+            const result = createCrossfadedBuffer(
+              audioCtx,
+              buffer, 
+              sampleStartPosition, 
+              sampleEndPosition, 
+              sampleCrossfadeAmount
+            );
 
-// Create new source node
-if (sampleSource) {
-sampleSource.stop();
-}
-sampleSource = audioCtx.createBufferSource();
-sampleSource.buffer = buffer;
+            if (result && result.buffer) {
+                console.log("Successfully created crossfaded buffer for preset sample");
+                cachedCrossfadedBuffer = result.buffer;
+                lastCachedStartPos = sampleStartPosition;
+                lastCachedEndPos = sampleEndPosition;
+                lastCachedCrossfade = sampleCrossfadeAmount;
+            }
+        }
+        // Initialize FM sources after loading
+        initializeSamplerFmSources();
+        // Update FM modulators with proper delay to avoid clicks
+        const nowPreset = audioCtx.currentTime;
+        // Use trackSetTimeout with standard fade time for consistency
+        trackSetTimeout(() => {
+            voicePool.forEach(voice => {
+                if (voice.state !== 'inactive') {
+                    if (voice.osc1Note && osc1FMSource === 'sampler') {
+                        console.log(`loadPresetSample: Triggering Osc1 FM update for voice ${voice.id}`);
+                        updateOsc1FmModulatorParameters(voice.osc1Note, nowPreset, voice);
+                    }
+                    if (voice.osc2Note && osc2FMSource === 'sampler') {
+                        console.log(`loadPresetSample: Triggering Osc2 FM update for voice ${voice.id}`);
+                        updateOsc2FmModulatorParameters(voice.osc2Note, nowPreset, voice);
+                    }
+                }
+            });
+        }, STANDARD_FADE_TIME * 1000); // Use standard fade time for consistent timing
 
-// Connect the audio chain
-sampleSource.connect(sampleGainNode);
-sampleSource.start();
-
-// Update the label to show the loaded sample name
-const fileLabel = document.querySelector('label[for="audio-file"]');
-if (fileLabel) {
-fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
-}
-
-// Create crossfaded buffer if needed
-if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
-console.log("Creating crossfaded buffer for preset sample");
-const result = createCrossfadedBuffer(
-  audioCtx,
-  buffer, 
-  sampleStartPosition, 
-  sampleEndPosition, 
-  sampleCrossfadeAmount
-);
-
-if (result && result.buffer) {
-  console.log("Successfully created crossfaded buffer for preset sample");
-  cachedCrossfadedBuffer = result.buffer;
-  lastCachedStartPos = sampleStartPosition;
-  lastCachedEndPos = sampleEndPosition;
-  lastCachedCrossfade = sampleCrossfadeAmount;
-}
-}
-const nowPreset = audioCtx.currentTime;
-Object.values(activeVoices).forEach(voice => {
-    if (voice && voice.osc1Note) {
-        updateOsc1FmModulatorParameters(voice.osc1Note, nowPreset, voice);
-    }
-});
-// Update any active notes to use the new buffer
-Object.values(activeVoices).forEach(note => {
-    if (note && note.source) {
-      // Skip held notes to avoid interruption
-      if (heldNotes.includes(note.noteNumber)) {
-    console.log(`Note ${note.id} is held; will update on release.`);
-    return;
-  }
-  
-  console.log(`Updating note ${note.id} to use new preset sample`);
-  note.usesProcessedBuffer = false;
-  note.crossfadeActive = false;
-  
-  if (isSampleLoopOn) {
-    note.looping = true; 
-    setupLoopCrossfade(note);
-  }
-  updateSamplePlaybackParameters(note);
-}
-});
-})
-.catch(error => {
-console.error('Error loading preset sample:', error);
-alert(`Failed to load sample: ${filename}`);
-});
+        // Update active notes with proper timing
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.samplerNote) {
+                const note = voice.samplerNote;
+                if (heldNotes.includes(voice.noteNumber)) {
+                    console.log(`Sampler note ${note.id} (Voice ${voice.id}) is held; will update on release.`);
+                    return;
+                }
+                console.log(`Updating sampler note ${note.id} (Voice ${voice.id}) to use new preset sample`);
+                updateSamplePlaybackParameters(note);
+            }
+        });
+    })
+    .catch(error => {
+        console.error('Error loading preset sample:', error);
+        alert(`Failed to load sample: ${filename}`);
+    });
 }
 
 // In your processBufferWithFades function:
@@ -2479,843 +3372,339 @@ console.error("Error finding zero crossings:", e);
 
 return { start: startSample, end: endSample };
 }
-// --- Sampler Note Creation/Management (Based on old startNote/createNote) ---
-function startSamplerNote(noteNumber, audioCtx, destination, buffer) {
-    if (!buffer) return null; // Need a buffer
-    const noteId = `sampler_${noteNumber}_${Date.now()}`;
-    const gainNode = audioCtx.createGain(); // ADSR Gain
-    const sampleNode = audioCtx.createGain(); // Sampler-specific gain
-    gainNode.gain.value = 0; // Start silent for ADSR
-    sampleNode.gain.value = currentSampleGain;
-
-    const source = audioCtx.createBufferSource();
-
-    // Select the correct buffer (original, faded, or crossfaded)
-    let useOriginalBuffer = true;
-    let sourceBuffer = buffer;
-    let bufferType = "original";
-
-    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-        sourceBuffer = cachedCrossfadedBuffer;
-        useOriginalBuffer = false;
-        bufferType = "crossfaded";
-    } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-        sourceBuffer = fadedBuffer;
-        useOriginalBuffer = false;
-        bufferType = "faded";
-    }
-
-    if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer)) {
-         console.error(`startSamplerNote [${noteNumber}]: Invalid sourceBuffer selected (type: ${bufferType}).`);
-         return null;
-    }
-    source.buffer = sourceBuffer;
-    console.log(`Starting sampler note ${noteNumber} using ${bufferType} buffer.`);
-
-    // Apply playback rate / detune
-    let calculatedRate = 1.0;
-    if (isSampleKeyTrackingOn) {
-        calculatedRate = TR2 ** (noteNumber - 12);
-        source.playbackRate.value = calculatedRate;
-        source.detune.setValueAtTime(currentSampleDetune, audioCtx.currentTime);
-    } else {
-        source.playbackRate.value = 1.0;
-        source.detune.value = currentSampleDetune;
-    }
-
-    // Connect nodes: source -> sampleNode (sample gain) -> gainNode (ADSR) -> destination
-    source.connect(sampleNode);
-    sampleNode.connect(gainNode);
-    gainNode.connect(destination);
-
-    // Set loop points
-    let loopStartTime = 0;
-    let loopEndTime = sourceBuffer.duration;
-    if (useOriginalBuffer) {
-        if (isSampleLoopOn) {
-            source.loop = true;
-            loopStartTime = sampleStartPosition * buffer.duration;
-            loopEndTime = sampleEndPosition * buffer.duration;
-            source.loopStart = loopStartTime;
-            source.loopEnd = loopEndTime;
-        } else {
-             source.loop = false;
-        }
-    } else {
-        source.loop = isSampleLoopOn; // Loop the entire processed buffer if needed
-    }
-
-    // Apply ADSR envelope
-    const attack = parseFloat(D('attack').value);
-    const decay = parseFloat(D('decay').value);
-    const sustain = parseFloat(D('sustain').value);
-    const now = audioCtx.currentTime;
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(1, now + attack); // ADSR controls overall level
-    gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-
-    // Start playback
-    source.start(0);
-
-    // Schedule stop if not looping
-    if (!source.loop) {
-        let originalDuration;
-        // Determine the duration based on which buffer is playing
-        if (bufferType === "faded" && fadedBufferOriginalDuration) {
-             originalDuration = fadedBufferOriginalDuration; // Use stored duration before fades
-        } else if (bufferType === "crossfaded") {
-             // This case shouldn't happen if !source.loop, but handle defensively
-             originalDuration = sourceBuffer.duration;
-        } else { // Original buffer (or original_emu)
-             // Use the duration of the selected segment from the *original* buffer
-             originalDuration = (sampleEndPosition - sampleStartPosition) * buffer.duration; // Use the initially passed buffer reference
-        }
-
-        const playbackRate = source.playbackRate.value; // Use the actual rate
-        const adjustedDuration = originalDuration / playbackRate;
-        const safetyMargin = 0.05; // Small margin
-        const stopTime = now + adjustedDuration + safetyMargin;
-        try {
-             source.stop(stopTime);
-             console.log(`startSamplerNote [${noteId}]: Source scheduled to stop at ${stopTime.toFixed(3)}`);
-        } catch (e) { console.error(`Error scheduling stop for sampler note ${noteId}:`, e); }
-    }
-
-    const note = {
-        id: noteId,
-        type: 'sampler',
-        noteNumber,
-        source,
-        gainNode, // ADSR gain
-        sampleNode, // Sampler-specific gain
-        startTime: now,
-        state: "playing", // "playing", "releasing", "fadingOut", "killed"
-        scheduledEvents: [],
-        looping: source.loop,
-        usesProcessedBuffer: !useOriginalBuffer,
-        crossfadeActive: bufferType === "crossfaded", // Correctly set based on buffer used
-        calculatedLoopStart: loopStartTime,
-        calculatedLoopEnd: loopEndTime,
-        isBeingUpdated: false // Add this flag
-    };
-    return note;
-}
 
 function releaseSamplerNote(note) {
-    if (!note || note.state !== "playing") return;
-    note.state = "releasing";
-    // Clear any previous kill timer just in case
-    if (note.killTimerId) {
-        clearTimeout(note.killTimerId);
-        note.killTimerId = null;
+    if (!note || note.state !== "playing") {
+        console.log(`releaseSamplerNote: Note ${note?.id} not playing, state: ${note?.state}`);
+        return;
     }
-    clearScheduledEventsForNote(note); // Clear other events
 
-    // ... (rest of release logic: loop stop, gain ramp) ...
-    if (note.usesProcessedBuffer && note.crossfadeActive) {
+    // Set parent voice state to releasing
+    const voice = note.parentVoice || samplerVoicePool.find(v => v.samplerNote === note);
+    if (voice && voice.state === 'playing') {
+        voice.state = 'releasing';
+    }
+
+    // Set component state and clear existing timers
+    note.state = "releasing";
+    clearScheduledEventsForNote(note);
+
+    // CRITICAL FIX: Don't disable loop for crossfaded buffers during release
+    // Only disable loop for non-crossfaded, non-looping samples
+    if (!note.crossfadeActive && !isSampleLoopOn) {
         note.source.loop = false;
         note.looping = false;
+    } else if (note.crossfadeActive && note.source.loop) {
+        // Keep loop enabled for crossfaded buffers during release
+        console.log(`Keeping crossfade loop active during release for ${note.id}`);
     }
 
-    const release = parseFloat(D('release').value);
+    // Apply release envelope
+    const release = Math.max(0.01, parseFloat(D('release').value));
     const now = audioCtx.currentTime;
+    
+    // Apply proper release envelope
     note.gainNode.gain.cancelScheduledValues(now);
-    const currentGain = note.gainNode.gain.value;
-    note.gainNode.gain.setValueAtTime(currentGain, now);
+    note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now);
     note.gainNode.gain.linearRampToValueAtTime(0, now + release);
 
-    // Schedule stop slightly after release ends
+    // Ensure sample gain also fades
+    note.sampleNode.gain.cancelScheduledValues(now);
+    note.sampleNode.gain.setValueAtTime(note.sampleNode.gain.value, now);
+    note.sampleNode.gain.linearRampToValueAtTime(0, now + release);
+
+    // CRITICAL FIX: For looping samples, don't schedule a stop time
+    // Let them loop until the kill function disconnects them
     const stopTime = now + release + 0.05;
-    try {
-        note.source.stop(stopTime);
-    } catch (e) { /* Ignore errors */ }
+    
+    if (!note.looping && !note.crossfadeActive) {
+        // Only stop non-looping samples
+        try {
+            note.source.stop(stopTime);
+        } catch (e) { /* Ignore errors */ }
+    } else {
+        console.log(`Not scheduling stop for looping/crossfaded sample ${note.id} - will loop during release`);
+    }
 
-
-    // Schedule final cleanup and store timer ID
-    const killDelay = Math.max(100, (release * 1000) + 100); // Ensure minimum delay
-    const releaseTimer = setTimeout(() => {
-        note.killTimerId = null; // Clear ID before killing
+    // Schedule kill after release with proper timing
+    const killDelay = Math.max(5, (release * 1000) + 0);
+    trackSetTimeout(() => {
         killSamplerNote(note);
-    }, killDelay);
-
-    note.killTimerId = releaseTimer; // <<< STORE THE TIMER ID
-    note.scheduledEvents.push({ type: "timeout", id: releaseTimer }); // Keep for general cleanup if needed
+    }, killDelay, note);
+    
+    console.log(`releaseSamplerNote: Scheduled kill for ${note.id} in ${killDelay}ms (respecting release time), loop=${note.looping}, crossfade=${note.crossfadeActive}`);
 }
 
 function killSamplerNote(note) {
+    // Remove safety period check entirely
+    
     // Check if note is valid and not already killed
-    if (!note || note.state === "killed") return false;
+    if (!note) {
+        console.warn(`killSamplerNote: Called with null note`);
+        return false;
+    }
+    
+    if (note.state === "killed") {
+        console.log(`killSamplerNote: Note ${note.id} already killed, ignoring`);
+        return false;
+    }
+    
+    // Only proceed with kill if note is still in releasing state
+    if (note.state !== 'releasing') {
+        console.log(`killSamplerNote: Note ${note.id} is in state '${note.state}', not 'releasing'. Ignoring kill timer.`);
+        return false;
+    }
+    
     const noteId = note.id;
-    const originalNoteNumber = note.noteNumber; // Store for logging, but don't rely on it for lookup
-    console.log(`killSamplerNote: Starting kill process for ${noteId} (Original Note ${originalNoteNumber})`);
+    console.log(`killSamplerNote: Starting kill process for ${noteId}`);
+
+    // Mark as killed immediately to prevent further processing
     note.state = "killed";
 
+    // Clear ALL scheduled events first
     clearScheduledEventsForNote(note);
 
     try {
-        // Stop and disconnect audio nodes
+        // Immediately kill all audio to make voice available ASAP
         if (note.gainNode) {
             note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
             note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-            setTimeout(() => { try { note.gainNode.disconnect(); } catch(e){} }, 20);
         }
+        
         if (note.sampleNode) {
-            setTimeout(() => { try { note.sampleNode.disconnect(); } catch(e){} }, 20);
+            note.sampleNode.gain.cancelScheduledValues(audioCtx.currentTime);
+            note.sampleNode.gain.setValueAtTime(0, audioCtx.currentTime);
         }
+        
         if (note.source) {
-            try { note.source.stop(audioCtx.currentTime); } catch(e) {}
-            setTimeout(() => { try { note.source.disconnect(); } catch(e){} }, 20);
+            try { note.source.stop(audioCtx.currentTime); } catch(e) { /* Ignore */ }
+            try { note.source.disconnect(); } catch(e){ /* Ignore */ }
         }
     } catch (e) {
-         console.warn(`killSamplerNote [${noteId}]: Error during node cleanup:`, e);
+        console.warn(`killSamplerNote [${noteId}]: Error during node cleanup:`, e);
     }
 
-    // --- Robust activeVoices update ---
-    let voiceEntryKey = null;
-    let voiceEntry = null;
+    // Update Voice Pool State
+    const voice = note.parentVoice;
 
-    // Find the voice entry containing this specific note object
-    for (const key in activeVoices) {
-        if (activeVoices[key].samplerNote === note) {
-            voiceEntryKey = key;
-            voiceEntry = activeVoices[key];
-            break;
+    if (voice && samplerVoicePool.includes(voice)) {
+        // Reset the component note state immediately
+        note.state = 'inactive';
+        note.noteNumber = null;
+        note.source = null;
+
+        // Reset the parent voice state immediately
+        voice.state = 'inactive';
+        voice.noteNumber = null;
+        voice.startTime = 0;
+        
+        // Remove safety period completely - allow immediate reuse
+        // voice.safeUntil = undefined;
+
+        if (isMonoMode && currentMonoSamplerVoice === voice) {
+            currentMonoSamplerVoice = null;
         }
+
+        // Update UI
+        updateVoiceDisplay_Pool();
+        updateKeyboardDisplay_Pool();
     }
-
-    if (voiceEntry) {
-        console.log(`killSamplerNote [${noteId}]: Found matching samplerNote in activeVoices[${voiceEntryKey}]. Nullifying.`);
-        voiceEntry.samplerNote = null; // Nullify the reference in the found entry
-
-        // Check if the voice entry is now empty
-        if (!voiceEntry.samplerNote && !voiceEntry.osc1Note) {
-            console.log(`killSamplerNote [${noteId}]: Both components for note ${voiceEntryKey} in activeVoices are now null. Deleting voice entry activeVoices[${voiceEntryKey}].`);
-            delete activeVoices[voiceEntryKey]; // Delete the entry using the key we found
-        }
-    } else {
-        // If the note wasn't found in any active voice entry (already removed, stolen, etc.)
-        console.log(`killSamplerNote [${noteId}]: Note object not found in any activeVoices entry during cleanup (expected if stolen/retriggered/legato state changed).`);
-    }
-    // --- End Robust update ---
-
-    // Update UI regardless
-    updateVoiceDisplay();
-    updateKeyboardDisplay();
 
     console.log(`killSamplerNote: Finished killing ${noteId}`);
     return true;
 }
-
-function quickFadeOutSampler(note, fadeTime = 0.05) {
-    if (!note || !note.gainNode || note.state === "fadingOut" || note.state === "killed") return note;
-    note.state = "fadingOut";
-    try {
-        const now = audioCtx.currentTime;
-        const currentGain = note.gainNode.gain.value;
-        note.gainNode.gain.cancelScheduledValues(now);
-        note.gainNode.gain.setValueAtTime(currentGain, now);
-        note.gainNode.gain.linearRampToValueAtTime(0, now + fadeTime);
-        const killTimer = setTimeout(() => killSamplerNote(note), fadeTime * 1000 + 10);
-        note.scheduledEvents.push({ type: 'timeout', id: killTimer });
-    } catch (e) {
-        killSamplerNote(note); // Kill immediately on error
-    }
-    return note;
-}
-
-// --- Oscillator 1 Note Creation/Management ---
-function startOsc1Note(noteNumber, audioCtx, destination) {
-    // if (osc1GainValue <= 0.001) return null;
-    // <<< Always check worklet readiness >>>
-    if (!isWorkletReady) {
-        console.error(`startOsc1Note: ShapeHoldProcessor AudioWorklet not ready. Aborting.`);
-        return null;
-    }
-
-    const noteId = `osc1_${noteNumber}_${Date.now()}`;
-    const osc1LevelNode = audioCtx.createGain();
-    const oscGainNode = audioCtx.createGain(); // ADSR Gain
-    osc1LevelNode.gain.value = osc1GainValue;
-    oscGainNode.gain.value = 0;
-
-    let workletNode = null;
-    let fmModulatorSource = null; // <<< ADD: For per-voice FM source
-    let fmDepthGain = null;     // <<< ADD: For per-voice FM depth
-
-    const now = audioCtx.currentTime;
-    // Base frequency for the note (before FM is applied via parameter)
-    const baseFreq = noteToFrequency(noteNumber, osc1OctaveOffset);
-    const targetFreq = noteToFrequency(noteNumber, osc1OctaveOffset);
-    const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
-
-    try {
-        // --- Create Worklet Node (as before) ---
-        const waveformTypeValue = waveMapNameToWorkletType[osc1Waveform] !== undefined ? waveMapNameToWorkletType[osc1Waveform] : 0;
-        const holdAmountValue = osc1PWMValue;
-        const quantizeValue = osc1QuantizeValue;
-
-        workletNode = new AudioWorkletNode(audioCtx, 'shape-hold-processor', {
-            parameterData: {
-                frequency: baseFreq, // <<< Set BASE frequency here
-                detune: osc1Detune,
-                holdAmount: holdAmountValue,
-                quantizeAmount: quantizeValue,
-                waveformType: waveformTypeValue
-            }
-        });
-
-        // --- ADD: Per-Voice FM Setup ---
-        const freqParam = workletNode.parameters.get('frequency'); // Get frequency param for connection
-
-        if (osc1FMAmount > 0.001 && freqParam) { // Only setup if FM is on and param exists
-            console.log(`startOsc1Note [${noteId}]: Setting up FM (Source: ${osc1FMSource}).`);
-            fmDepthGain = audioCtx.createGain();
-            const scaledDepth = osc1FMAmount * osc1FMDepthScale;
-            fmDepthGain.gain.value = scaledDepth;
-
-            if (osc1FMSource === 'sampler' && audioBuffer) {
-                // --- Sampler FM Source ---
-                fmModulatorSource = audioCtx.createBufferSource();
-                // Mirror Buffer Selection
-                let useOriginalBuffer = true;
-                let sourceBuffer = audioBuffer;
-                let bufferType = "original_fm";
-                if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-                    sourceBuffer = cachedCrossfadedBuffer; useOriginalBuffer = false; bufferType = "crossfaded_fm";
-                } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-                    sourceBuffer = fadedBuffer; useOriginalBuffer = false; bufferType = "faded_fm";
-                }
-                if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer)) {
-                    console.error(`startOsc1Note FM [${noteId}]: Invalid sourceBuffer selected for FM (type: ${bufferType}). Skipping FM setup.`);
-                    fmModulatorSource = null; fmDepthGain = null;
-                } else {
-                    fmModulatorSource.buffer = sourceBuffer;
-                    console.log(`startOsc1Note FM [${noteId}]: Using ${bufferType} buffer.`);
-                    // Mirror Pitch/Rate
-                    let calculatedRate = 1.0;
-                    if (isSampleKeyTrackingOn) { calculatedRate = TR2 ** (noteNumber - 12); }
-                    fmModulatorSource.playbackRate.value = calculatedRate;
-                    fmModulatorSource.detune.setValueAtTime(currentSampleDetune, now);
-                    // Mirror Loop Settings
-                    let loopStartTime = 0; let loopEndTime = sourceBuffer.duration;
-                    if (useOriginalBuffer) {
-                        if (isSampleLoopOn) {
-                            fmModulatorSource.loop = true; loopStartTime = sampleStartPosition * audioBuffer.duration; loopEndTime = sampleEndPosition * audioBuffer.duration;
-                            fmModulatorSource.loopStart = Math.max(0, loopStartTime); fmModulatorSource.loopEnd = Math.min(audioBuffer.duration, loopEndTime);
-                            if (fmModulatorSource.loopEnd <= fmModulatorSource.loopStart) { fmModulatorSource.loopEnd = audioBuffer.duration; fmModulatorSource.loopStart = 0; }
-                        } else { fmModulatorSource.loop = false; }
-                    } else { fmModulatorSource.loop = isSampleLoopOn; }
-                    console.log(`startOsc1Note FM [${noteId}]: Loop=${fmModulatorSource.loop}, Start=${fmModulatorSource.loopStart.toFixed(3)}, End=${fmModulatorSource.loopEnd.toFixed(3)}`);
-                    // Connect FM Chain
-                    fmModulatorSource.connect(fmDepthGain);
-                    fmDepthGain.connect(freqParam);
-                    fmModulatorSource.start(now);
-                }
-            } else if (osc1FMSource === 'osc2') {
-                // --- Osc2 FM Source ---
-                // NOTE: This requires looking up the *currently playing* Osc2 note for the *same voice*.
-                // This is complex during initial note start. Using a basic oscillator mirroring global settings is a fallback.
-                // A better approach might involve passing the 'voice' object to startOsc1Note if possible,
-                // or looking it up via activeVoices[noteNumber].osc2Note.
-                // For now, using the basic oscillator approach:
-                fmModulatorSource = audioCtx.createOscillator();
-                fmModulatorSource.type = osc2Waveform === 'pulse' ? 'square' : osc2Waveform;
-                const osc2Freq = noteToFrequency(noteNumber, osc2OctaveOffset); // Use Osc2 settings
-                fmModulatorSource.frequency.setValueAtTime(osc2Freq, now);
-                fmModulatorSource.detune.setValueAtTime(osc2Detune, now); // Use Osc2 detune
-                console.log(`startOsc1Note FM [${noteId}]: Using basic OscillatorNode (${fmModulatorSource.type}) mirroring Osc2 settings.`);
-                // Connect FM Chain
-                fmModulatorSource.connect(fmDepthGain);
-                fmDepthGain.connect(freqParam);
-                fmModulatorSource.start(now);
-            } else {
-                // Unknown source or prerequisites not met
-                console.warn(`startOsc1Note FM [${noteId}]: FM source '${osc1FMSource}' not handled or buffer missing. FM disconnected.`);
-                fmModulatorSource = null; fmDepthGain = null;
-            }
-        } else {
-             console.log(`startOsc1Note [${noteId}]: FM is off or frequency parameter missing. Skipping FM setup.`);
-             fmModulatorSource = null; fmDepthGain = null;
-        }
-        // --- END Per-Voice FM Setup ---
-
-        // Connect main audio path
-        workletNode.connect(osc1LevelNode);
-        osc1LevelNode.connect(oscGainNode);
-        oscGainNode.connect(destination);
-        console.log(`startOsc1Note [${noteId}]: Using AudioWorklet ${osc1Waveform}.`);
-    } catch (e) {
-        // ... (error handling) ...
-        return null;
-    }
-    // Apply ADSR envelope
-    const attack = parseFloat(D('attack').value);
-    const decay = parseFloat(D('decay').value);
-    const sustainLevel = parseFloat(D('sustain').value);
-    oscGainNode.gain.setValueAtTime(0, now);
-    oscGainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-    oscGainNode.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
-
-    const note = {
-        id: noteId,
-        type: 'osc1',
-        noteNumber,
-        oscillator: null, // Keep null, not used
-        workletNode: workletNode,
-        levelNode: osc1LevelNode,
-        gainNode: oscGainNode, // ADSR gain
-        fmModulatorSource: fmModulatorSource, // <<< STORE FM source
-        fmDepthGain: fmDepthGain,         // <<< STORE FM gain
-        startTime: now,
-        state: "playing",
-        scheduledEvents: []
-    };
-
-    if (note.workletNode) {
-        return note;
-    } else {
-        console.error(`startOsc1Note [${noteId}]: Failed to create worklet node. Returning null.`);
-        try { osc1LevelNode.disconnect(); } catch(e){}
-        try { oscGainNode.disconnect(); } catch(e){}
-        return null;
-    }
-}
-
-function releaseOsc1Note(note) {
-    if (!note || note.state !== "playing") return;
-    note.state = "releasing";
-    // Clear any previous kill timer
-    if (note.killTimerId) {
-        clearTimeout(note.killTimerId);
-        note.killTimerId = null;
-    }
-    clearScheduledEventsForNote(note); // Clear other events
-
-    const release = parseFloat(D('release').value);
-    const now = audioCtx.currentTime;
-
-    // Apply release ramp to the ADSR gain node (native)
-    note.gainNode.gain.cancelScheduledValues(now);
-    const currentGain = note.gainNode.gain.value;
-    note.gainNode.gain.setValueAtTime(currentGain, now);
-    note.gainNode.gain.linearRampToValueAtTime(0, now + release);
-
-    // Schedule the oscillator stop
-    const stopTime = now + release + 0.05; // Use native context time
-
-    if (note.toneOscillator) {
-        // Stop Tone.js oscillator
-        try {
-            note.toneOscillator.stop(stopTime);
-            // Schedule disposal slightly after stop time
-            note.scheduledEvents.push({ type: "toneDispose", time: stopTime + 0.1 });
-        } catch(e) { console.warn(`Error stopping Tone oscillator ${note.id}:`, e); }
-    } else if (note.oscillator) {
-        // Stop native oscillator
-        try {
-            note.oscillator.stop(stopTime);
-        } catch(e) { console.warn(`Error stopping native oscillator ${note.id}:`, e); }
-    }
-
-    // Schedule final cleanup (killOsc1Note) and store timer ID
-    const killDelay = Math.max(100, (release * 1000) + 100); // Ensure minimum delay
-    const releaseTimer = setTimeout(() => {
-        note.killTimerId = null; // Clear ID before killing
-        killOsc1Note(note);
-    }, killDelay);
-
-    note.killTimerId = releaseTimer; // <<< STORE THE TIMER ID
-    note.scheduledEvents.push({ type: "timeout", id: releaseTimer }); // Keep for general cleanup
-}
-
 function killOsc1Note(note) {
-    if (!note || note.state === "killed") return false;
-
+    // Safety check: Don't kill notes within their safety period
+    if (note && note.safeUntil && audioCtx.currentTime < note.safeUntil) {
+        console.log(`killOsc1Note: Note ${note.id} is within safety period until ${note.safeUntil.toFixed(3)}. Ignoring kill request.`);
+        return false;
+    }
+    // Check if note is valid and not already killed
+    if (!note) {
+        console.warn(`killOsc1Note: Called with null note`);
+        return false;
+    }
+    
+    if (note.state === "killed") {
+        console.log(`killOsc1Note: Note ${note.id} already killed, ignoring`);
+        return false;
+    }
+    
+    // CRITICAL FIX: Only proceed with kill if note is still in releasing state
+    // This prevents kill timers from affecting notes that have been stolen
+    if (note.state !== 'releasing') {
+        console.log(`killOsc1Note: Note ${note.id} is in state '${note.state}', not 'releasing'. Ignoring kill timer.`);
+        return false;
+    }
+    
     const noteId = note.id;
     const originalNoteNumber = note.noteNumber;
     console.log(`killOsc1Note: Starting kill process for ${noteId} (Original Note ${originalNoteNumber})`);
+
+    
+    // Mark as killed immediately to prevent further processing
     note.state = "killed";
 
+    // Clear ALL scheduled events first
     clearScheduledEventsForNote(note);
 
     try {
-        // --- ADD: Cleanup FM Nodes ---
-        if (note.fmModulatorSource) {
-            try { note.fmModulatorSource.stop(0); } catch(e) {}
-            setTimeout(() => {
-                try { note.fmModulatorSource.disconnect(); } catch(e){}
-                console.log(`killOsc1Note [${noteId}]: Disconnected fmModulatorSource.`);
-            }, 20);
-        }
-        if (note.fmDepthGain) {
-            // Disconnect from parameter first if possible
-            if (note.workletNode) {
-                 try {
-                     // <<< DISCONNECT FROM frequency PARAMETER >>>
-                     const freqParam = note.workletNode.parameters.get('frequency');
-                     if (freqParam) note.fmDepthGain.disconnect(freqParam);
-                 } catch(e) {}
-            }
-            setTimeout(() => {
-                try { note.fmDepthGain.disconnect(); } catch(e){}
-                console.log(`killOsc1Note [${noteId}]: Disconnected fmDepthGain.`);
-            }, 20);
-        }
-        // --- END: Cleanup FM Nodes ---
-
-        // --- Existing Node Cleanup (gainNode, levelNode, workletNode) ---
-        const now = audioCtx.currentTime;
+        // Stop and disconnect audio nodes with immediate gain cut
         if (note.gainNode) {
-            note.gainNode.gain.cancelScheduledValues(now);
-            note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now);
-            note.gainNode.gain.linearRampToValueAtTime(0, now + 0.01);
-            setTimeout(() => { try { note.gainNode.disconnect(); } catch(e){} }, 20);
+            note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+            note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            try { note.gainNode.disconnect(masterGain); } catch(e){ /* Ignore */ }
         }
-        if (note.levelNode) {
-            setTimeout(() => { try { note.levelNode.disconnect(); } catch(e){} }, 20);
+        
+        // Clean up FM modulator source
+        if (note.fmModulatorSource) {
+            try { note.fmModulatorSource.stop(audioCtx.currentTime); } catch(e) { /* Ignore */ }
+            try { note.fmModulatorSource.disconnect(); } catch(e){ /* Ignore */ }
+            note.fmModulatorSource = null; // Safe to nullify disposable source
         }
-        if (note.workletNode) {
-            // No need to disconnect fmDepthGain from parameter here again
-            setTimeout(() => { try { note.workletNode.disconnect(); } catch(e){} }, 20);
+        
+        // Disconnect FM depth gain
+        if (note.fmDepthGain) {
+            try { note.fmDepthGain.disconnect(); } catch(e){ /* Ignore */ }
+            // Don't nullify, just disconnect - it will be reused
         }
-        // --- End Existing Node Cleanup ---
-
     } catch (e) {
-        console.error(`Error during killOsc1Note cleanup for ${noteId}:`, e);
+        console.warn(`killOsc1Note [${noteId}]: Error during node cleanup:`, e);
     }
 
-    // --- Robust activeVoices update ---
-    let voiceEntryKey = null;
-    let voiceEntry = null;
+    // --- Update Voice Pool State ---
+    const voice = note.parentVoice;
 
-    // Find the voice entry containing this specific note object
-    for (const key in activeVoices) {
-        if (activeVoices[key].osc1Note === note) {
-            voiceEntryKey = key;
-            voiceEntry = activeVoices[key];
-            break;
-        }
-    }
-
-    if (voiceEntry) {
-        console.log(`killOsc1Note [${noteId}]: Found matching osc1Note in activeVoices[${voiceEntryKey}]. Nullifying.`);
-        voiceEntry.osc1Note = null; // Nullify the reference in the found entry
-
-        // Check if the voice entry is now empty
-        if (!voiceEntry.samplerNote && !voiceEntry.osc1Note) {
-            console.log(`killOsc1Note [${noteId}]: Both components for note ${voiceEntryKey} in activeVoices are now null. Deleting voice entry activeVoices[${voiceEntryKey}].`);
-            delete activeVoices[voiceEntryKey]; // Delete the entry using the key we found
+    if (voice) {
+        // Mark the component as inactive immediately
+        note.state = 'inactive';
+        note.noteNumber = null;
+        
+        // CRITICAL FIX: Only update voice state if this is the LAST component to be killed
+        const allComponentsInactive = isVoiceFullyInactive(voice);
+        
+        if (allComponentsInactive && voice.state !== 'inactive') {
+            console.log(`killOsc1Note [${noteId}]: Last component killed, marking voice ${voice.id} inactive.`);
+            voice.state = 'inactive';
+            voice.noteNumber = null;
+            voice.startTime = 0;
+            
+            if (isMonoMode && currentMonoVoice === voice) {
+                currentMonoVoice = null;
+            }
+            
+            // Update UI only once when voice becomes fully inactive
+            updateVoiceDisplay_Pool();
+            updateKeyboardDisplay_Pool();
+        } else {
+            console.log(`killOsc1Note [${noteId}]: Voice ${voice.id} still has active/releasing components (${voice.state}).`);
         }
     } else {
-        // If the note wasn't found in any active voice entry
-        console.log(`killOsc1Note [${noteId}]: Note object not found in any activeVoices entry during cleanup (expected if stolen/retriggered/legato state changed).`);
+        console.warn(`killOsc1Note [${noteId}]: Could not find parent voice during cleanup.`);
     }
-    // --- End Robust update ---
-
-    updateVoiceDisplay();
-    updateKeyboardDisplay();
 
     console.log(`killOsc1Note: Finished killing ${noteId}`);
     return true;
 }
 
-function quickFadeOutOsc1(note, fadeTime = 0.05) {
-    if (!note || !note.gainNode || note.state === "fadingOut" || note.state === "killed") return note;
-    note.state = "fadingOut";
-    try {
-        const now = audioCtx.currentTime;
-        const currentGain = note.gainNode.gain.value;
-        note.gainNode.gain.cancelScheduledValues(now);
-        note.gainNode.gain.setValueAtTime(currentGain, now);
-        note.gainNode.gain.linearRampToValueAtTime(0, now + fadeTime);
-        const killTimer = setTimeout(() => killOsc1Note(note), fadeTime * 1000 + 10);
-        note.scheduledEvents.push({ type: 'timeout', id: killTimer });
-    } catch (e) {
-        killOsc1Note(note); // Kill immediately on error
-    }
-    return note;
-}
-// --- Oscillator 2 Note Creation/Management --- // <<< ADD OSC 2 FUNCTIONS >>>
-
-/**
- * Creates and starts an Oscillator 2 component using the AudioWorklet.
- * Includes setup for FM modulation *of* Osc2.
- * @param {number} noteNumber - MIDI note number.
- * @param {AudioContext} audioCtx - The audio context.
- * @param {AudioNode} destination - The node to connect the output to (masterGain).
- * @returns {object|null} The Osc2 note object or null on failure.
- */
-function startOsc2Note(noteNumber, audioCtx, destination) {
-    // if (osc2GainValue <= 0.001) return null; // Skip if gain is zero
-    if (!isWorkletReady) {
-        console.error(`startOsc2Note: ShapeHoldProcessor AudioWorklet not ready. Aborting.`);
-        return null;
-    }
-
-    const noteId = `osc2_${noteNumber}_${Date.now()}`;
-    const osc2LevelNode = audioCtx.createGain(); // Osc2 specific gain control
-    const oscGainNode = audioCtx.createGain();   // ADSR Gain envelope
-    osc2LevelNode.gain.value = osc2GainValue;
-    oscGainNode.gain.value = 0; // Start silent for ADSR
-
-    let workletNode = null;
-    let fmModulatorSource = null; // For FM *of* Osc2
-    let fmDepthGain = null;     // For FM *of* Osc2
-
-    const now = audioCtx.currentTime;
-    const baseFreq = noteToFrequency(noteNumber, osc2OctaveOffset); // Use Osc2 octave offset
-    const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
-
-    try {
-        // --- Create Worklet Node ---
-        const waveformTypeValue = waveMapNameToWorkletType[osc2Waveform] !== undefined ? waveMapNameToWorkletType[osc2Waveform] : 0; // Use Osc2 waveform
-        const holdAmountValue = osc2PWMValue; // Use Osc2 PWM
-        const quantizeValue = osc2QuantizeValue; // Use Osc2 Quantize
-
-        workletNode = new AudioWorkletNode(audioCtx, 'shape-hold-processor', {
-            parameterData: {
-                frequency: baseFreq, // Base frequency before FM
-                detune: osc2Detune, // Use Osc2 detune
-                holdAmount: holdAmountValue,
-                quantizeAmount: quantizeValue,
-                waveformType: waveformTypeValue
-            }
-        });
-
-        // --- Per-Voice FM Setup (Modulating Osc2) ---
-        const freqParam = workletNode.parameters.get('frequency'); // Get frequency param for connection
-
-        if (osc2FMAmount > 0.001 && freqParam) { // Only setup if FM is on and param exists
-            console.log(`startOsc2Note [${noteId}]: Setting up FM (Source: ${osc2FMSource}).`);
-            fmDepthGain = audioCtx.createGain();
-            const scaledDepth = osc2FMAmount * osc2FMDepthScale; // Use Osc2 amount/scale
-            fmDepthGain.gain.value = scaledDepth;
-
-            if (osc2FMSource === 'sampler' && audioBuffer) {
-                // --- Sampler FM Source ---
-                fmModulatorSource = audioCtx.createBufferSource();
-                // Mirror Buffer Selection
-                let useOriginalBuffer = true;
-                let sourceBuffer = audioBuffer;
-                let bufferType = "original_fm_osc2";
-                if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-                    sourceBuffer = cachedCrossfadedBuffer; useOriginalBuffer = false; bufferType = "crossfaded_fm_osc2";
-                } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-                    sourceBuffer = fadedBuffer; useOriginalBuffer = false; bufferType = "faded_fm_osc2";
-                }
-                if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer)) {
-                    console.error(`startOsc2Note FM [${noteId}]: Invalid sourceBuffer selected for FM (type: ${bufferType}). Skipping FM setup.`);
-                    fmModulatorSource = null; fmDepthGain = null;
-                } else {
-                    fmModulatorSource.buffer = sourceBuffer;
-                    console.log(`startOsc2Note FM [${noteId}]: Using ${bufferType} buffer.`);
-                    // Mirror Pitch/Rate (Based on Sampler settings)
-                    let fmRate = 1.0; if (isSampleKeyTrackingOn) { fmRate = TR2 ** (noteNumber - 12); }
-                    fmModulatorSource.playbackRate.value = fmRate;
-                    fmModulatorSource.detune.value = currentSampleDetune;
-                    // Mirror Loop Settings
-                    let loopStartTime = 0; let loopEndTime = sourceBuffer.duration;
-                    if (useOriginalBuffer) {
-                        if (isSampleLoopOn) {
-                            fmModulatorSource.loop = true; loopStartTime = sampleStartPosition * audioBuffer.duration; loopEndTime = sampleEndPosition * audioBuffer.duration;
-                            fmModulatorSource.loopStart = Math.max(0, loopStartTime); fmModulatorSource.loopEnd = Math.min(audioBuffer.duration, loopEndTime);
-                            if (fmModulatorSource.loopEnd <= fmModulatorSource.loopStart) { fmModulatorSource.loopEnd = audioBuffer.duration; fmModulatorSource.loopStart = 0; }
-                        } else { fmModulatorSource.loop = false; }
-                    } else { fmModulatorSource.loop = isSampleLoopOn; }
-                    console.log(`startOsc2Note FM [${noteId}]: Loop=${fmModulatorSource.loop}, Start=${fmModulatorSource.loopStart.toFixed(3)}, End=${fmModulatorSource.loopEnd.toFixed(3)}`);
-                    // Connect FM Chain
-                    fmModulatorSource.connect(fmDepthGain);
-                    fmDepthGain.connect(freqParam);
-                    fmModulatorSource.start(now);
-                }
-            } else if (osc2FMSource === 'osc1') {
-                // --- Osc1 FM Source ---
-                fmModulatorSource = audioCtx.createOscillator();
-                fmModulatorSource.type = osc1Waveform === 'pulse' ? 'square' : osc1Waveform; // Map pulse to square
-                const osc1Freq = noteToFrequency(noteNumber, osc1OctaveOffset); // Use Osc1 settings
-                fmModulatorSource.frequency.value = osc1Freq;
-                fmModulatorSource.detune.value = osc1Detune; // Use Osc1 detune
-                console.log(`startOsc2Note FM [${noteId}]: Using basic OscillatorNode (${fmModulatorSource.type}) mirroring Osc1 settings.`);
-                // Connect FM Chain
-                fmModulatorSource.connect(fmDepthGain);
-                fmDepthGain.connect(freqParam);
-                fmModulatorSource.start(now);
-            } else {
-                // Unknown source or prerequisites not met
-                console.warn(`startOsc2Note FM [${noteId}]: FM source '${osc2FMSource}' not handled or buffer missing. FM disconnected.`);
-                fmModulatorSource = null; fmDepthGain = null;
-            }
-        } else {
-             console.log(`startOsc2Note [${noteId}]: FM is off or frequency parameter missing. Skipping FM setup.`);
-             fmModulatorSource = null; fmDepthGain = null;
-        }
-        // --- END Per-Voice FM Setup ---
-
-        // Connect main audio path
-        workletNode.connect(osc2LevelNode);
-        osc2LevelNode.connect(oscGainNode);
-        oscGainNode.connect(destination); // Connect to master gain
-        console.log(`startOsc2Note [${noteId}]: Using AudioWorklet ${osc2Waveform}.`);
-
-    } catch (e) {
-        console.error(`Error creating Osc2 worklet node ${noteId}:`, e);
-        try { osc2LevelNode.disconnect(); } catch(err){}
-        try { oscGainNode.disconnect(); } catch(err){}
-        return null;
-    }
-
-    // Apply ADSR envelope
-    const attack = parseFloat(D('attack').value);
-    const decay = parseFloat(D('decay').value);
-    const sustainLevel = parseFloat(D('sustain').value);
-    oscGainNode.gain.setValueAtTime(0, now);
-    oscGainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-    oscGainNode.gain.linearRampToValueAtTime(sustainLevel, now + attack + decay);
-
-    const note = {
-        id: noteId,
-        type: 'osc2',
-        noteNumber,
-        workletNode: workletNode,
-        levelNode: osc2LevelNode, // Osc2 gain
-        gainNode: oscGainNode,    // ADSR gain
-        fmModulatorSource: fmModulatorSource, // Modulator *for* Osc2
-        fmDepthGain: fmDepthGain,         // Depth *for* Osc2
-        startTime: now,
-        state: "playing",
-        scheduledEvents: []
-    };
-
-    return note; // Return the created note object
-}
-
-/**
- * Initiates the release phase for an Oscillator 2 note.
- * @param {object} note - The Osc2 note object.
- */
-function releaseOsc2Note(note) {
-    if (!note || note.state !== "playing") return;
-    note.state = "releasing";
-    if (note.killTimerId) { clearTimeout(note.killTimerId); note.killTimerId = null; }
-    clearScheduledEventsForNote(note);
-
-    const release = parseFloat(D('release').value);
-    const now = audioCtx.currentTime;
-
-    // Apply release ramp to the ADSR gain node
-    note.gainNode.gain.cancelScheduledValues(now);
-    const currentGain = note.gainNode.gain.value;
-    note.gainNode.gain.setValueAtTime(currentGain, now);
-    note.gainNode.gain.linearRampToValueAtTime(0, now + release);
-
-    // Schedule final cleanup (killOsc2Note)
-    const killDelay = Math.max(100, (release * 1000) + 100);
-    const releaseTimer = setTimeout(() => {
-        note.killTimerId = null;
-        killOsc2Note(note);
-    }, killDelay);
-
-    note.killTimerId = releaseTimer;
-    note.scheduledEvents.push({ type: "timeout", id: releaseTimer });
-}
 
 /**
  * Stops and disconnects all nodes associated with an Oscillator 2 note.
- * @param {object} note - The Osc2 note object.
  * @returns {boolean} True if cleanup was attempted, false if note was invalid/already killed.
  */
 function killOsc2Note(note) {
-    if (!note || note.state === "killed") return false;
-
+    // Safety check: Don't kill notes within their safety period
+    if (note && note.safeUntil && audioCtx.currentTime < note.safeUntil) {
+        console.log(`killOsc2Note: Note ${note.id} is within safety period until ${note.safeUntil.toFixed(3)}. Ignoring kill request.`);
+        return false;
+    }
+    // Check if note is valid and not already killed
+    if (!note) {
+        console.warn(`killOsc2Note: Called with null note`);
+        return false;
+    }
+    
+    if (note.state === "killed") {
+        console.log(`killOsc2Note: Note ${note.id} already killed, ignoring`);
+        return false;
+    }
+    
+    // CRITICAL FIX: Only proceed with kill if note is still in releasing state
+    // This prevents kill timers from affecting notes that have been stolen
+    if (note.state !== 'releasing') {
+        console.log(`killOsc2Note: Note ${note.id} is in state '${note.state}', not 'releasing'. Ignoring kill timer.`);
+        return false;
+    }
+    
     const noteId = note.id;
     const originalNoteNumber = note.noteNumber;
     console.log(`killOsc2Note: Starting kill process for ${noteId} (Original Note ${originalNoteNumber})`);
+
+    
+    // Mark as killed immediately to prevent further processing
     note.state = "killed";
 
+    // Clear ALL scheduled events first
     clearScheduledEventsForNote(note);
 
     try {
-        // Cleanup FM Nodes (modulating Osc2)
+        // Stop and disconnect audio nodes with immediate gain cut
+        if (note.gainNode) {
+            note.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+            note.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            try { note.gainNode.disconnect(masterGain); } catch(e){ /* Ignore */ }
+        }
+        
+        // Clean up FM modulator source
         if (note.fmModulatorSource) {
-            try { note.fmModulatorSource.stop(0); } catch(e) {}
-            setTimeout(() => { try { note.fmModulatorSource.disconnect(); } catch(e){} }, 20);
+            try { note.fmModulatorSource.stop(audioCtx.currentTime); } catch(e) { /* Ignore */ }
+            try { note.fmModulatorSource.disconnect(); } catch(e){ /* Ignore */ }
+            note.fmModulatorSource = null; // Safe to nullify disposable source
         }
+        
+        // Disconnect FM depth gain
         if (note.fmDepthGain) {
-            if (note.workletNode) { try { note.fmDepthGain.disconnect(note.workletNode.parameters.get('frequency')); } catch(e){} }
-            setTimeout(() => { try { note.fmDepthGain.disconnect(); } catch(e){} }, 20);
-        }
-
-        // Existing Node Cleanup (gainNode, levelNode, workletNode)
-        const now = audioCtx.currentTime;
-        if (note.gainNode) { // ADSR gain
-            note.gainNode.gain.cancelScheduledValues(now);
-            note.gainNode.gain.setValueAtTime(0, now); // Ensure it's silent
-            setTimeout(() => { try { note.gainNode.disconnect(); } catch(e){} }, 20);
-        }
-        if (note.levelNode) { // Osc2 gain
-            setTimeout(() => { try { note.levelNode.disconnect(); } catch(e){} }, 20);
-        }
-        if (note.workletNode) {
-            // Disconnect from levelNode
-            setTimeout(() => { try { note.workletNode.disconnect(); } catch(e){} }, 20);
+            try { note.fmDepthGain.disconnect(); } catch(e){ /* Ignore */ }
+            // Don't nullify, just disconnect - it will be reused
         }
     } catch (e) {
-        console.error(`Error during killOsc2Note cleanup for ${noteId}:`, e);
+        console.warn(`killOsc2Note [${noteId}]: Error during node cleanup:`, e);
     }
 
-    // Robust activeVoices update
-    let voiceEntryKey = null;
-    let voiceEntry = null;
-    for (const key in activeVoices) {
-        if (activeVoices[key].osc2Note === note) { // <<< Check osc2Note
-            voiceEntryKey = key;
-            voiceEntry = activeVoices[key];
-            break;
-        }
-    }
+    // --- Update Voice Pool State ---
+    const voice = note.parentVoice;
 
-    if (voiceEntry) {
-        console.log(`killOsc2Note [${noteId}]: Found matching osc2Note in activeVoices[${voiceEntryKey}]. Nullifying.`);
-        voiceEntry.osc2Note = null; // <<< Nullify osc2Note
-
-        if (!voiceEntry.samplerNote && !voiceEntry.osc1Note && !voiceEntry.osc2Note) { // <<< Check all three
-            console.log(`killOsc2Note [${noteId}]: All components for note ${voiceEntryKey} are now null. Deleting voice entry.`);
-            delete activeVoices[voiceEntryKey];
+    if (voice) {
+        // Mark the component as inactive immediately
+        note.state = 'inactive';
+        note.noteNumber = null;
+        
+        // CRITICAL FIX: Only update voice state if this is the LAST component to be killed
+        const allComponentsInactive = isVoiceFullyInactive(voice);
+        
+        if (allComponentsInactive && voice.state !== 'inactive') {
+            console.log(`killOsc2Note [${noteId}]: Last component killed, marking voice ${voice.id} inactive.`);
+            voice.state = 'inactive';
+            voice.noteNumber = null;
+            voice.startTime = 0;
+            
+            if (isMonoMode && currentMonoVoice === voice) {
+                currentMonoVoice = null;
+            }
+            
+            // Update UI only once when voice becomes fully inactive
+            updateVoiceDisplay_Pool();
+            updateKeyboardDisplay_Pool();
+        } else {
+            console.log(`killOsc2Note [${noteId}]: Voice ${voice.id} still has active/releasing components (${voice.state}).`);
         }
     } else {
-        console.log(`killOsc2Note [${noteId}]: Note object not found in any activeVoices entry during cleanup.`);
+        console.warn(`killOsc2Note [${noteId}]: Could not find parent voice during cleanup.`);
     }
-
-    updateVoiceDisplay();
-    updateKeyboardDisplay();
 
     console.log(`killOsc2Note: Finished killing ${noteId}`);
     return true;
 }
-
-/**
- * Quickly fades out and kills an Oscillator 2 note.
- * @param {object} note - The Osc2 note object.
- * @param {number} [fadeTime=0.05] - Fade duration in seconds.
- * @returns {object} The note object.
- */
-function quickFadeOutOsc2(note, fadeTime = 0.05) {
-    if (!note || !note.gainNode || note.state === "fadingOut" || note.state === "killed") return note;
-    note.state = "fadingOut";
-    try {
-        const now = audioCtx.currentTime;
-        const currentGain = note.gainNode.gain.value;
-        note.gainNode.gain.cancelScheduledValues(now);
-        note.gainNode.gain.setValueAtTime(currentGain, now);
-        note.gainNode.gain.linearRampToValueAtTime(0, now + fadeTime);
-        const killTimer = setTimeout(() => killOsc2Note(note), fadeTime * 1000 + 10);
-        note.scheduledEvents.push({ type: 'timeout', id: killTimer });
-    } catch (e) {
-        killOsc2Note(note); // Kill immediately on error
-    }
-    return note;
-}
-
 // --- Update updateOsc2FmModulatorParameters signature ---
 /**
  * Updates or creates the FM modulator source and gain for an existing Osc2 note.
@@ -3325,791 +3714,789 @@ function quickFadeOutOsc2(note, fadeTime = 0.05) {
  * @param {object} [voice] - Optional: The parent voice object containing both osc1Note and osc2Note. Needed for 'osc1' source.
  */
 function updateOsc2FmModulatorParameters(osc2Note, now, voice = null) {
-    if (!osc2Note || !osc2Note.workletNode) {
-        console.warn(`updateOsc2FmModulatorParameters: Invalid osc2Note or workletNode for ID ${osc2Note?.id}.`);
+    if (!osc2Note || !osc2Note.workletNode || !voice) {
         return;
     }
-    const noteId = osc2Note.id;
-
-    // --- Disconnect and Stop Existing FM (if any) ---
-    if (osc2Note.fmModulatorSource) {
-        try { osc2Note.fmModulatorSource.stop(0); } catch (e) {}
-        try { osc2Note.fmModulatorSource.disconnect(); } catch (e) {}
-        osc2Note.fmModulatorSource = null;
+    
+    const fmDepthParam = osc2Note.workletNode.parameters.get('fmDepth');
+    if (!fmDepthParam) return;
+    
+    const noteId = osc2Note.id || 'unknown';
+    const scaledDepth = osc2FMAmount * osc2FMDepthScale;
+    
+    if (!osc2Note.fmDepthGain) {
+        osc2Note.fmDepthGain = audioCtx.createGain();
     }
-    if (osc2Note.fmDepthGain) {
-        try { osc2Note.fmDepthGain.disconnect(); } catch (e) {}
-        // Don't nullify fmDepthGain yet, reuse if possible
-    }
-
-    // --- Check if FM should be active ---
-    if (osc2FMAmount <= 0.001) {
-        console.log(`updateOsc2FmModulatorParameters [${noteId}]: FM amount is zero, ensuring FM is off.`);
-        if (osc2Note.fmDepthGain) { // Ensure gain is zero if node exists
-            osc2Note.fmDepthGain.gain.cancelScheduledValues(now);
-            osc2Note.fmDepthGain.gain.setTargetAtTime(0, now, 0.01); // Ramp down quickly
-        }
-        // No need to create new nodes if FM is off
-        return;
-    }
-
-    // --- Create/Configure Nodes ---
+    osc2Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
+    
+    // CRITICAL FIX: Disconnect ALL possible FM sources first
     try {
-        // Reuse or create fmDepthGain
-        if (!osc2Note.fmDepthGain) {
-            osc2Note.fmDepthGain = audioCtx.createGain();
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Created fmDepthGain node.`);
-        } else {
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Reusing existing fmDepthGain node.`);
-        }
-        // Set gain value based on current knob state
-        const scaledDepth = osc2FMAmount * osc2FMDepthScale;
-        osc2Note.fmDepthGain.gain.cancelScheduledValues(now);
-        osc2Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now); // Set initial value directly
-
-        let newFmSource = null;
-        const freqParam = osc2Note.workletNode.parameters.get('frequency'); // <<< Get frequency param early
-
-        // <<< Check if frequency parameter exists BEFORE creating source >>>
-        if (!freqParam) {
-             console.error(`updateOsc2FmModulatorParameters [${noteId}]: Frequency parameter missing on workletNode. Cannot setup FM.`);
-             if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e) {} osc2Note.fmDepthGain = null; }
-             return; // Exit early
-        }
-
-        // Create new modulator source based on osc2FMSource
-        if (osc2FMSource === 'sampler') { // <<< Check source type >>>
-            // <<< Check sampler-specific prerequisites >>>
-            if (!audioBuffer) {
-                 console.error(`updateOsc2FmModulatorParameters [${noteId}]: Sampler FM selected, but no audioBuffer loaded. Skipping FM connection.`);
-                 if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e) {} osc2Note.fmDepthGain = null; } // Clean up gain node
-                 return; // Don't proceed
-            }
-
-            // --- Sampler FM Source ---
-            newFmSource = audioCtx.createBufferSource();
-
-            // --- Mirror Buffer Selection ---
-            let useOriginalBuffer = true;
-            let sourceBuffer = audioBuffer;
-            let bufferType = "original_fm_osc2";
-            if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-                sourceBuffer = cachedCrossfadedBuffer; useOriginalBuffer = false; bufferType = "crossfaded_fm_osc2";
-            } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-                sourceBuffer = fadedBuffer; useOriginalBuffer = false; bufferType = "faded_fm_osc2";
-            }
-            // <<< Validate selected buffer >>>
-            if (!sourceBuffer || !(sourceBuffer instanceof AudioBuffer)) {
-                 console.error(`updateOsc2FmModulatorParameters [${noteId}]: Invalid sourceBuffer selected for FM (type: ${bufferType}). Skipping FM connection.`);
-                 newFmSource = null; // Nullify the source
-                 if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e) {} osc2Note.fmDepthGain = null; }
-                 return; // <<< ADD RETURN HERE >>>
-            }
-            // --- Assign buffer and log ---
-            newFmSource.buffer = sourceBuffer;
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using ${bufferType} buffer for FM.`);
-
-            // --- Mirror Pitch/Rate ---
-            let fmRate = 1.0;
-            if (isSampleKeyTrackingOn) { fmRate = TR2 ** (osc2Note.noteNumber - 12); } // Use the note's number
-            newFmSource.playbackRate.value = fmRate;
-            newFmSource.detune.value = currentSampleDetune; // Use global sample detune
-
-            // --- Mirror Loop Settings ---
-            let loopStartTime = 0; let loopEndTime = sourceBuffer.duration;
-            if (useOriginalBuffer) {
-                if (isSampleLoopOn) {
-                    newFmSource.loop = true; loopStartTime = sampleStartPosition * audioBuffer.duration; loopEndTime = sampleEndPosition * audioBuffer.duration;
-                    newFmSource.loopStart = Math.max(0, loopStartTime); newFmSource.loopEnd = Math.min(audioBuffer.duration, loopEndTime);
-                    if (newFmSource.loopEnd <= newFmSource.loopStart) { newFmSource.loopEnd = audioBuffer.duration; newFmSource.loopStart = 0; }
-                } else { newFmSource.loop = false; }
-            } else { newFmSource.loop = isSampleLoopOn; }
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Loop=${newFmSource.loop}, Start=${newFmSource.loopStart.toFixed(3)}, End=${newFmSource.loopEnd.toFixed(3)}`);
-            // --- End Sampler Specific Logic ---
-
-        } else if (osc2FMSource === 'osc1') {
-            // --- Osc1 FM Source ---
-            const osc1Note = voice?.osc1Note;
-            newFmSource = audioCtx.createOscillator();
-            newFmSource.type = osc1Waveform === 'pulse' ? 'square' : osc1Waveform;
-            const osc1Freq = noteToFrequency(osc2Note.noteNumber, osc1OctaveOffset);
-            newFmSource.frequency.value = osc1Freq;
-            newFmSource.detune.value = osc1Detune;
-
-            if (osc1Note && osc1Note.workletNode) {
-                 try {
-                     const currentFreqParam = osc1Note.workletNode.parameters.get('frequency');
-                     const currentDetuneParam = osc1Note.workletNode.parameters.get('detune');
-                     if (currentFreqParam) newFmSource.frequency.value = currentFreqParam.value;
-                     if (currentDetuneParam) newFmSource.detune.value = currentDetuneParam.value;
-                     console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using basic OscillatorNode mirroring Osc1 (found active note).`);
-                 } catch(e) { console.warn(`updateOsc2FmModulatorParameters [${noteId}]: Error getting current Osc1 params, using globals.`); }
-            } else { console.log(`updateOsc2FmModulatorParameters [${noteId}]: Using basic OscillatorNode mirroring global Osc1 settings.`); }
-            // --- End Osc1 Specific Logic ---
-        }
-
-        // --- Connect and Start ---
-        // <<< Check newFmSource, fmDepthGain, and freqParam (already checked) >>>
-        if (newFmSource && osc2Note.fmDepthGain) {
-            osc2Note.fmModulatorSource = newFmSource; // Store reference
-            newFmSource.connect(osc2Note.fmDepthGain);
-            // <<< Connect gain node to the frequency parameter >>>
-            osc2Note.fmDepthGain.connect(freqParam);
-            newFmSource.start(now); // <<< Start AFTER connecting >>>
-            console.log(`updateOsc2FmModulatorParameters [${noteId}]: Started and connected new FM source (${osc2FMSource}) to frequency.`);
-        } else {
-            // This block will now only be reached if source creation failed for 'osc1' or if prerequisites failed earlier
-            console.warn(`updateOsc2FmModulatorParameters [${noteId}]: Failed to create or connect new FM source (${osc2FMSource}). FM will be inactive.`);
-            // Ensure gain node is cleaned up if source creation/connection failed
-            if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e) {} osc2Note.fmDepthGain = null; }
-        }
-
-    } catch (error) {
-        console.error(`Error in updateOsc2FmModulatorParameters for ${noteId}:`, error);
-        // Attempt cleanup on error
-        if (osc2Note.fmModulatorSource) { try { osc2Note.fmModulatorSource.disconnect(); } catch(e){} osc2Note.fmModulatorSource = null; }
-        if (osc2Note.fmDepthGain) { try { osc2Note.fmDepthGain.disconnect(); } catch(e){} osc2Note.fmDepthGain = null; }
+        osc2Note.fmDepthGain.disconnect();
+    } catch(e) {}
+    
+    // CRITICAL FIX: Also try to disconnect any sources that might still be connected
+    // This handles the case where we're switching FROM osc1 TO sampler
+    if (voice.osc1Note && voice.osc1Note.workletNode) {
+        try {
+            voice.osc1Note.workletNode.disconnect(osc2Note.fmDepthGain);
+        } catch(e) {}
     }
-}
-
-// --- End Oscillator 2 Note Functions ---
-// --- Unified Note On/Off Handlers ---
-
-function noteOn(noteNumber) {
-    console.log(`noteOn: ${noteNumber}, Mono: ${isMonoMode}, Legato: ${isLegatoMode}, Porta: ${isPortamentoOn}`);
-    const now = audioCtx.currentTime;
-
-    if (!heldNotes.includes(noteNumber)) { heldNotes.push(noteNumber); }
-
-    if (isMonoMode) {
-        if (currentMonoVoice) {
-            // --- Mono Update (Existing Voice) ---
-            const oldNoteNumber = currentMonoVoice.noteNumber;
-            console.log(`Mono NoteOn: Updating existing voice from ${oldNoteNumber} to ${noteNumber}. Legato: ${isLegatoMode}`);
-
-            if (isLegatoMode) {
-                // --- Mono Legato Update ---
-                const voiceToUpdate = currentMonoVoice;
-                const oldNoteNumberForLog = voiceToUpdate.noteNumber; // Log before changing
-
-                // Update voice state FIRST
-                voiceToUpdate.noteNumber = noteNumber;
-                // Update activeVoices mapping
-                if (oldNoteNumberForLog !== noteNumber) {
-                    activeVoices[noteNumber] = voiceToUpdate; // Point new key to existing voice
-                    delete activeVoices[oldNoteNumberForLog]; // Remove old key mapping
-                    console.log(`Mono Legato: Updated activeVoices map. Key ${oldNoteNumberForLog} deleted, Key ${noteNumber} points to voice.`);
-                } else {
-                    console.log(`Mono Legato: Note number ${noteNumber} retriggered, activeVoices map unchanged.`);
-                }
-
-                // Glide or Jump existing components
-                const targetFreqOsc1 = noteToFrequency(noteNumber, osc1OctaveOffset);
-                const targetFreqOsc2 = noteToFrequency(noteNumber, osc2OctaveOffset); // <<< Get Osc2 target
-                const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
-
-                // Get current parameters (check existence)
-                let osc1FreqParam = voiceToUpdate.osc1Note?.workletNode?.parameters.get('frequency');
-                let osc1DetuneParam = voiceToUpdate.osc1Note?.workletNode?.parameters.get('detune');
-                let osc2FreqParam = voiceToUpdate.osc2Note?.workletNode?.parameters.get('frequency'); // <<< Get Osc2 param
-                let osc2DetuneParam = voiceToUpdate.osc2Note?.workletNode?.parameters.get('detune'); // <<< Get Osc2 param
-                let samplerRateParam = voiceToUpdate.samplerNote?.source?.playbackRate;
-                let samplerDetuneParam = voiceToUpdate.samplerNote?.source?.detune;
-                let fm1ModRateParam = voiceToUpdate.osc1Note?.fmModulatorSource?.playbackRate; // FM for Osc1
-                let fm2ModRateParam = voiceToUpdate.osc2Note?.fmModulatorSource?.playbackRate; // FM for Osc2
-
-                // <<< CHANGE: Glide if Legato is ON and glideTime > 0 >>>
-                if (glideTime > 0.001) {
-                    // --- Legato Glide ---
-                    console.log(`Applying MONO Legato glide (noteOn): ${glideTime.toFixed(3)}s`);
-
-                    // <<< Ensure ramps start from CURRENT value >>>
-                    if (samplerRateParam) {
-                        samplerRateParam.cancelScheduledValues(now); // Cancel previous ramps
-                        samplerRateParam.setValueAtTime(samplerRateParam.value, now); // Set current value
-                        samplerRateParam.linearRampToValueAtTime(targetRate, now + glideTime); // Ramp to target
-                    }
-                    if (samplerDetuneParam) {
-                        samplerDetuneParam.cancelScheduledValues(now);
-                        samplerDetuneParam.setValueAtTime(samplerDetuneParam.value, now);
-                        samplerDetuneParam.linearRampToValueAtTime(currentSampleDetune, now + glideTime); // Ramp to target detune
-                    }
-
-                    if (osc1FreqParam) {
-                        osc1FreqParam.cancelScheduledValues(now);
-                        osc1FreqParam.setValueAtTime(osc1FreqParam.value, now);
-                        osc1FreqParam.linearRampToValueAtTime(targetFreqOsc1, now + glideTime);
-                    }
-                    if (osc1DetuneParam) {
-                        osc1DetuneParam.cancelScheduledValues(now);
-                        osc1DetuneParam.setValueAtTime(osc1DetuneParam.value, now);
-                        osc1DetuneParam.linearRampToValueAtTime(osc1Detune, now + glideTime); // Ramp to target detune
-                    }
-
-                    if (osc2FreqParam) { // <<< Apply to Osc2 >>>
-                        osc2FreqParam.cancelScheduledValues(now);
-                        osc2FreqParam.setValueAtTime(osc2FreqParam.value, now);
-                        osc2FreqParam.linearRampToValueAtTime(targetFreqOsc2, now + glideTime);
-                    }
-                    if (osc2DetuneParam) { // <<< Apply to Osc2 Detune >>>
-                        osc2DetuneParam.cancelScheduledValues(now);
-                        osc2DetuneParam.setValueAtTime(osc2DetuneParam.value, now);
-                        osc2DetuneParam.linearRampToValueAtTime(osc2Detune, now + glideTime); // Ramp to target detune
-                    }
-
-                    // <<< Apply to FM sources (Rate and Detune if sampler-based) >>>
-                    if (fm1ModRateParam && osc1FMSource === 'sampler') { // Check source type
-                        fm1ModRateParam.cancelScheduledValues(now);
-                        fm1ModRateParam.setValueAtTime(fm1ModRateParam.value, now);
-                        fm1ModRateParam.linearRampToValueAtTime(targetRate, now + glideTime); // Glide rate
-                        // Glide detune for FM source if it exists
-                        const fm1ModDetuneParam = voiceToUpdate.osc1Note?.fmModulatorSource?.detune;
-                        if (fm1ModDetuneParam) {
-                            fm1ModDetuneParam.cancelScheduledValues(now);
-                            fm1ModDetuneParam.setValueAtTime(fm1ModDetuneParam.value, now);
-                            fm1ModDetuneParam.linearRampToValueAtTime(currentSampleDetune, now + glideTime);
-                        }
-                    }
-                    if (fm2ModRateParam && osc2FMSource === 'sampler') { // Check source type
-                        fm2ModRateParam.cancelScheduledValues(now);
-                        fm2ModRateParam.setValueAtTime(fm2ModRateParam.value, now);
-                        fm2ModRateParam.linearRampToValueAtTime(targetRate, now + glideTime); // Glide rate
-                        // Glide detune for FM source if it exists
-                        const fm2ModDetuneParam = voiceToUpdate.osc2Note?.fmModulatorSource?.detune;
-                        if (fm2ModDetuneParam) {
-                            fm2ModDetuneParam.cancelScheduledValues(now);
-                            fm2ModDetuneParam.setValueAtTime(fm2ModDetuneParam.value, now);
-                            fm2ModDetuneParam.linearRampToValueAtTime(currentSampleDetune, now + glideTime);
-                        }
-                    }
-                    // Note: If FM source is Osc1/Osc2, their frequency/detune glide is handled above.
-
-                } else {
-                    // --- Legato Jump (Only if glideTime is 0) ---
-                    console.log(`Applying MONO Legato jump (glideTime is zero)`);
-                    if (samplerRateParam) { samplerRateParam.setValueAtTime(targetRate, now); }
-                    if (samplerDetuneParam) { samplerDetuneParam.setValueAtTime(currentSampleDetune, now); }
-                    if (osc1FreqParam) { osc1FreqParam.setValueAtTime(targetFreqOsc1, now); }
-                    if (osc1DetuneParam) { osc1DetuneParam.setValueAtTime(osc1Detune, now); }
-                    if (osc2FreqParam) { osc2FreqParam.setValueAtTime(targetFreqOsc2, now); }
-                    if (osc2DetuneParam) { osc2DetuneParam.setValueAtTime(osc2Detune, now); }
-                    // Jump FM sources if sampler-based
-                    if (fm1ModRateParam && osc1FMSource === 'sampler') { fm1ModRateParam.setValueAtTime(targetRate, now); }
-                    const fm1ModDetuneParam = voiceToUpdate.osc1Note?.fmModulatorSource?.detune;
-                    if (fm1ModDetuneParam && osc1FMSource === 'sampler') { fm1ModDetuneParam.setValueAtTime(currentSampleDetune, now); }
-                    if (fm2ModRateParam && osc2FMSource === 'sampler') { fm2ModRateParam.setValueAtTime(targetRate, now); }
-                    const fm2ModDetuneParam = voiceToUpdate.osc2Note?.fmModulatorSource?.detune;
-                    if (fm2ModDetuneParam && osc2FMSource === 'sampler') { fm2ModDetuneParam.setValueAtTime(currentSampleDetune, now); }
-                }
-                // Update component note numbers (check existence first)
-                if (voiceToUpdate.samplerNote) { voiceToUpdate.samplerNote.noteNumber = noteNumber; }
-                if (voiceToUpdate.osc1Note) { voiceToUpdate.osc1Note.noteNumber = noteNumber; }
-                if (voiceToUpdate.osc2Note) { voiceToUpdate.osc2Note.noteNumber = noteNumber; } // <<< Update Osc2 noteNumber
-
-            } else {
-                // --- Multi-Trigger Retrigger ---
-                console.log("Mono NoteOn: Applying Multi-Trigger Retrigger.");
-                const prevVoice = currentMonoVoice;
-                const prevSamplerNote = prevVoice?.samplerNote;
-                const prevOsc1Note = prevVoice?.osc1Note;
-                const prevOsc2Note = prevVoice?.osc2Note; // <<< Get prev Osc2
-                const prevNoteNumber = prevVoice?.noteNumber;
-
-                let startRate = null; let startFreqOsc1 = null; let startFreqOsc2 = null; // <<< Add Osc2 start freq
-                if (isPortamentoOn && glideTime > 0.001) {
-                    // Get current pitch BEFORE starting new notes/fading old
-                    if (prevSamplerNote?.source?.playbackRate) { try { startRate = prevSamplerNote.source.playbackRate.value; } catch(e){} }
-                    if (prevOsc1Note?.workletNode) { try { const p = prevOsc1Note.workletNode.parameters.get('frequency'); if(p) startFreqOsc1 = p.value; } catch(e){} }
-                    if (prevOsc2Note?.workletNode) { try { const p = prevOsc2Note.workletNode.parameters.get('frequency'); if(p) startFreqOsc2 = p.value; } catch(e){} } // <<< Get Osc2 start freq
-                    // Fallback to target pitch if actual value couldn't be read
-                    if (startRate === null && prevNoteNumber !== null) startRate = isSampleKeyTrackingOn ? TR2 ** (prevNoteNumber - 12) : 1.0;
-                    if (startFreqOsc1 === null && prevNoteNumber !== null) startFreqOsc1 = noteToFrequency(prevNoteNumber, osc1OctaveOffset);
-                    if (startFreqOsc2 === null && prevNoteNumber !== null) startFreqOsc2 = noteToFrequency(prevNoteNumber, osc2OctaveOffset); // <<< Fallback Osc2
-                }
-
-                // Update voice state for the NEW note
-                currentMonoVoice.noteNumber = noteNumber;
-                currentMonoVoice.startTime = now;
-                if (prevNoteNumber !== noteNumber && prevNoteNumber !== undefined) {
-                    activeVoices[noteNumber] = currentMonoVoice; delete activeVoices[prevNoteNumber];
-                }
-
-                // Start NEW components and assign them
-                console.log("Mono Multi-Trigger: Starting new components.");
-                currentMonoVoice.samplerNote = startSamplerNote(noteNumber, audioCtx, masterGain, audioBuffer);
-                currentMonoVoice.osc1Note = startOsc1Note(noteNumber, audioCtx, masterGain);
-                currentMonoVoice.osc2Note = startOsc2Note(noteNumber, audioCtx, masterGain); // <<< Start Osc2
-                console.log(`Mono Multi-Trigger: New samplerNote: ${currentMonoVoice.samplerNote?.id}, New osc1Note: ${currentMonoVoice.osc1Note?.id}, New osc2Note: ${currentMonoVoice.osc2Note?.id}`); // <<< Log Osc2
-
-                // Apply portamento glide to NEW components if applicable
-                if (isPortamentoOn && glideTime > 0.001 && (startRate !== null || startFreqOsc1 !== null || startFreqOsc2 !== null)) {
-                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
-                    const targetFreqOsc1 = noteToFrequency(noteNumber, osc1OctaveOffset);
-                    const targetFreqOsc2 = noteToFrequency(noteNumber, osc2OctaveOffset); // <<< Target Osc2
-
-                    if (currentMonoVoice.samplerNote?.source?.playbackRate && startRate !== null) {
-                        currentMonoVoice.samplerNote.source.playbackRate.setValueAtTime(startRate, now);
-                        currentMonoVoice.samplerNote.source.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
-                    }
-                    // FM Glides (similar logic as noteOn) ...
-                    if (currentMonoVoice.osc1Note?.fmModulatorSource?.playbackRate && startRate !== null) {
-                        const fmSource = currentMonoVoice.osc1Note.fmModulatorSource;
-                        fmSource.playbackRate.setValueAtTime(startRate, now);
-                        fmSource.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
-                    }
-                    if (currentMonoVoice.osc2Note?.fmModulatorSource?.playbackRate && startRate !== null) { // <<< Glide FM for Osc2
-                        const fmSource = currentMonoVoice.osc2Note.fmModulatorSource;
-                        fmSource.playbackRate.setValueAtTime(startRate, now);
-                        fmSource.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
-                    }
-
-
-                    if (currentMonoVoice.osc1Note?.workletNode && startFreqOsc1 !== null) {
-                        const p = currentMonoVoice.osc1Note.workletNode.parameters.get('frequency');
-                        if(p) { p.setValueAtTime(startFreqOsc1, now); p.linearRampToValueAtTime(targetFreqOsc1, now + glideTime); }
-                    }
-                    if (currentMonoVoice.osc2Note?.workletNode && startFreqOsc2 !== null) { // <<< Glide Osc2
-                        const p = currentMonoVoice.osc2Note.workletNode.parameters.get('frequency');
-                        if(p) { p.setValueAtTime(startFreqOsc2, now); p.linearRampToValueAtTime(targetFreqOsc2, now + glideTime); }
-                    }
-                }
-
-                // Fade out the PREVIOUS voice components
-                console.log("Mono Multi-Trigger: Fading out previous components.");
-                setTimeout(() => {
-                    if (prevSamplerNote) quickFadeOutSampler(prevSamplerNote, 0.015);
-                    if (prevOsc1Note) quickFadeOutOsc1(prevOsc1Note, 0.015);
-                    if (prevOsc2Note) quickFadeOutOsc2(prevOsc2Note, 0.015); // <<< Fade out Osc2
-                }, 5);
-            }
-        } else {
-            // --- Mono First Note ---
-            console.log(`Mono NoteOn: Starting new voice for Note ${noteNumber}.`);
-            currentMonoVoice = { samplerNote: null, osc1Note: null, osc2Note: null, startTime: now, noteNumber: noteNumber }; // <<< Add osc2Note
-            activeVoices[noteNumber] = currentMonoVoice;
-
-            // Start new components
-            currentMonoVoice.samplerNote = startSamplerNote(noteNumber, audioCtx, masterGain, audioBuffer);
-            currentMonoVoice.osc1Note = startOsc1Note(noteNumber, audioCtx, masterGain);
-            currentMonoVoice.osc2Note = startOsc2Note(noteNumber, audioCtx, masterGain); // <<< Start Osc2
-
-            // Apply initial portamento glide if needed
-            if (isPortamentoOn && glideTime > 0.001) {
-                let glideStartRate = lastActualSamplerRate;
-                let glideStartFreqOsc1 = lastActualOsc1Freq;
-                let glideStartFreqOsc2 = lastActualOsc2Freq; // <<< Get Osc2 start
-
-                if (glideStartRate === null && lastPlayedNoteNumber !== null) glideStartRate = isSampleKeyTrackingOn ? TR2 ** (lastPlayedNoteNumber - 12) : 1.0;
-                if (glideStartFreqOsc1 === null && lastPlayedNoteNumber !== null) glideStartFreqOsc1 = noteToFrequency(lastPlayedNoteNumber, osc1OctaveOffset);
-                if (glideStartFreqOsc2 === null && lastPlayedNoteNumber !== null) glideStartFreqOsc2 = noteToFrequency(lastPlayedNoteNumber, osc2OctaveOffset); // <<< Fallback Osc2
-
-                if (glideStartRate !== null || glideStartFreqOsc1 !== null || glideStartFreqOsc2 !== null) {
-                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
-                    const targetFreqOsc1 = noteToFrequency(noteNumber, osc1OctaveOffset);
-                    const targetFreqOsc2 = noteToFrequency(noteNumber, osc2OctaveOffset); // <<< Target Osc2
-
-                    if (currentMonoVoice.samplerNote?.source?.playbackRate && glideStartRate !== null) {
-                        currentMonoVoice.samplerNote.source.playbackRate.setValueAtTime(glideStartRate, now);
-                        currentMonoVoice.samplerNote.source.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
-                    }
-                    if (currentMonoVoice.osc1Note?.workletNode && glideStartFreqOsc1 !== null) {
-                        const p = currentMonoVoice.osc1Note.workletNode.parameters.get('frequency');
-                        if(p) { p.setValueAtTime(glideStartFreqOsc1, now); p.linearRampToValueAtTime(targetFreqOsc1, now + glideTime); }
-                    }
-                    if (currentMonoVoice.osc2Note?.workletNode && glideStartFreqOsc2 !== null) { // <<< Glide Osc2
-                        const p = currentMonoVoice.osc2Note.workletNode.parameters.get('frequency');
-                        if(p) { p.setValueAtTime(glideStartFreqOsc2, now); p.linearRampToValueAtTime(targetFreqOsc2, now + glideTime); }
-                    }
-                }
-           }
-           // Reset last actual pitch
-           lastActualSamplerRate = null; lastActualOsc1Freq = null; lastActualOsc2Freq = null; // <<< Reset Osc2
-       }
-    } else {
-        // --- POLY ---
-        // Voice Stealing (check all components)
-        const playingVoiceNumbers = Object.keys(activeVoices).filter(num =>
-            activeVoices[num] && (
-                (activeVoices[num].samplerNote && activeVoices[num].samplerNote.state === 'playing') ||
-                (activeVoices[num].osc1Note && activeVoices[num].osc1Note.state === 'playing') ||
-                (activeVoices[num].osc2Note && activeVoices[num].osc2Note.state === 'playing') // <<< Check Osc2
-            )
+    
+    // CRITICAL FIX: Disconnect any sampler FM taps that might be connected
+    samplerVoicePool.forEach(sv => {
+        if (sv.samplerNote && sv.samplerNote.fmTap) {
+            try {
+                sv.samplerNote.fmTap.disconnect(osc2Note.fmDepthGain);
+            } catch(e) {}
+        }
+    });
+    
+    let fmSource = null;
+    
+    if (osc2FMSource === 'sampler') {
+        // Find the ACTUAL sampler voice in samplerVoicePool
+        const actualSamplerVoice = samplerVoicePool.find(
+            sv => sv.noteNumber === voice.noteNumber && 
+                  sv.state !== 'inactive' && 
+                  sv.samplerNote && 
+                  sv.samplerNote.fmTap
         );
-        while (playingVoiceNumbers.length >= MAX_POLYPHONY) {
-             let oldestNoteNumber = -1; let oldestStartTime = Infinity;
-             playingVoiceNumbers.forEach(num => {
-                 if (activeVoices[num] && activeVoices[num].startTime < oldestStartTime) {
-                     oldestStartTime = activeVoices[num].startTime; oldestNoteNumber = num;
-                 }
-             });
-             if (oldestNoteNumber !== -1) {
-                 console.log(`Voice stealing: Removing oldest voice (Note ${oldestNoteNumber})`);
-                 const voiceToSteal = activeVoices[oldestNoteNumber];
-                 if (voiceToSteal.samplerNote) quickFadeOutSampler(voiceToSteal.samplerNote, 0.015);
-                 if (voiceToSteal.osc1Note) quickFadeOutOsc1(voiceToSteal.osc1Note, 0.015);
-                 if (voiceToSteal.osc2Note) quickFadeOutOsc2(voiceToSteal.osc2Note, 0.015); // <<< Fade out Osc2
-                 playingVoiceNumbers.splice(playingVoiceNumbers.indexOf(oldestNoteNumber.toString()), 1);
-             } else { break; }
-        }
-
-        let targetVoice = activeVoices[noteNumber];
-        let isNewVoice = !targetVoice;
-
-        if (isNewVoice) {
-            // --- Poly New Note ---
-            console.log(`Poly NoteOn: Creating new voice for Note ${noteNumber}.`);
-            targetVoice = { samplerNote: null, osc1Note: null, osc2Note: null, startTime: now, noteNumber: noteNumber }; // <<< Add osc2Note
-            activeVoices[noteNumber] = targetVoice;
-            // Start Components
-            targetVoice.samplerNote = startSamplerNote(noteNumber, audioCtx, masterGain, audioBuffer);
-            targetVoice.osc1Note = startOsc1Note(noteNumber, audioCtx, masterGain);
-            targetVoice.osc2Note = startOsc2Note(noteNumber, audioCtx, masterGain); // <<< Start Osc2
+        
+        if (actualSamplerVoice && actualSamplerVoice.samplerNote.fmTap) {
+            fmSource = actualSamplerVoice.samplerNote.fmTap;
+            console.log(`OSC2 [${noteId}]: Switching to sampler FM tap from samplerVoice ${actualSamplerVoice.id}`);
         } else {
-            // --- Poly Retrigger ---
-            console.log(`Poly NoteOn: Retriggering voice for Note ${noteNumber}.`);
-            const oldSamplerNote = targetVoice.samplerNote;
-            const oldOsc1Note = targetVoice.osc1Note;
-            const oldOsc2Note = targetVoice.osc2Note; // <<< Get old Osc2
-
-            // Start NEW components immediately
-            targetVoice.samplerNote = startSamplerNote(noteNumber, audioCtx, masterGain, audioBuffer);
-            targetVoice.osc1Note = startOsc1Note(noteNumber, audioCtx, masterGain);
-            targetVoice.osc2Note = startOsc2Note(noteNumber, audioCtx, masterGain); // <<< Start Osc2
-            targetVoice.startTime = now; // Update start time
-
-            // Delayed Fade Out of OLD components
-            setTimeout(() => {
-                if (oldSamplerNote) quickFadeOutSampler(oldSamplerNote, 0.015);
-                if (oldOsc1Note) quickFadeOutOsc1(oldOsc1Note, 0.015);
-                if (oldOsc2Note) quickFadeOutOsc2(oldOsc2Note, 0.015); // <<< Fade out Osc2
-            }, 0);
+            console.warn(`OSC2 [${noteId}]: No active sampler found for FM`);
         }
-
-        // Apply Poly Portamento Glide
-        if (isPortamentoOn && lastPlayedNoteNumber !== null && glideTime > 0.001) {
-            console.log(`Applying POLY portamento glide: ${glideTime.toFixed(3)}s from ${lastPlayedNoteNumber} to ${noteNumber}`);
-            const startFreqOsc1 = noteToFrequency(lastPlayedNoteNumber, osc1OctaveOffset);
-            const startFreqOsc2 = noteToFrequency(lastPlayedNoteNumber, osc2OctaveOffset); // <<< Start Osc2
-            const startRate = isSampleKeyTrackingOn ? TR2 ** (lastPlayedNoteNumber - 12) : 1.0; // Always use last note for start rate if keytracking
-
-            const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
-            const targetFreqOsc1 = noteToFrequency(noteNumber, osc1OctaveOffset);
-            const targetFreqOsc2 = noteToFrequency(noteNumber, osc2OctaveOffset); // <<< Target Osc2
-
-            // Sampler Glide
-            if (targetVoice.samplerNote?.source?.playbackRate) {
-                targetVoice.samplerNote.source.playbackRate.setValueAtTime(startRate, now);
-                targetVoice.samplerNote.source.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
-            }
-            // FM Modulator Glide (for Osc1)
-            if (targetVoice.osc1Note?.fmModulatorSource?.playbackRate) {
-                 const fmSource = targetVoice.osc1Note.fmModulatorSource;
-                 // Determine FM start rate based on source type (sampler or osc2)
-                 const fmStartRate = (osc1FMSource === 'sampler') ? startRate : 1.0; // Assume Osc2 FM source doesn't track pitch for now
-                 const fmTargetRate = (osc1FMSource === 'sampler') ? targetRate : 1.0;
-                 fmSource.playbackRate.setValueAtTime(fmStartRate, now);
-                 fmSource.playbackRate.linearRampToValueAtTime(fmTargetRate, now + glideTime);
-            }
-             // FM Modulator Glide (for Osc2) // <<< ADD FM Glide for Osc2 >>>
-            if (targetVoice.osc2Note?.fmModulatorSource?.playbackRate) {
-                 const fmSource = targetVoice.osc2Note.fmModulatorSource;
-                 // Determine FM start rate based on source type (sampler or osc1)
-                 const fmStartRate = (osc2FMSource === 'sampler') ? startRate : 1.0; // Assume Osc1 FM source doesn't track pitch for now
-                 const fmTargetRate = (osc2FMSource === 'sampler') ? targetRate : 1.0;
-                 fmSource.playbackRate.setValueAtTime(fmStartRate, now);
-                 fmSource.playbackRate.linearRampToValueAtTime(fmTargetRate, now + glideTime);
-            }
-
-           // Osc1 Glide
-           if (targetVoice.osc1Note?.workletNode) {
-                const p = targetVoice.osc1Note.workletNode.parameters.get('frequency');
-                if(p) { p.setValueAtTime(startFreqOsc1, now); p.linearRampToValueAtTime(targetFreqOsc1, now + glideTime); }
-           }
-           // Osc2 Glide // <<< ADD Osc2 Glide >>>
-           if (targetVoice.osc2Note?.workletNode) {
-                const p = targetVoice.osc2Note.workletNode.parameters.get('frequency');
-                if(p) { p.setValueAtTime(startFreqOsc2, now); p.linearRampToValueAtTime(targetFreqOsc2, now + glideTime); }
-           }
-       }
-   }
-
-   lastPlayedNoteNumber = noteNumber;
-   updateVoiceDisplay();
-   updateKeyboardDisplay();
-}
-
-function noteOff(noteNumber) {
-    console.log(`noteOff: ${noteNumber}, Mono: ${isMonoMode}, Held: [${heldNotes.join(',')}]`);
-    console.log(`noteOff DEBUG ENTRY: currentMonoVoice note = ${currentMonoVoice ? currentMonoVoice.noteNumber : 'null'}`); // <<< ADD THIS LOG
-    const now = audioCtx.currentTime;
-
-    // Remove from held notes list
-    const initialLength = heldNotes.length;
-    heldNotes = heldNotes.filter(n => n !== noteNumber);
-    const noteWasHeld = heldNotes.length < initialLength;
-
-    if (!noteWasHeld) {
-        console.log(`noteOff: Note ${noteNumber} was not in heldNotes array (potentially stolen or already released).`);
+    } else if (osc2FMSource === 'osc1') {
+        if (voice.osc1Note && voice.osc1Note.workletNode) {
+            fmSource = voice.osc1Note.workletNode;
+            console.log(`OSC2 [${noteId}]: Switching to OSC1 worklet from voice ${voice.id}`);
+        }
     }
-
-    if (isMonoMode) {
-        // --- Mono Mode Logic ---
-        // Only act if the released note *was* the currently sounding mono note
-        if (!currentMonoVoice || currentMonoVoice.noteNumber !== noteNumber) {
-            console.log(`Mono NoteOff: Skipping release for ${noteNumber}. Current mono voice is ${currentMonoVoice ? `Note ${currentMonoVoice.noteNumber}` : 'null'}.`);
-            if (noteWasHeld) {
-                 updateVoiceDisplay();
-                 updateKeyboardDisplay();
-            }
-            return;
-        }
-
-        // The released note IS the current mono voice. Check if other keys are still held.
-        if (heldNotes.length > 0) {
-            // --- Other notes still held ---
-            const lastHeldNoteNumber = heldNotes[heldNotes.length - 1];
-            console.log(`Mono NoteOff: Other notes held. Returning to ${lastHeldNoteNumber}. Legato: ${isLegatoMode}`);
-
-            if (!isLegatoMode) {
-                // --- Multi-trigger: Retrigger last held note ---
-                console.log("Mono NoteOff (Multi): Retriggering and gliding down.");
-                const voiceBeingReleased = currentMonoVoice; // The voice playing the noteNumber being released
-                const releasedNoteNumber = voiceBeingReleased?.noteNumber; // The note number being released
-
-                // <<< Ensure voiceBeingReleased is valid before proceeding >>>
-                if (!voiceBeingReleased || releasedNoteNumber === undefined || releasedNoteNumber === null) {
-                    console.error(`Mono NoteOff (Multi): Error! voiceBeingReleased is invalid or has no noteNumber.`);
-                    // Attempt cleanup if possible
-                    if (voiceBeingReleased) {
-                         if (voiceBeingReleased.samplerNote) quickFadeOutSampler(voiceBeingReleased.samplerNote, 0.015);
-                         if (voiceBeingReleased.osc1Note) quickFadeOutOsc1(voiceBeingReleased.osc1Note, 0.015);
-                         if (voiceBeingReleased.osc2Note) quickFadeOutOsc2(voiceBeingReleased.osc2Note, 0.015);
-                    }
-                    currentMonoVoice = null; // Reset mono voice state
-                    delete activeVoices[noteNumber]; // Clean up active voices map for the released note
-                    updateVoiceDisplay(); updateKeyboardDisplay();
-                    return; // Exit early
-                }
-
-                let startRate = null; let startFreqOsc1 = null; let startFreqOsc2 = null;
-                if (isPortamentoOn && glideTime > 0.001) {
-                    // Get current pitch of the NOTE BEING RELEASED
-                    console.log(`Mono NoteOff (Multi): Reading pitch from released note ${releasedNoteNumber}`);
-                    if (voiceBeingReleased.samplerNote?.source?.playbackRate) { try { startRate = voiceBeingReleased.samplerNote.source.playbackRate.value; } catch(e){} }
-                    if (voiceBeingReleased.osc1Note?.workletNode) { try { const p = voiceBeingReleased.osc1Note.workletNode.parameters.get('frequency'); if(p) startFreqOsc1 = p.value; } catch(e){} }
-                    if (voiceBeingReleased.osc2Note?.workletNode) { try { const p = voiceBeingReleased.osc2Note.workletNode.parameters.get('frequency'); if(p) startFreqOsc2 = p.value; } catch(e){} }
-                    // Fallback to target pitch if actual value couldn't be read
-                    if (startRate === null) startRate = isSampleKeyTrackingOn ? TR2 ** (releasedNoteNumber - 12) : 1.0;
-                    if (startFreqOsc1 === null) startFreqOsc1 = noteToFrequency(releasedNoteNumber, osc1OctaveOffset);
-                    if (startFreqOsc2 === null) startFreqOsc2 = noteToFrequency(releasedNoteNumber, osc2OctaveOffset);
-                    console.log(`Mono NoteOff (Multi): Start Glide - Rate: ${startRate?.toFixed(4)}, Freq1: ${startFreqOsc1?.toFixed(2)}, Freq2: ${startFreqOsc2?.toFixed(2)}`);
-                }
-                // --- End Get current pitch ---
-
-                // Start NEW voice components for the note being returned to (lastHeldNoteNumber)
-                console.log(`Mono NoteOff (Multi): Starting new components for Note ${lastHeldNoteNumber}.`);
-                // <<< Create a NEW voice object for the held note >>>
-                const newVoice = { samplerNote: null, osc1Note: null, osc2Note: null, startTime: now, noteNumber: lastHeldNoteNumber };
-                activeVoices[lastHeldNoteNumber] = newVoice; // Assign to activeVoices
-                currentMonoVoice = newVoice; // Update the current mono voice reference
-
-                newVoice.samplerNote = startSamplerNote(lastHeldNoteNumber, audioCtx, masterGain, audioBuffer);
-                newVoice.osc1Note = startOsc1Note(lastHeldNoteNumber, audioCtx, masterGain);
-                newVoice.osc2Note = startOsc2Note(lastHeldNoteNumber, audioCtx, masterGain);
-
-                // Apply glide FROM the released note's pitch TO the held note's pitch on the NEW components
-                if (isPortamentoOn && glideTime > 0.001 && (startRate !== null || startFreqOsc1 !== null || startFreqOsc2 !== null)) {
-                    console.log(`Mono NoteOff (Multi): Applying glide to new components for note ${lastHeldNoteNumber}`);
-                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (lastHeldNoteNumber - 12) : 1.0;
-                    const targetFreqOsc1 = noteToFrequency(lastHeldNoteNumber, osc1OctaveOffset);
-                    const targetFreqOsc2 = noteToFrequency(lastHeldNoteNumber, osc2OctaveOffset);
-
-                    // Glide Sampler Rate (on newVoice.samplerNote)
-                    if (newVoice.samplerNote?.source?.playbackRate && startRate !== null) {
-                        const p = newVoice.samplerNote.source.playbackRate;
-                        p.setValueAtTime(startRate, now);
-                        p.linearRampToValueAtTime(targetRate, now + glideTime);
-                    }
-                    // Glide Osc1 Freq (on newVoice.osc1Note)
-                    if (newVoice.osc1Note?.workletNode && startFreqOsc1 !== null) {
-                        const p = newVoice.osc1Note.workletNode.parameters.get('frequency');
-                        if(p) { p.setValueAtTime(startFreqOsc1, now); p.linearRampToValueAtTime(targetFreqOsc1, now + glideTime); }
-                    }
-                    // Glide Osc2 Freq (on newVoice.osc2Note)
-                    if (newVoice.osc2Note?.workletNode && startFreqOsc2 !== null) {
-                        const p = newVoice.osc2Note.workletNode.parameters.get('frequency');
-                        if(p) { p.setValueAtTime(startFreqOsc2, now); p.linearRampToValueAtTime(targetFreqOsc2, now + glideTime); }
-                    }
-                    // Glide FM sources if needed (apply to newVoice components)
-                    // FM for Osc1
-                    if (newVoice.osc1Note?.fmModulatorSource?.playbackRate && startRate !== null && osc1FMSource === 'sampler') {
-                        const fmSource = newVoice.osc1Note.fmModulatorSource;
-                        fmSource.playbackRate.setValueAtTime(startRate, now);
-                        fmSource.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
-                    }
-                    // FM for Osc2
-                    if (newVoice.osc2Note?.fmModulatorSource?.playbackRate && startRate !== null && osc2FMSource === 'sampler') {
-                        const fmSource = newVoice.osc2Note.fmModulatorSource;
-                        fmSource.playbackRate.setValueAtTime(startRate, now);
-                        fmSource.playbackRate.linearRampToValueAtTime(targetRate, now + glideTime);
-                    }
-
-                } else {
-                     console.log(`Mono NoteOff (Multi): Portamento off or zero glide. New components started at target pitch ${lastHeldNoteNumber}.`);
-                }
-
-                // Fade out the components of the note that was just released (voiceBeingReleased)
-                console.log(`Mono NoteOff (Multi): Fading out previous components for Note ${releasedNoteNumber}.`);
-                // <<< Use a slightly longer delay to ensure new notes have started >>>
-                setTimeout(() => {
-                    if (voiceBeingReleased.samplerNote) quickFadeOutSampler(voiceBeingReleased.samplerNote, 0.025); // Increased fade time slightly
-                    if (voiceBeingReleased.osc1Note) quickFadeOutOsc1(voiceBeingReleased.osc1Note, 0.025);
-                    if (voiceBeingReleased.osc2Note) quickFadeOutOsc2(voiceBeingReleased.osc2Note, 0.025);
-                }, 10); // Increased delay slightly
-
-                // Remove old activeVoices entry for the released note (if different from held note)
-                if (releasedNoteNumber !== lastHeldNoteNumber && activeVoices[releasedNoteNumber] === voiceBeingReleased) {
-                    // Let the kill functions handle the final deletion from activeVoices after fade out
-                    console.log(`Mono NoteOff (Multi): Old voice entry activeVoices[${releasedNoteNumber}] will be removed by kill functions.`);
-                } else if (releasedNoteNumber === lastHeldNoteNumber) {
-                     console.warn("Mono NoteOff (Multi): Released note is the same as the held note - potential state issue.");
-                     // Ensure the old entry is removed if it wasn't the one we just created
-                     if (activeVoices[releasedNoteNumber] === voiceBeingReleased) {
-                         // This shouldn't happen if we correctly assigned newVoice, but handle defensively
-                         delete activeVoices[releasedNoteNumber];
-                     }
-                }
-            } else {
-                // --- Legato mode: Glide pitch back to the last held note ---
-                // ... (existing legato noteOff logic - seems mostly correct based on description) ...
-                // <<< Double check glide application within this block >>>
-                console.log(`Mono NoteOff (Legato): Gliding pitch back to ${lastHeldNoteNumber}.`);
-                const voiceToUpdate = currentMonoVoice;
-                const releasedNoteNumber = voiceToUpdate?.noteNumber; // Check if voiceToUpdate exists
-
-                // --- CRITICAL VALIDATION ---
-                if (!voiceToUpdate || voiceToUpdate.state === 'killed' || releasedNoteNumber === undefined || releasedNoteNumber === null) {
-                    console.error(`Mono NoteOff (Legato): Critical error! voiceToUpdate is invalid or has no noteNumber before glide back.`);
-                    return; // Exit early
-                }
-                // Check components individually
-                const samplerValid = !voiceToUpdate.samplerNote || (voiceToUpdate.samplerNote.state !== 'killed' && voiceToUpdate.samplerNote.source);
-                const osc1Valid = !voiceToUpdate.osc1Note || (voiceToUpdate.osc1Note.state !== 'killed' && voiceToUpdate.osc1Note.workletNode);
-                const osc2Valid = !voiceToUpdate.osc2Note || (voiceToUpdate.osc2Note.state !== 'killed' && voiceToUpdate.osc2Note.workletNode);
-
-                if (!samplerValid || !osc1Valid || !osc2Valid) {
-                     console.error(`Mono NoteOff (Legato): Critical error! Required components are invalid/killed before glide back.`);
-                     // Attempt cleanup
-                     if (voiceToUpdate.samplerNote && !samplerValid) quickFadeOutSampler(voiceToUpdate.samplerNote, 0.01);
-                     if (voiceToUpdate.osc1Note && !osc1Valid) quickFadeOutOsc1(voiceToUpdate.osc1Note, 0.01);
-                     if (voiceToUpdate.osc2Note && !osc2Valid) quickFadeOutOsc2(voiceToUpdate.osc2Note, 0.01);
-                     currentMonoVoice = null;
-                     delete activeVoices[releasedNoteNumber];
-                     delete activeVoices[lastHeldNoteNumber]; // Clean up both potential keys
-                     updateVoiceDisplay(); updateKeyboardDisplay();
-                     return;
-                }
-                // --- End validation ---
-
-                // Update voice state FIRST
-                voiceToUpdate.noteNumber = lastHeldNoteNumber;
-                activeVoices[lastHeldNoteNumber] = voiceToUpdate;
-                if (releasedNoteNumber !== lastHeldNoteNumber) { delete activeVoices[releasedNoteNumber]; }
-
-                // Glide pitch FROM current pitch DOWN TO the held note's pitch
-                const glideDuration = Math.max(glideTime, 0.001);
-                const targetRate = isSampleKeyTrackingOn ? TR2 ** (lastHeldNoteNumber - 12) : 1.0;
-                const targetFreqOsc1 = noteToFrequency(lastHeldNoteNumber, osc1OctaveOffset);
-                const targetFreqOsc2 = noteToFrequency(lastHeldNoteNumber, osc2OctaveOffset);
-
-                // Sampler Glide
-                if (voiceToUpdate.samplerNote?.source?.playbackRate) {
-                    const p = voiceToUpdate.samplerNote.source.playbackRate;
-                    p.cancelScheduledValues(now); p.setValueAtTime(p.value, now); p.linearRampToValueAtTime(targetRate, now + glideDuration);
-                    voiceToUpdate.samplerNote.noteNumber = lastHeldNoteNumber;
-                }
-                // FM Glide for Osc1 (if sampler-based)
-                if (osc1FMSource === 'sampler' && voiceToUpdate.osc1Note?.fmModulatorSource?.playbackRate) {
-                    const fmSource = voiceToUpdate.osc1Note.fmModulatorSource;
-                    const currentFmRate = fmSource.playbackRate.value;
-                    fmSource.playbackRate.cancelScheduledValues(now);
-                    fmSource.playbackRate.setValueAtTime(currentFmRate, now);
-                    fmSource.playbackRate.linearRampToValueAtTime(targetRate, now + glideDuration);
-                }
-                // FM Glide for Osc2 (if sampler-based)
-                if (osc2FMSource === 'sampler' && voiceToUpdate.osc2Note?.fmModulatorSource?.playbackRate) {
-                    const fmSource = voiceToUpdate.osc2Note.fmModulatorSource;
-                    const currentFmRate = fmSource.playbackRate.value;
-                    fmSource.playbackRate.cancelScheduledValues(now);
-                    fmSource.playbackRate.setValueAtTime(currentFmRate, now);
-                    fmSource.playbackRate.linearRampToValueAtTime(targetRate, now + glideDuration);
-                }
-                 // Osc1 Glide
-                 if (voiceToUpdate.osc1Note?.workletNode) {
-                    const p = voiceToUpdate.osc1Note.workletNode.parameters.get('frequency');
-                    if(p) { p.cancelScheduledValues(now); p.setValueAtTime(p.value, now); p.linearRampToValueAtTime(targetFreqOsc1, now + glideDuration); }
-                    voiceToUpdate.osc1Note.noteNumber = lastHeldNoteNumber;
-                }
-                 // Osc2 Glide
-                if (voiceToUpdate.osc2Note?.workletNode) {
-                    const p = voiceToUpdate.osc2Note.workletNode.parameters.get('frequency');
-                    if(p) { p.cancelScheduledValues(now); p.setValueAtTime(p.value, now); p.linearRampToValueAtTime(targetFreqOsc2, now + glideDuration); }
-                    voiceToUpdate.osc2Note.noteNumber = lastHeldNoteNumber;
-                }
-            }
-            lastPlayedNoteNumber = lastHeldNoteNumber; // Update last played note
-        } else {
-            // --- No notes left held ---
-            console.log(`Mono NoteOff: No other notes held. Releasing current mono voice (Note ${noteNumber}).`);
-             const voiceToRelease = currentMonoVoice;
-
-             // Store last actual pitch BEFORE nullifying/releasing
-             if (voiceToRelease?.samplerNote?.source?.playbackRate) { try { lastActualSamplerRate = voiceToRelease.samplerNote.source.playbackRate.value; } catch(e){} } else { lastActualSamplerRate = null; }
-             if (voiceToRelease?.osc1Note?.workletNode) { try { const p = voiceToRelease.osc1Note.workletNode.parameters.get('frequency'); if(p) lastActualOsc1Freq = p.value; } catch(e){} } else { lastActualOsc1Freq = null; }
-             if (voiceToRelease?.osc2Note?.workletNode) { try { const p = voiceToRelease.osc2Note.workletNode.parameters.get('frequency'); if(p) lastActualOsc2Freq = p.value; } catch(e){} } else { lastActualOsc2Freq = null; } // <<< Store Osc2
-             console.log(`Mono NoteOff: Stored last actual pitch - Rate: ${lastActualSamplerRate?.toFixed(4)}, Freq1: ${lastActualOsc1Freq?.toFixed(2)}, Freq2: ${lastActualOsc2Freq?.toFixed(2)}`);
-
-             currentMonoVoice = null; // Nullify the global reference
-
-             if (voiceToRelease) {
-                  if (voiceToRelease.samplerNote) releaseSamplerNote(voiceToRelease.samplerNote);
-                  if (voiceToRelease.osc1Note) releaseOsc1Note(voiceToRelease.osc1Note);
-                  if (voiceToRelease.osc2Note) releaseOsc2Note(voiceToRelease.osc2Note);
-                  // The release functions will schedule kill functions, which handle removing from activeVoices
-             } else {
-                  console.warn(`Mono NoteOff: voiceToRelease was unexpectedly null when releasing last key for note ${noteNumber}.`);
-                  lastActualSamplerRate = null; lastActualOsc1Freq = null; lastActualOsc2Freq = null;
-                  delete activeVoices[noteNumber]; // Clean up map directly if voice was null
-             }
+    
+    if (fmSource) {
+        try {
+            // CRITICAL: Connect the NEW source
+            fmSource.connect(osc2Note.fmDepthGain);
+            osc2Note.fmDepthGain.connect(osc2Note.workletNode, 0, 0);
+            fmDepthParam.setValueAtTime(scaledDepth, now);
+            console.log(`OSC2 [${noteId}]: FM reconnected to ${osc2FMSource} with depth ${scaledDepth.toFixed(1)} Hz`);
+        } catch(e) {
+            console.error(`OSC2 [${noteId}]: FM connection error: ${e.message}`);
+            fmDepthParam.setValueAtTime(0, now);
         }
     } else {
-        // --- Poly Mode Logic ---
-        const voice = activeVoices[noteNumber];
-        if (voice) {
-             console.log(`Poly NoteOff: Found voice for note ${noteNumber}. Releasing components.`);
-            if (voice.samplerNote && (voice.samplerNote.state === 'playing' || voice.samplerNote.state === 'fadingOut')) { releaseSamplerNote(voice.samplerNote); }
-            if (voice.osc1Note && (voice.osc1Note.state === 'playing' || voice.osc1Note.state === 'fadingOut')) { releaseOsc1Note(voice.osc1Note); }
-            if (voice.osc2Note && (voice.osc2Note.state === 'playing' || voice.osc2Note.state === 'fadingOut')) { releaseOsc2Note(voice.osc2Note); } // <<< Release Osc2
-        } else {
-             console.log(`Poly NoteOff: No active voice found for noteNumber ${noteNumber}.`);
+        fmDepthParam.setValueAtTime(0, now);
+    }
+}
+// Add warble animation function around line 4000
+function applyPitchWarble(voice, now) {
+    if (!voice) return;
+    
+    const settleTime = WARBLE_SETTLE_TIME;
+    
+    // Apply warble to OSC1
+    if (voice.osc1Note && voice.osc1Note.workletNode) {
+        const detuneParam = voice.osc1Note.workletNode.parameters.get('detune');
+        if (detuneParam) {
+            // Start with the random warble offset
+            detuneParam.setValueAtTime(osc1Detune + voice.warbleOffset, now);
+            // Settle back to base detune over 150ms
+            detuneParam.linearRampToValueAtTime(osc1Detune, now + settleTime);
         }
     }
+    
+    // Apply warble to OSC2
+    if (voice.osc2Note && voice.osc2Note.workletNode) {
+        const detuneParam = voice.osc2Note.workletNode.parameters.get('detune');
+        if (detuneParam) {
+            detuneParam.setValueAtTime(osc2Detune + voice.warbleOffset, now);
+            detuneParam.linearRampToValueAtTime(osc2Detune, now + settleTime);
+        }
+    }
+}
 
-    updateVoiceDisplay();
-    updateKeyboardDisplay();
+// Apply warble to sampler voices around line 4200
+function applySamplerWarble(samplerVoice, now) {
+    if (!samplerVoice || !samplerVoice.samplerNote || !samplerVoice.samplerNote.source) return;
+    
+    const source = samplerVoice.samplerNote.source;
+    const settleTime = WARBLE_SETTLE_TIME;
+    
+    // Apply warble to sampler detune
+    const baseDetune = currentSampleDetune;
+    source.detune.setValueAtTime(baseDetune + samplerVoice.warbleOffset, now);
+    source.detune.linearRampToValueAtTime(baseDetune, now + settleTime);
+}
+// Also ensure noteOn properly sets up the envelope from zero
+function noteOn(noteNumber) {
+    if (isModeTransitioning) return;
+    
+    const now = audioCtx.currentTime;
+
+    // Add to held notes
+    if (!heldNotes.includes(noteNumber)) {
+        heldNotes.push(noteNumber);
+        heldNotes.sort((a, b) => a - b);
+    }
+    
+    const attack = Math.max(0.003, parseFloat(D('attack').value));
+    const decay = parseFloat(D('decay').value);
+    const sustain = parseFloat(D('sustain').value);
+
+    // Store the previous played note before getting a new voice
+    const previousNoteNumber = lastPlayedNoteNumber;
+
+    // --- DETERMINE LEGATO STATE ---
+    // Check if we're in mono mode with legato enabled and if we're triggering a new note while another is held
+    const isLegatoActive = isMonoMode && isLegatoMode && previousNoteNumber !== null;
+    
+    // For true legato, we need at least one previously held note that's not in release stage
+    let legatoTransition = false;
+    
+    if (isLegatoActive) {
+        // We have a mono voice that we're using
+        const monoVoice = voicePool[0];
+        
+        // Check if any component is in playing state (not releasing)
+        const hasPreviousActiveSampler = monoVoice.samplerNote && monoVoice.samplerNote.state === 'playing';
+        const hasPreviousActiveOsc1 = monoVoice.osc1Note && monoVoice.osc1Note.state === 'playing';
+        const hasPreviousActiveOsc2 = monoVoice.osc2Note && monoVoice.osc2Note.state === 'playing';
+        
+        // Only use legato if at least one component is in playing state
+        legatoTransition = hasPreviousActiveSampler || hasPreviousActiveOsc1 || hasPreviousActiveOsc2;
+        
+        console.log(`Legato check: Active=${isLegatoActive}, Transition=${legatoTransition}, Components: Sampler=${hasPreviousActiveSampler}, Osc1=${hasPreviousActiveOsc1}, Osc2=${hasPreviousActiveOsc2}`);
+    }
+    // --- SAMPLER VOICE ALLOCATION ---
+    // Find or allocate a sampler voice
+    let samplerVoice = null;
+    let wasSamplerStolen = false;
+    
+    if (audioBuffer) { // Only allocate if we have a sample
+        if (isMonoMode) {
+            // In mono mode, always use the same voice
+            samplerVoice = currentMonoSamplerVoice || findAvailableSamplerVoice(noteNumber);
+            currentMonoSamplerVoice = samplerVoice;
+            wasSamplerStolen = samplerVoice.state !== 'inactive';
+        } else {
+            // In poly mode, find an available voice
+            samplerVoice = findAvailableSamplerVoice(noteNumber);
+            wasSamplerStolen = samplerVoice.state !== 'inactive';
+        }
+    }
+    
+    // --- OSCILLATOR VOICE ALLOCATION (EXISTING) ---
+    // Get a voice for oscillators (may be stolen)
+    const voice = findAvailableVoice(noteNumber);
+    if (!voice) {
+        console.error("noteOn: Could not assign a voice!");
+        return;
+    }
+    
+    // CRITICAL: Clear all previous timers for this voice when stealing it
+    clearVoiceTimers(voice);
+
+    // Set master clock rates based on the note
+    setMasterClockRate(1, noteNumber, osc1Detune);
+    setMasterClockRate(2, noteNumber + 12, osc2Detune); // Add 12 semitones (1 octave) to OSC2
+
+    // Check voice states
+    const isRetrigger = voice.noteNumber === noteNumber && voice.state === 'active';
+    const isVoiceSteal = voice.state === 'active' && voice.noteNumber !== noteNumber;
+    const isReleasingSteal = voice.state === 'releasing';
+    const wasActive = voice.state === 'active' || voice.state === 'releasing';
+    
+    // Store old note for glide
+    const oldNoteNumber = voice.noteNumber;
+    
+    // Update voice state
+    voice.noteNumber = noteNumber;
+    voice.startTime = now;
+    voice.state = 'active';
+    voice.currentReleaseId = null;
+    voice.wasStolen = false;
+    if (voice) {
+    const fmUpdateTime = now + 0.01; // Small delay to ensure everything is connected
+    
+    // Set up FM for OSC1
+    if (voice.osc1Note && osc1FMAmount > 0.001) {
+        updateOsc1FmModulatorParameters(voice.osc1Note, fmUpdateTime, voice);
+    }
+    
+    // Set up FM for OSC2
+    if (voice.osc2Note && osc2FMAmount > 0.001) {
+        updateOsc2FmModulatorParameters(voice.osc2Note, fmUpdateTime, voice);
+    }
+}
+    // --- GLIDE TIME CALCULATION --- MOVED EARLIER
+    let glideSourceNote = null;
+    
+    if (isPortamentoOn) {
+        glideSourceNote = previousNoteNumber;
+        console.log(`Portamento ON: Gliding from previous note ${previousNoteNumber} to ${noteNumber}`);
+    } else if (isVoiceSteal || isReleasingSteal) {
+        glideSourceNote = oldNoteNumber;
+        console.log(`Voice stealing: Gliding from stolen note ${oldNoteNumber} to ${noteNumber}`);
+    }
+    
+    let effectiveGlideTime = 0.001;
+    
+    if (isPortamentoOn) {
+        effectiveGlideTime = Math.max(0.001, glideTime);
+    } else if ((isVoiceSteal || isReleasingSteal) && glideTime > 0) {
+        effectiveGlideTime = Math.max(0.001, glideTime * 0.5);
+    }
+    
+    // --- SAMPLER VOICE CONFIGURATION ---
+if (audioBuffer && samplerVoice) {
+    // Configure the sampler note
+    const samplerNote = samplerVoice.samplerNote;
+    
+    // Determine if we need to create a new source or reuse existing
+    let needNewSource = true;
+    let oldPlaybackRate = 1.0;
+    
+    // CRITICAL FIX: Force new source (restart from beginning) when:
+    // 1. Loop/crossfade is OFF, AND
+    // 2. This is a stolen voice (not a fresh voice allocation)
+    if (samplerNote.source && (samplerNote.state === 'playing' || samplerNote.state === 'releasing')) {
+        // Check if we should restart the sampler
+        if (!isSampleLoopOn && wasSamplerStolen) {
+            // Force restart with new source when not looping and voice was stolen
+            needNewSource = true;
+            console.log(`Restarting sampler from beginning for stolen voice ${samplerVoice.id} (crossfade OFF)`);
+        } else {
+            // Otherwise reuse existing source (continue playback)
+            needNewSource = false;
+            oldPlaybackRate = samplerNote.source.playbackRate.value || 1.0;
+            console.log(`Reusing existing sampler source for voice ${samplerVoice.id} (state: ${samplerNote.state})`);
+        }
+    }
+        
+        // Create new source only if needed
+        if (needNewSource) {
+        if (samplerNote.source) {
+            try { 
+                samplerNote.source.stop(now); 
+                samplerNote.source.disconnect();
+            } catch(e) { /* Ignore errors */ }
+        }
+        
+        // Create new source with appropriate buffer
+samplerNote.source = audioCtx.createBufferSource();
+
+// Select the appropriate buffer
+let sourceBuffer = audioBuffer;
+let bufferInfo = null;
+if (isSampleLoopOn && cachedCrossfadedBuffer) {
+    sourceBuffer = cachedCrossfadedBuffer;
+    
+    // Get crossfade information
+    if (sampleCrossfadeAmount < 0.05) {
+        // For small crossfade amounts (<5%), use simple loop
+        bufferInfo = {
+            loopStartSample: 0, 
+            crossfadeLengthSamples: 0,
+            crossfadeFraction: 0
+        };
+        samplerNote.usesProcessedBuffer = true;
+        samplerNote.crossfadeActive = false;
+        console.log(`Using simple loop for note ${noteNumber} (no crossfade, clean edges)`);
+    } else {
+        // For larger crossfade amounts, use proper crossfade with loopStartSample
+        bufferInfo = {
+            loopStartSample: lastCachedCrossfade ? Math.floor(cachedCrossfadedBuffer.length * lastCachedCrossfade * 0.5) : 0,
+            crossfadeLengthSamples: lastCachedCrossfade ? Math.floor(cachedCrossfadedBuffer.length * lastCachedCrossfade * 0.5) : 0,
+            crossfadeFraction: lastCachedCrossfade ? lastCachedCrossfade : 0
+        };
+        samplerNote.usesProcessedBuffer = true;
+        samplerNote.crossfadeActive = true;
+        console.log(`Using cached crossfaded buffer for note ${noteNumber}`);
+    }
+} else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
+    sourceBuffer = fadedBuffer;
+    samplerNote.usesProcessedBuffer = true;
+    samplerNote.crossfadeActive = false;
+    console.log(`Using cached faded buffer for note ${noteNumber}`);
+} else {
+    samplerNote.usesProcessedBuffer = false;
+    samplerNote.crossfadeActive = false;
+    console.log(`Using original buffer for note ${noteNumber}`);
+}
+
+// Configure the new source
+samplerNote.source.buffer = sourceBuffer;
+
+// After creating the source and setting the buffer:
+if (isSampleLoopOn) {
+    samplerNote.source.loop = true;
+    
+    if (bufferInfo && bufferInfo.loopStartSample !== undefined && sampleCrossfadeAmount >= 0.05) {
+        // Advanced crossfade mode - use calculated loop start point
+        const loopStartSample = bufferInfo.loopStartSample;
+        const loopStartTime = loopStartSample / samplerNote.source.buffer.sampleRate;
+        
+        samplerNote.source.loopStart = loopStartTime;
+        samplerNote.source.loopEnd = samplerNote.source.buffer.duration;
+        
+        // Store crossfade information on the note
+        samplerNote.crossfadeLength = bufferInfo.crossfadeLengthSamples;
+        samplerNote.crossfadeFraction = bufferInfo.crossfadeFraction;
+        
+        console.log(`Advanced crossfade loop: loopStart=${loopStartTime.toFixed(3)}s, loopEnd=${samplerNote.source.buffer.duration.toFixed(3)}s`);
+    } else {
+        // Simple loop - loop the entire buffer with no offset
+        samplerNote.source.loopStart = 0;
+        samplerNote.source.loopEnd = samplerNote.source.buffer.duration;
+        samplerNote.crossfadeLength = 0;
+        samplerNote.crossfadeFraction = 0;
+        
+        console.log(`Simple loop for note ${noteNumber}: looping entire buffer with clean edges`);
+    }
+}
+        // NEW: Apply pitch warble to sampler
+    applySamplerWarble(samplerVoice, now);
+        // Connect the audio path
+        samplerNote.source.connect(samplerNote.sampleNode);
+        
+        // Start playback for new sources only
+        samplerNote.source.start(now);
+        console.log(`Started new sampler source for note ${noteNumber}`);
+    }
+    
+    // --- APPLY PORTAMENTO/GLIDE ---
+    // Calculate target playback rate based on key tracking
+    const newPlaybackRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
+    let applyGlide = false;
+    let glideSourceRate = oldPlaybackRate;
+    
+    // Determine if we should apply portamento/glide
+    if (isPortamentoOn && previousNoteNumber !== null) {
+        applyGlide = true;
+        // Calculate previous note rate (if portamento is on)
+        glideSourceRate = isSampleKeyTrackingOn ? TR2 ** (previousNoteNumber - 12) : 1.0;
+        console.log(`Sampler Portamento: Gliding from rate ${glideSourceRate.toFixed(3)} to ${newPlaybackRate.toFixed(3)}`);
+    } else if (wasSamplerStolen && !needNewSource) {
+        // For voice stealing without creating a new source, apply glide
+        applyGlide = glideTime > 0;
+        console.log(`Sampler Voice Steal: ${applyGlide ? "Gliding" : "Jumping"} to new rate ${newPlaybackRate.toFixed(3)}`);
+    }
+    
+    // Apply rate changes with or without glide
+    if (applyGlide && effectiveGlideTime > 0.001) {
+        // Apply glide for playback rate
+        samplerNote.source.playbackRate.cancelScheduledValues(now);
+        samplerNote.source.playbackRate.setValueAtTime(glideSourceRate, now);
+        samplerNote.source.playbackRate.linearRampToValueAtTime(newPlaybackRate, now + effectiveGlideTime);
+    } else {
+        // Immediate rate change (no glide)
+        samplerNote.source.playbackRate.setValueAtTime(newPlaybackRate, now);
+    }
+    
+    // Always apply detune directly
+    samplerNote.source.detune.setValueAtTime(currentSampleDetune, now);
+    
+    // Reset gain nodes and apply ADSR envelope
+        samplerNote.sampleNode.gain.cancelScheduledValues(now);
+        samplerNote.sampleNode.gain.setValueAtTime(currentSampleGain, now);
+        
+        samplerNote.gainNode.gain.cancelScheduledValues(now);
+        
+        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
+        if (legatoTransition && samplerNote.state === 'playing') {
+            // For legato, don't reset envelope - just keep current gain values
+            console.log(`Legato: Keeping current sampler envelope for note ${noteNumber}`);
+            
+            // No envelope changes - just maintain current state
+            // We don't cancel or set new values to the gain nodes
+        } 
+        else if (wasSamplerStolen || samplerVoice.state !== 'inactive') {
+    // Get current gain value before any modifications
+            const currentGain = samplerNote.gainNode.gain.value || 0;
+            
+            // Always start from the current gain with no dip
+            samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+            
+            // For releasing notes, use a slightly more gradual transition to avoid discontinuity
+            if (samplerNote.state === 'releasing') {
+                // More gradual transition for notes that were releasing
+                const transitionTime = Math.min(0.05, attack * 0.5); // Smaller of 50ms or half the attack time
+                
+                // First smoothly move to a small intermediate value
+                const intermediateGain = Math.max(0.05, currentGain * 0.7); // Don't go below 5%
+                samplerNote.gainNode.gain.linearRampToValueAtTime(intermediateGain, now + transitionTime);
+                
+                // Then perform the attack phase from this intermediate point
+                samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + transitionTime + attack);
+                samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + transitionTime + attack + decay);
+            } else {
+                // For active notes or other states, just apply the envelope directly
+                samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+                samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+            }
+        } else {
+            // Fresh note with standard envelope
+            const fadeInTime = 0.005;
+            samplerNote.gainNode.gain.setValueAtTime(0, now);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(0.01, now + fadeInTime);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeInTime + attack);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeInTime + attack + decay);
+        }
+
+    // Connect to master gain if not already connected
+    if (!samplerNote.gainNode.isConnectedToMaster) {
+    samplerNote.gainNode.connect(samplerMasterGain); // FIX: Connect to samplerMasterGain instead
+    samplerNote.gainNode.isConnectedToMaster = true;
+}
+    
+    // Update note status
+    samplerNote.state = 'playing';
+    samplerNote.noteNumber = noteNumber;
+    samplerNote.startTime = now;
+    
+    // Update voice status
+    samplerVoice.noteNumber = noteNumber;
+    samplerVoice.startTime = now;
+    samplerVoice.state = 'playing';
+    
+    console.log(`Sampler note ${samplerNote.id} configured for note ${noteNumber}, rate=${newPlaybackRate.toFixed(3)}`);
+}
+
+    // --- GLIDE TIME CALCULATION (EXISTING CODE) ---
+
+    
+    if (isPortamentoOn) {
+        glideSourceNote = previousNoteNumber;
+        console.log(`Portamento ON: Gliding from previous note ${previousNoteNumber} to ${noteNumber}`);
+    } else if (isVoiceSteal || isReleasingSteal) {
+        glideSourceNote = oldNoteNumber;
+        console.log(`Voice stealing: Gliding from stolen note ${oldNoteNumber} to ${noteNumber}`);
+    }
+    
+
+    
+    if (isPortamentoOn) {
+        effectiveGlideTime = Math.max(0.001, glideTime);
+    } else if ((isVoiceSteal || isReleasingSteal) && glideTime > 0) {
+        effectiveGlideTime = Math.max(0.001, glideTime * 0.5);
+    }
+    
+    // CONTINUOUS OSCILLATOR ENVELOPE - OSC1
+    if (voice.osc1Note && voice.osc1Note.workletNode) {
+    const osc1 = voice.osc1Note;
+    
+    // Calculate frequencies
+    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, osc1OctaveOffset, osc1Detune) : 0;
+    const newFrequency = noteToFrequency(noteNumber, osc1OctaveOffset, osc1Detune);
+
+    // Handle frequency changes
+    if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
+        console.log(`Osc1: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s`);
+        
+        osc1.workletNode.parameters.get('frequency').cancelScheduledValues(now);
+        osc1.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
+        
+        if (oldFrequency > 0.01 && newFrequency > 0.01 && Math.abs(oldFrequency - newFrequency) > 0.01) {
+            osc1.workletNode.parameters.get('frequency').exponentialRampToValueAtTime(newFrequency, now + effectiveGlideTime);
+        } else {
+            osc1.workletNode.parameters.get('frequency').linearRampToValueAtTime(newFrequency, now + effectiveGlideTime);
+        }
+    } else {
+        osc1.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
+    }
+    
+    // CRITICAL FIX: Don't apply frequencyRatio - octave offset is already in the frequency
+    osc1.workletNode.parameters.get('frequencyRatio').setValueAtTime(1.0, now);
+    applyPitchWarble(voice, now);
+    // Get waveform from selector
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    const osc1WaveSelector = D('osc1-wave-selector');
+    const selectedWaveform = waveformMap[osc1WaveSelector ? parseInt(osc1WaveSelector.value) : 1];
+    
+    // FIXED: Apply waveform with proper PWM - if PWM knob is 0, use waveform default
+    const pulseWidth = (osc1PWMValue === 0) ? 
+        getJunoWaveformParams(selectedWaveform).pulseWidth : 
+        (osc1PWMValue * 0.95);
+    setJunoWaveform(osc1.workletNode, selectedWaveform, pulseWidth);
+    
+    // Ensure gate is open
+        osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
+        
+        // CONTINUOUS ENVELOPE TRANSITION
+        // Get the current gain without any cancellation first
+        const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
+        osc1.gainNode.gain.cancelScheduledValues(now);
+        
+        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
+        if (legatoTransition && osc1.state === 'playing') {
+            // For legato, preserve the current envelope state
+            console.log(`Legato: Keeping current osc1 envelope for note ${noteNumber}`);
+            // Just set current gain value to maintain envelope position
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        } else {
+            // Non-legato: Always start from current gain, no dips
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+            
+            // Apply new envelope directly from current point
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        }
+        
+        osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
+        osc1.state = 'playing';
+        osc1.noteNumber = noteNumber;
+    }
+
+    // CONTINUOUS OSCILLATOR ENVELOPE - OSC2
+    if (voice.osc2Note && voice.osc2Note.workletNode) {
+    const osc2 = voice.osc2Note;
+    
+    // CRITICAL FIX: Add +1 octave offset to OSC2 to make it permanently one octave higher
+    const adjustedOsc2Offset = osc2OctaveOffset + 1;
+    
+    // Calculate frequencies with the adjusted offset
+    const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, adjustedOsc2Offset, osc2Detune) : 0;
+    const newFrequency = noteToFrequency(noteNumber, adjustedOsc2Offset, osc2Detune);
+
+    // Handle frequency changes
+    if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
+        console.log(`Osc2: Gliding from ${glideSourceNote} to ${noteNumber} over ${effectiveGlideTime}s (with +1 octave offset)`);
+        
+        osc2.workletNode.parameters.get('frequency').cancelScheduledValues(now);
+        osc2.workletNode.parameters.get('frequency').setValueAtTime(oldFrequency, now);
+        
+        if (oldFrequency > 0.01 && newFrequency > 0.01 && Math.abs(oldFrequency - newFrequency) > 0.01) {
+            osc2.workletNode.parameters.get('frequency').exponentialRampToValueAtTime(newFrequency, now + effectiveGlideTime);
+        } else {
+            osc2.workletNode.parameters.get('frequency').linearRampToValueAtTime(newFrequency, now + effectiveGlideTime);
+        }
+    } else {
+        osc2.workletNode.parameters.get('frequency').setValueAtTime(newFrequency, now);
+    }
+    
+    // Don't apply frequencyRatio - octave offset is already in the frequency
+    osc2.workletNode.parameters.get('frequencyRatio').setValueAtTime(1.0, now);
+    applyPitchWarble(voice, now);
+    // Get waveform from selector
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    const osc2WaveSelector = D('osc2-wave-selector');
+    const selectedWaveform = waveformMap[osc2WaveSelector ? parseInt(osc2WaveSelector.value) : 1];
+    
+    // FIXED: Apply waveform with proper PWM - if PWM knob is 0, use waveform default
+    const pulseWidth = (osc2PWMValue === 0) ? 
+        getJunoWaveformParams(selectedWaveform).pulseWidth : 
+        (osc2PWMValue * 0.95);
+    setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
+    
+    // Ensure gate is open
+        osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);
+        
+        // CONTINUOUS ENVELOPE TRANSITION
+        // Get the current gain without any cancellation first
+        const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
+        osc2.gainNode.gain.cancelScheduledValues(now);
+        
+        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
+        if (legatoTransition && osc2.state === 'playing') {
+            // For legato, preserve the current envelope state
+            console.log(`Legato: Keeping current osc2 envelope for note ${noteNumber}`);
+            // Just set current gain value to maintain envelope position
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        } else {
+            // Non-legato: Always start from current gain, no dips
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+            
+            // Apply new envelope directly from current point
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        }
+        
+        osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
+        osc2.state = 'playing';
+        osc2.noteNumber = noteNumber;
+    }
+    
+// Update FM for ALL oscillators regardless of FM amount
+const nowFM = audioCtx.currentTime + 0.01;
+
+// ALWAYS set up FM connections, even if depth is 0
+if (voice.osc1Note) {
+    console.log(`noteOn: Setting up Osc1 FM (source: ${osc1FMSource}, depth: ${osc1FMAmount})`);
+    updateOsc1FmModulatorParameters(voice.osc1Note, nowFM, voice);
+}
+
+if (voice.osc2Note) {
+    console.log(`noteOn: Setting up Osc2 FM (source: ${osc2FMSource}, depth: ${osc2FMAmount})`);
+    updateOsc2FmModulatorParameters(voice.osc2Note, nowFM, voice);
+}
+// At the end of the function, add:
+    
+    // Always refresh FM sources when playing a new note
+    // This ensures that even if samples have ended, new FM sources are created
+    if (osc1FMSource === 'sampler' || osc2FMSource === 'sampler') {
+        refreshFMSources();
+    }
+    
+    // Update UI and tracking
+    lastPlayedNoteNumber = noteNumber;
+    updateVoiceDisplay_Pool();
+    updateKeyboardDisplay_Pool();
+}
+
+// Update noteOff to handle multiple voices per note
+function noteOff(noteNumber, isForced = false, specificVoice = null) {
+    if (isModeTransitioning && !isForced) {
+        console.log(`noteOff: Ignoring note ${noteNumber} during mode transition`);
+        return;
+    }
+    
+    console.log(`noteOff: ${noteNumber}, Mono: ${isMonoMode}`);
+    const now = audioCtx.currentTime;
+
+    // Remove from held notes
+    heldNotes = heldNotes.filter(n => n !== noteNumber);
+
+    // --- MONO MODE HANDLING ---
+    if (isMonoMode && heldNotes.length > 0) {
+        // Switch to the next held note without releasing
+        const nextNote = heldNotes[heldNotes.length - 1];
+        console.log(`Mono noteOff: Switching from ${noteNumber} to held note ${nextNote}`);
+        noteOn(nextNote);
+        return;
+    }
+
+    // --- SAMPLER NOTE-OFF LOGIC ---
+    // Find all sampler voices playing this note
+    const samplerVoicesToRelease = samplerVoicePool.filter(
+        voice => voice.noteNumber === noteNumber && voice.state === 'playing'
+    );
+
+    if (samplerVoicesToRelease.length > 0) {
+        console.log(`noteOff: Found and releasing ${samplerVoicesToRelease.length} sampler voice(s) for note ${noteNumber}.`);
+        samplerVoicesToRelease.forEach(voice => {
+            if (voice.samplerNote && voice.samplerNote.state === 'playing') {
+                releaseSamplerNote(voice.samplerNote);
+            }
+        });
+    }
+
+    // --- OSCILLATOR VOICE HANDLING (EXISTING CODE) ---
+    // Get all voices assigned to this note, or use the specific voice if provided
+    let voicesToRelease = [];
+    if (specificVoice) {
+        // Release only the specific voice
+        voicesToRelease = [specificVoice];
+        console.log(`Releasing specific voice ${specificVoice.id} for note ${noteNumber}`);
+    } else {
+        // Release all voices for this note
+        voicesToRelease = voiceAssignments.get(noteNumber) || [];
+    }
+    
+    if (voicesToRelease.length === 0) {
+        console.log(`noteOff: No oscillator voices to release for note ${noteNumber}`);
+        return;
+    }
+
+    const release = Math.max(0.01, parseFloat(D('release').value));
+
+    // Release the specified voices
+    for (const voice of voicesToRelease) {
+        // Give each voice a unique release ID to avoid conflicts
+        const releaseId = `rel_${noteNumber}_${voice.id}_${Date.now()}`;
+        voice.currentReleaseId = releaseId;
+        
+        console.log(`Starting release ${releaseId} for voice ${voice.id}, note ${noteNumber}`);
+        
+        // Release Osc1
+        if (voice.osc1Note && voice.osc1Note.workletNode) {
+            const osc1 = voice.osc1Note;
+            osc1.currentReleaseId = releaseId;
+            
+            // Mark as releasing
+            voice.state = 'releasing';
+            osc1.state = 'releasing';
+            
+            // Start release envelope from current value
+            const currentGain = osc1.gainNode.gain.value;
+            osc1.gainNode.gain.cancelScheduledValues(now);
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+            osc1.gainNode.gain.linearRampToValueAtTime(0, now + release);
+            
+            // Schedule gate closure with the specific release ID
+            trackVoiceTimer(voice, () => {
+                // Only close if this is still the active release for this voice
+                if (osc1.currentReleaseId === releaseId && osc1.state === 'releasing') {
+                    osc1.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+                    osc1.state = 'idle';
+                    osc1.noteNumber = null;
+                    console.log(`Osc1 gate closed for release ${releaseId}`);
+                }
+            }, release * 1000 + 40); // Increased safety buffer to 40ms
+        }
+
+        // Release Osc2 with similar pattern
+        if (voice.osc2Note && voice.osc2Note.workletNode) {
+            const osc2 = voice.osc2Note;
+            osc2.currentReleaseId = releaseId;
+            
+            osc2.state = 'releasing';
+            
+            const currentGain = osc2.gainNode.gain.value;
+            osc2.gainNode.gain.cancelScheduledValues(now);
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+            osc2.gainNode.gain.linearRampToValueAtTime(0, now + release);
+            
+            trackVoiceTimer(voice, () => {
+                if (osc2.currentReleaseId === releaseId && osc2.state === 'releasing') {
+                    osc2.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+                    osc2.state = 'idle';
+                    osc2.noteNumber = null;
+                    console.log(`Osc2 gate closed for release ${releaseId}`);
+                }
+            }, release * 1000 + 40);
+        }
+
+        // Clean up voice assignment after release
+        trackVoiceTimer(voice, () => {
+            // Only cleanup if this is still the active release for this voice
+            if (voice.currentReleaseId === releaseId && voice.state === 'releasing') {
+                voice.state = 'idle';
+                
+                // Remove only this specific voice from assignments
+                const assignments = voiceAssignments.get(noteNumber) || [];
+                const updatedAssignments = assignments.filter(v => v !== voice);
+                if (updatedAssignments.length === 0) {
+                    voiceAssignments.delete(noteNumber);
+                } else {
+                    voiceAssignments.set(noteNumber, updatedAssignments);
+                }
+                
+                // Clear the release ID
+                voice.currentReleaseId = null;
+                voice.noteNumber = null;
+                
+                console.log(`Voice ${voice.id} fully released for note ${noteNumber} (${releaseId})`);
+                updateVoiceDisplay_Pool();
+                updateKeyboardDisplay_Pool();
+            }
+        }, release * 1000 + 60);
+    }
 }
 function updateSampleProcessing() {
-console.log("Updating sample processing...");
+    console.log("Updating sample processing...");
 
-// Reset cached buffers
-fadedBuffer = null;
-cachedCrossfadedBuffer = null;
-lastCachedStartPos = null;
-lastCachedEndPos = null;
-lastCachedCrossfade = null;
+    // Reset cached buffers
+    fadedBuffer = null;
+    cachedCrossfadedBuffer = null;
+    lastCachedStartPos = null;
+    lastCachedEndPos = null;
+    lastCachedCrossfade = null;
 
-setTimeout(() => {
-if (audioBuffer) {
+    // <<< USE trackSetTimeout for outer delay >>>
+    trackSetTimeout(() => {
+        if (audioBuffer) {
     // STEP 1: First trim to the desired region WITH ZERO-CROSSING ALIGNMENT
     const totalSamples = audioBuffer.length;
     const rawStartSample = Math.floor(sampleStartPosition * totalSamples);
@@ -4191,7 +4578,7 @@ if (audioBuffer) {
         // Clear the non-crossfaded buffer reference as we'll use the cached one
         fadedBuffer = null;
         // Create crossfaded buffer in a timeout
-        setTimeout(() => {
+        trackSetTimeout(() => {
             console.log("updateSampleProcessing: Creating crossfaded buffer...");
             const result = createCrossfadedBuffer(
                 audioCtx,
@@ -4341,68 +4728,119 @@ document.addEventListener('DOMContentLoaded', function() {
 // Core functionality
 
 updateSliderValues();
-updateVoiceDisplay();
+updateVoiceDisplay_Pool();
 updateADSRVisualization();
 // Initialize Keyboard Module
-initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay);
+initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool);
 
 // Initialize controls
 fixAllKnobs(knobInitializations, knobDefaults); // <-- Add this line, passing dependencies
-
-const fmSourceSwitchElement = D('osc1-fm-source-switch');
-if (fmSourceSwitchElement) {
-    const fmSwitchControl = initializeSwitch(fmSourceSwitchElement, {
-        // <<< SWAP Tooltip Text Here >>>
-        onText: 'Osc 2',  // Visually UP state label (but corresponds to isActive=false)
-        offText: 'Sampler', // Visually DOWN state label (but corresponds to isActive=true)
-        onChange: (isActive) => {
-            // Logic remains inverted: isActive=true (DOWN) -> 'osc2', isActive=false (UP) -> 'sampler'
-            const newSource = isActive ? 'osc2' : 'sampler';
-
-            console.log(`Osc1 FM Switch onChange: Internal isActive=${isActive}, Determined newSource=${newSource}, current global osc1FMSource=${osc1FMSource}`);
-
-            if (newSource !== osc1FMSource) {
-                osc1FMSource = newSource;
-                console.log(`Osc1 FM Source variable updated to: ${osc1FMSource}`);
-                const nowSwitch = audioCtx.currentTime;
-
-                Object.entries(activeVoices).forEach(([key, voice]) => {
-                    // ... (rest of update logic) ...
-                    if (voice && voice.osc1Note) {
-                        updateOsc1FmModulatorParameters(voice.osc1Note, nowSwitch, voice);
-                    }
-                });
-            } else {
-                 console.log(`Osc1 FM Switch onChange: Source already set to ${newSource}. No update needed.`);
+// CRITICAL FIX: Initialize FM sources AFTER knobs are set up
+    // This ensures osc1FMAmount and osc2FMAmount have their correct values from the knobs
+    setTimeout(() => {
+        console.log("Initializing FM with actual knob values...");
+        const now = audioCtx.currentTime;
+        
+        voicePool.forEach(voice => {
+            // Set up OSC1 FM with actual knob value
+            if (voice.osc1Note && osc1FMAmount > 0.001) {
+                console.log(`Initial FM setup for osc1 in voice ${voice.id} with depth ${osc1FMAmount}`);
+                updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
+            } else if (voice.osc1Note) {
+                // Even with zero depth, establish the routing
+                updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
             }
-        }
-    });
+            
+            // Set up OSC2 FM with actual knob value
+            if (voice.osc2Note && osc2FMAmount > 0.001) {
+                console.log(`Initial FM setup for osc2 in voice ${voice.id} with depth ${osc2FMAmount}`);
+                updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
+            } else if (voice.osc2Note) {
+                // Even with zero depth, establish the routing
+                updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
+            }
+        });
+    }, 500); // 500ms delay to ensure knobs are fully initialized
 
-    // Initial state logic remains the same (based on inverted isActive)
-    const shouldBeActiveInitially = (osc1FMSource === 'osc2'); // False if default is 'sampler'
-    fmSwitchControl.setValue(shouldBeActiveInitially);
-    console.log(`Osc1 FM Switch Initial State: Default source='${osc1FMSource}', Setting internal isActive to ${shouldBeActiveInitially} (assuming inverted state)`);
+// Load default sample first
+    loadPresetSample('noise.wav');
+    
+    // Initialize FM with a slight delay to ensure sample is loaded
+    setTimeout(() => {
+        console.log("Initializing FM connections on startup...");
+        forceFMConnectionUpdate();
+    }, 1200); // Wait 1.2 seconds after DOM load
 
-
-
-} else {
-    console.warn("Osc1 FM Source Switch element not found!");
-}
 // initializeSpecialButtons(); // <-- Remove this line
 initializeSpecialButtons( // <-- Add this line, passing dependencies/callbacks
     (newState) => { isEmuModeOn = newState; }, // Callback for Emu mode toggle
     updateSampleProcessing, // Pass function reference
     updateSamplePlaybackParameters, // Pass function reference
-    activeVoices, // Pass object reference
+    voicePool, // <<< CHANGE: Pass voicePool>>>
     heldNotes // Pass array reference
 );
+// Initialize recording with button setup SKIPPED
+externalRecorder = fixMicRecording(audioCtx, handleRecordingComplete, true);
 
+// Set up recording mode dropdown
+const dropdown = createRecordingModeDropdown();
+const recButton = document.getElementById('mic-record-button');
+
+if (recButton && dropdown && externalRecorder) {
+    console.log("Setting up recording dropdown...");
+    
+    // Add our click handler
+    recButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // CRITICAL FIX: Check BOTH recording states
+        const isExternalRecording = externalRecorder.isRecording();
+        const isInternalRecording = isRecording; // Global state for internal recording
+        
+        if (isExternalRecording || isInternalRecording) {
+            // Stop recording - determine which type
+            console.log("Stopping recording...");
+            
+            if (isInternalRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
+                // Stop internal recording
+                mediaRecorder.stop();
+                console.log("Stopped internal recording");
+            }
+            
+            if (isExternalRecording) {
+                // Stop external recording
+                externalRecorder.stopRecording();
+                console.log("Stopped external recording");
+            }
+        } else {
+            // Not recording - show dropdown to choose mode
+            const isVisible = dropdown.style.display !== 'none';
+            dropdown.style.display = isVisible ? 'none' : 'block';
+            console.log("Dropdown toggled:", dropdown.style.display);
+        }
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!recButton.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
+} else {
+    console.error("Failed to setup recording:", { recButton: !!recButton, dropdown: !!dropdown, externalRecorder: !!externalRecorder });
+}
 // fixSwitchesTouchMode(); // <-- Remove this line
 fixSwitchesTouchMode(
     (newState) => { 
-        isMonoMode = newState; // Direct assignment
-        console.log('>>> Mono Mode SET:', isMonoMode);
+        // First clean up ALL notes and reset state
         cleanupAllNotes(); 
+        
+        // Then set the mode
+        isMonoMode = newState;
+        console.log('>>> Mono Mode SET:', isMonoMode);
+        
+        // No delays or grace periods - just ready for new notes immediately
     },
     (newState) => { 
         isLegatoMode = newState; // Direct assignment
@@ -4414,9 +4852,28 @@ fixSwitchesTouchMode(
     },
     cleanupAllNotes
 );
+const fmSourceSwitchElement = D('osc1-fm-source-switch');
+if (fmSourceSwitchElement) {
+    const fmSwitchControl = initializeSwitch(fmSourceSwitchElement, {
+        onText: 'Osc 2',
+        offText: 'Sampler',
+        onChange: (isActive) => {
+            osc1FMSource = isActive ? 'osc2' : 'sampler';
+            console.log(`Osc1 FM Source set to: ${osc1FMSource}`);
+            
+            // Update all voices immediately
+            const now = audioCtx.currentTime;
+            voicePool.forEach(voice => {
+                if (voice.osc1Note) {
+                    updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
+                }
+            });
+        }
+    });
+    fmSwitchControl.setValue(osc1FMSource === 'osc2');
+}
 
 
-fixMicRecording(audioCtx, handleRecordingComplete);
 preventScrollOnControls();
 
 // Initialize Modulation Canvas
@@ -4442,26 +4899,25 @@ if (osc1OctaveSelector) {
 
         // Update frequency of all active Osc1 notes immediately
         const now = audioCtx.currentTime;
-        Object.values(activeVoices).forEach(voice => {
-            if (voice && voice.osc1Note && voice.osc1Note.workletNode) {
-                const targetFreq = noteToFrequency(voice.osc1Note.noteNumber, osc1OctaveOffset);
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.noteNumber !== null) {
+                // CRITICAL FIX: Calculate frequency with octave offset already included
+                const targetFreq = noteToFrequency(voice.osc1Note.noteNumber, osc1OctaveOffset, osc1Detune);
                 const freqParam = voice.osc1Note.workletNode.parameters.get('frequency');
-                if (freqParam) {
-                    console.log(`Updating Worklet note ${voice.osc1Note.id} frequency to ${targetFreq.toFixed(2)} Hz`);
+                
+                // CRITICAL FIX: Set frequencyRatio to 1.0 since octave offset is already in the frequency
+                const freqRatioParam = voice.osc1Note.workletNode.parameters.get('frequencyRatio');
+                
+                if (freqParam && freqRatioParam) {
+                    console.log(`Updating Worklet note ${voice.osc1Note.id} (Voice ${voice.id}) frequency to ${targetFreq.toFixed(2)} Hz`);
                     freqParam.setTargetAtTime(targetFreq, now, 0.01);
+                    freqRatioParam.setValueAtTime(1.0, now); // Always 1.0 - octave is in frequency
                 } else {
-                    console.warn(`Could not find frequency parameter for Osc1 note ${voice.osc1Note.id}`);
+                    console.warn(`Could not find frequency parameter for Osc1 note ${voice.osc1Note.id} (Voice ${voice.id})`);
                 }
             }
         });
     });
-
-    // Set initial value on load (optional, if default value="2" isn't sufficient)
-    // const initialSliderValue = parseInt(osc1OctaveSelector.value, 10);
-    // const initialOctaveOffsetMap = [-2, -1, 0, 1, 2];
-    // osc1OctaveOffset = initialOctaveOffsetMap[initialSliderValue] || 0;
-    // console.log(`Osc1 Octave initial offset: ${osc1OctaveOffset}`);
-
 } else {
     console.warn("Oscillator 1 Octave Selector element not found!");
 }
@@ -4484,59 +4940,55 @@ function updatePWMKnobState() {
     }
 }
 // Initialize Oscillator 1 Wave Shape Selector
-const osc1WaveSelector = D('osc1-wave-selector');
+    const osc1WaveSelector = D('osc1-wave-selector');
 if (osc1WaveSelector) {
-
-    // <<< Updated map including pulse >>>
-    const waveMapSliderToName = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-    const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
-
-    osc1WaveSelector.addEventListener('input', (event) => {
-        const sliderValue = parseInt(event.target.value, 10);
-        const prevWaveform = osc1Waveform;
-        const selectedWave = waveMapSliderToName[sliderValue] || 'triangle';
-
-        if (selectedWave === prevWaveform) return;
-
-        console.log(`Osc1 Wave changed from ${prevWaveform} to ${selectedWave}`);
-        osc1Waveform = selectedWave; // Update global state
-
-        // --- Update Active Notes ---
+    // Set initial waveform
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    osc1Waveform = waveformMap[parseInt(osc1WaveSelector.value)];
+    
+    osc1WaveSelector.addEventListener('change', (e) => {
+        osc1Waveform = waveformMap[parseInt(e.target.value)];
+        console.log(`Osc1 waveform changed to: ${osc1Waveform}`);
+        
+        // Update all active Osc1 notes with new waveform
         const now = audioCtx.currentTime;
-        const targetWaveformType = waveMapNameToWorkletType[osc1Waveform] !== undefined ? waveMapNameToWorkletType[osc1Waveform] : 0;
-
-        Object.values(activeVoices).forEach(voice => {
-            // <<< Simplify: Only need to handle workletNode >>>
-            if (voice && voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.state === 'playing') {
-                const oscNote = voice.osc1Note;
-                try {
-                    // Update the waveformType parameter directly
-                    const waveformParam = oscNote.workletNode.parameters.get('waveformType');
-                    if (waveformParam) {
-                        // waveformType is k-rate, so setValueAtTime is appropriate
-                        waveformParam.setValueAtTime(targetWaveformType, now);
-                        console.log(`Updated active note ${oscNote.id} waveform type to ${targetWaveformType} (${osc1Waveform})`);
-                    } else {
-                        console.warn(`Could not find waveformType parameter for note ${oscNote.id}`);
-                    }
-
-                    // --- NO NEED TO RECREATE NODE ---
-                    // The worklet handles different waveforms internally based on the parameter.
-                    // Glide logic is handled by frequency/detune parameter updates elsewhere.
-
-                } catch (e) {
-                    console.error(`Error updating active Osc1 note ${oscNote?.id} waveform type:`, e);
-                    // Consider killing note if update fails badly
-                    // killOsc1Note(oscNote);
-                }
+        voicePool.forEach(voice => {
+            if (voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.state === 'active') {
+                // FIXED: Use waveform default if PWM is 0, otherwise use PWM value
+                const pulseWidth = (osc1PWMValue === 0) ? 
+                    getJunoWaveformParams(osc1Waveform).pulseWidth : 
+                    (osc1PWMValue * 0.95);
+                setJunoWaveform(voice.osc1Note.workletNode, osc1Waveform, pulseWidth);
             }
-            // <<< Remove handling for toneOscillator >>>
         });
+        
+        updatePWMKnobState(); // Update PWM knob visibility/state
     });
-
 } else {
-    console.warn("Oscillator 1 Wave Selector element not found!");
+    console.warn("Osc1 wave selector not found in DOM");
 }
+
+// // Set default sample volume to 1%
+    // currentSampleGain = 0.01;
+    
+    // // Update the sample volume knob UI to match
+    // const sampleVolumeKnob = D('sample-volume-knob');
+    // if (sampleVolumeKnob && sampleVolumeKnob.control) {
+    //     sampleVolumeKnob.control.setValue(0.01, false);
+    // }
+    
+    // Load the noise sample by default after a short delay to ensure audio context is ready
+    setTimeout(() => {
+        loadPresetSample('noise.wav'); // Assuming you have noise.wav in your samples folder
+        
+        // Update the label to show we've loaded the noise sample
+        const fileLabel = document.querySelector('label[for="audio-file"]');
+        if (fileLabel) {
+            fileLabel.textContent = 'Noise (default)';
+        }
+        
+        console.log('Default noise sample loaded at 1% volume');
+    }, 500);
 // --- Modulation Source Button Logic ---
 const modModeSelector = document.querySelector('.mod-mode-selector'); // Get the container
 if (modModeSelector) {
@@ -4591,17 +5043,28 @@ document.body.style.overscrollBehavior = 'none';
 }
 // MIDI functionality
 setupMIDIAccess();
+// Start Node Monitoring (e.g., every 5 seconds)
+startNodeMonitoring(5000); // <<< ADD THIS LINE
 // Re-register any important listeners
 if (D('audio-file')) {
 D('audio-file').addEventListener('change', handleFileSelect);
 }
 // Add audio context resume handlers
 const resumeAudioContext = function() {
-if (audioCtx && audioCtx.state === 'suspended') {
-audioCtx.resume().then(() => {
-console.log('AudioContext resumed');
-});
-}
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().then(() => {
+            console.log('AudioContext resumed');
+            
+            // Also start Tone.js after resuming AudioContext
+            if (Tone && Tone.start) {
+                Tone.start().then(() => {
+                    console.log('Tone.js started');
+                }).catch(err => {
+                    console.error('Error starting Tone.js:', err);
+                });
+            }
+        });
+    }
 };
 document.body.addEventListener('touchstart', resumeAudioContext, { passive: true });
 document.body.addEventListener('mousedown', resumeAudioContext, { passive: true });
@@ -4641,126 +5104,135 @@ if (!originalBuffer) {
 }
 
 // Apply reverse if needed
-reverseBufferIfNeeded();
-updateSampleProcessing();
-
-// Update any active notes
-Object.values(activeVoices).forEach(note => {
-  if (note && note.source) {
-    // Force re-processing
-    note.usesProcessedBuffer = false;
-    note.crossfadeActive = false;
+reverseBufferIfNeeded(false); // Don't trigger FM update yet
+updateSampleProcessing(); // This updates fadedBuffer/cachedCrossfadedBuffer
+// CRITICAL FIX: Use a timeout to ensure processing completes before updating notes
+setTimeout(() => {
+    console.log("Reverse button: Updating all active sampler notes");
     
-    if (isSampleLoopOn) {
-      note.looping = true;
-      setupLoopCrossfade(note);
-    }
-    updateSamplePlaybackParameters(note);
-  }
-});
+    // Update ALL sampler voices, not just the oscillator voicePool
+    samplerVoicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.samplerNote) {
+            const note = voice.samplerNote;
+            // Skip held notes to avoid interruption
+            if (heldNotes.includes(voice.noteNumber)) {
+                console.log(`Reverse Button: Skipping update for held sampler note ${note.id}`);
+                return;
+            }
+            console.log(`Reverse Button: Updating sampler note ${note.id}`);
+            updateSamplePlaybackParameters(note);
+        }
+    });
+    
+    // CRITICAL FIX: Also update FM sources that use sampler
+    const fmUpdateTime = audioCtx.currentTime;
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            // Update Osc1 FM if using sampler
+            if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                console.log(`Reverse Button: Updating Osc1 FM for voice ${voice.id}`);
+                updateOsc1FmModulatorParameters(voice.osc1Note, fmUpdateTime, voice);
+            }
+            // Update Osc2 FM if using sampler
+            if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                console.log(`Reverse Button: Updating Osc2 FM for voice ${voice.id}`);
+                updateOsc2FmModulatorParameters(voice.osc2Note, fmUpdateTime, voice);
+            }
+        }
+    });
+}, 100); // Wait 100ms for updateSampleProcessing to complete
 }
 
 console.log('Sample Reverse:', isSampleReversed ? 'ON' : 'OFF');
 });
 }
+
 // <<< INITIALIZE OSC 2 CONTROLS >>>
 
     // Initialize Oscillator 2 Octave Slider
     const osc2OctaveSelector = D('osc2-octave-selector');
-    if (osc2OctaveSelector) {
-        osc2OctaveSelector.addEventListener('input', (event) => {
-            const sliderValue = parseInt(event.target.value, 10);
-            const octaveOffsetMap = [-2, -1, 0, 1, 2];
-            osc2OctaveOffset = octaveOffsetMap[sliderValue] || 0;
-            console.log(`Osc2 Octave Selector value: ${sliderValue}, Offset set to: ${osc2OctaveOffset}`);
-            // Update active Osc2 notes
-            const now = audioCtx.currentTime;
-            Object.values(activeVoices).forEach(voice => {
-                if (voice && voice.osc2Note && voice.osc2Note.workletNode) {
-                    const targetFreq = noteToFrequency(voice.osc2Note.noteNumber, osc2OctaveOffset);
-                    const freqParam = voice.osc2Note.workletNode.parameters.get('frequency');
-                    if (freqParam) {
-                        freqParam.setTargetAtTime(targetFreq, now, 0.01); // Smooth transition
-                    }
+if (osc2OctaveSelector) {
+    osc2OctaveSelector.addEventListener('input', (event) => {
+        const sliderValue = parseInt(event.target.value, 10);
+        const octaveOffsetMap = [-2, -1, 0, 1, 2];
+        osc2OctaveOffset = octaveOffsetMap[sliderValue] || 0;
+        
+        // CRITICAL FIX: Add +1 to the offset for the permanent octave shift
+        const adjustedOsc2Offset = osc2OctaveOffset + 1;
+        
+        console.log(`Osc2 Octave Selector value: ${sliderValue}, Base Offset: ${osc2OctaveOffset}, Adjusted Offset: ${adjustedOsc2Offset}`);
+        
+        // Update active Osc2 notes
+        const now = audioCtx.currentTime;
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.noteNumber !== null) {
+                // Use the adjusted offset (+1 octave)
+                const targetFreq = noteToFrequency(voice.osc2Note.noteNumber, adjustedOsc2Offset, osc2Detune);
+                const freqParam = voice.osc2Note.workletNode.parameters.get('frequency');
+                const freqRatioParam = voice.osc2Note.workletNode.parameters.get('frequencyRatio');
+                
+                if (freqParam && freqRatioParam) {
+                    console.log(`Updating Osc2 Worklet note ${voice.osc2Note.id} (Voice ${voice.id}) frequency to ${targetFreq.toFixed(2)} Hz`);
+                    freqParam.setTargetAtTime(targetFreq, now, 0.01);
+                    freqRatioParam.setValueAtTime(1.0, now);
+                } else {
+                    console.warn(`Could not find frequency parameter for Osc2 note ${voice.osc2Note.id} (Voice ${voice.id})`);
                 }
-            });
+            }
         });
-        // Set initial value based on default
-        const initialSliderValueOsc2 = 2; // Assuming default value="2" (0 offset)
-        const initialOctaveOffsetMapOsc2 = [-2, -1, 0, 1, 2];
-        osc2OctaveOffset = initialOctaveOffsetMapOsc2[initialSliderValueOsc2] || 0;
-    } else { console.warn("Oscillator 2 Octave Selector element not found!"); }
-
+    });
+} else { 
+    console.warn("Oscillator 2 Octave Selector element not found!"); 
+}
     // Initialize Oscillator 2 Wave Shape Selector
     const osc2WaveSelector = D('osc2-wave-selector');
-    if (osc2WaveSelector) {
-        const waveMapSliderToName = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
-        const waveMapNameToWorkletType = { sine: 0, sawtooth: 1, triangle: 2, square: 3, pulse: 4 };
-
-        osc2WaveSelector.addEventListener('input', (event) => {
-            const sliderValue = parseInt(event.target.value, 10);
-            const selectedWave = waveMapSliderToName[sliderValue] || 'triangle';
-            if (selectedWave === osc2Waveform) return;
-
-            console.log(`Osc2 Wave changed to ${selectedWave}`);
-            osc2Waveform = selectedWave; // Update global state
-
-            // Update Active Notes
-            const now = audioCtx.currentTime;
-            const targetWaveformType = waveMapNameToWorkletType[osc2Waveform] !== undefined ? waveMapNameToWorkletType[osc2Waveform] : 0;
-            Object.values(activeVoices).forEach(voice => {
-                if (voice && voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.state === 'playing') {
-                    const waveParam = voice.osc2Note.workletNode.parameters.get('waveformType');
-                    if (waveParam) {
-                        waveParam.setValueAtTime(targetWaveformType, now);
-                    }
-                }
-            });
-            updateOsc2PWMKnobState(); // Enable/disable PWM knob
+if (osc2WaveSelector) {
+    // Set initial waveform
+    const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    osc2Waveform = waveformMap[parseInt(osc2WaveSelector.value)];
+    
+    osc2WaveSelector.addEventListener('change', (e) => {
+        osc2Waveform = waveformMap[parseInt(e.target.value)];
+        console.log(`Osc2 waveform changed to: ${osc2Waveform}`);
+        
+        // Update all active Osc2 notes with new waveform
+        const now = audioCtx.currentTime;
+        voicePool.forEach(voice => {
+            if (voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.state === 'active') {
+                // FIXED: Use waveform default if PWM is 0, otherwise use PWM value
+                const pulseWidth = (osc2PWMValue === 0) ? 
+                    getJunoWaveformParams(osc2Waveform).pulseWidth : 
+                    (osc2PWMValue * 0.95);
+                setJunoWaveform(voice.osc2Note.workletNode, osc2Waveform, pulseWidth);
+            }
         });
-        // Set initial value based on default
-        const initialSliderValueWaveOsc2 = 2; // Assuming default value="2" (triangle)
-        osc2Waveform = waveMapSliderToName[initialSliderValueWaveOsc2] || 'triangle';
-        updateOsc2PWMKnobState(); // Initial PWM knob state
-    } else { console.warn("Oscillator 2 Wave Selector element not found!"); }
-
-// Initialize Osc2 FM Source Switch
+        
+        updateOsc2PWMKnobState(); // Update PWM knob visibility/state
+    });
+} else {
+    console.warn("Osc2 wave selector not found in DOM");
+}
+// Fix the OSC2 FM Source Switch (already exists around line 5350 but needs correction)
 const osc2FmSourceSwitchElement = D('osc2-fm-source-switch');
 if (osc2FmSourceSwitchElement) {
     const fmSwitchControl = initializeSwitch(osc2FmSourceSwitchElement, {
-        // <<< FIX: Swap onText and offText >>>
-        onText: 'Osc 1',  // UP = active = true (Now Osc 1)
-        offText: 'Sampler', // DOWN = inactive = false (Now Sampler)
+        onText: 'Osc 1',
+        offText: 'Sampler',
         onChange: (isActive) => {
-            // <<< FIX: Update logic to match swapped text >>>
-            const newSource = isActive ? 'osc1' : 'sampler';
-            if (newSource !== osc2FMSource) {
-                osc2FMSource = newSource;
-                console.log(`Osc2 FM Source changed to: ${osc2FMSource}`);
-                const nowSwitch = audioCtx.currentTime;
-                Object.values(activeVoices).forEach(voice => {
-                    if (voice && voice.osc2Note) {
-                        // Pass the voice object to updateOsc2FmModulatorParameters
-                        updateOsc2FmModulatorParameters(voice.osc2Note, nowSwitch, voice);
-                    }
-                });
-            }
+            osc2FMSource = isActive ? 'osc1' : 'sampler';
+            console.log(`Osc2 FM Source set to: ${osc2FMSource}`);
+            
+            // Update all voices immediately
+            const now = audioCtx.currentTime;
+            voicePool.forEach(voice => {
+                if (voice.osc2Note) {
+                    updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
+                }
+            });
         }
     });
-    // <<< FIX: Update initial setValue logic >>>
-    fmSwitchControl.setValue(osc2FMSource === 'osc1'); // Set initial state (true if 'osc1')
-    // Initial update for any pre-existing notes
-    const nowInitOsc2FM = audioCtx.currentTime;
-    Object.values(activeVoices).forEach(voice => {
-        if (voice && voice.osc2Note) {
-            // Pass the voice object here too
-            updateOsc2FmModulatorParameters(voice.osc2Note, nowInitOsc2FM, voice);
-        }
-    });
-
-
-} else { console.warn("Osc2 FM Source Switch element not found!"); }
-
+    fmSwitchControl.setValue(osc2FMSource === 'osc1');
+}
 // Initialize the Key-Track button (default: active)
 const keyTrackButton = document.getElementById('keytrack-button');
     if (keyTrackButton) {
@@ -4774,39 +5246,42 @@ const keyTrackButton = document.getElementById('keytrack-button');
             console.log('Sample Key Tracking:', isSampleKeyTrackingOn ? 'ON' : 'OFF');
             const now = audioCtx.currentTime;
 
-            // <<< ADD: Update active notes' playbackRate/detune for sampler AND FM modulator >>>
-            Object.values(activeVoices).forEach(voice => {
-                if (!voice) return;
+            // <<< CHANGE: Iterate over voicePool >>>
+            voicePool.forEach(voice => {
+                if (voice.state === 'inactive' || voice.noteNumber === null) return; // Skip inactive voices or those without a note number
+
                 const noteNumber = voice.noteNumber; // Get the note number for this voice
 
                 // Update Sampler Note
                 if (voice.samplerNote && voice.samplerNote.source) {
                     const samplerSource = voice.samplerNote.source;
-                    if (isSampleKeyTrackingOn) {
-                        const targetRate = TR2 ** (noteNumber - 12);
-                        samplerSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
-                        samplerSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
-                    } else {
-                        samplerSource.playbackRate.setTargetAtTime(1.0, now, 0.01);
-                        // Detune still applies even if key tracking is off
-                        samplerSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
-                    }
+                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
+                    // Use setTargetAtTime for smoother transitions
+                    samplerSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
+                    // Detune always applies
+                    samplerSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
+                    console.log(`KeyTrack [Voice ${voice.id} Sampler]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
                 }
 
-                // Update FM Modulator Source (if it exists)
-                if (voice.osc1Note && voice.osc1Note.fmModulatorSource) {
+                // Update Osc1 FM Modulator Source (if it's a sampler)
+                if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
                     const fmSource = voice.osc1Note.fmModulatorSource;
-                    if (isSampleKeyTrackingOn) {
-                        const targetRate = TR2 ** (noteNumber - 12);
-                        fmSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
-                        fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
-                    } else {
-                        fmSource.playbackRate.setTargetAtTime(1.0, now, 0.01);
-                        fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
-                    }
+                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
+                    fmSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
+                    fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01); // Apply sample detune
+                    console.log(`KeyTrack [Voice ${voice.id} Osc1 FM]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
+                }
+
+                // Update Osc2 FM Modulator Source (if it's a sampler)
+                if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                    const fmSource = voice.osc2Note.fmModulatorSource;
+                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
+                    fmSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
+                    fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01); // Apply sample detune
+                    console.log(`KeyTrack [Voice ${voice.id} Osc2 FM]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
                 }
             });
-            // <<< END ADD >>>
+            // <<< END CHANGE >>>
         });
     }
 });
@@ -4826,6 +5301,163 @@ function updateOsc2PWMKnobState() {
             // Optionally hide tooltip
             const tooltip = pwmKnobContainer.querySelector('.tooltip'); // Correct selector
             if (tooltip) tooltip.style.opacity = '0';
+        }
+    }
+}
+// Add this function around line 5850 to start internal recording
+function startInternalRecording() {
+    console.log("Starting internal recording (master output)...");
+    
+    try {
+        // Create MediaStreamDestination to capture audio
+        internalRecordingDestination = audioCtx.createMediaStreamDestination();
+        
+        // Connect both master outputs to recording destination
+        // This captures the complete synth output (oscillators + sampler)
+        oscillatorMasterGain.connect(internalRecordingDestination);
+        samplerMasterGain.connect(internalRecordingDestination);
+        
+        // Create MediaRecorder with the internal audio stream
+        const options = { 
+            mimeType: 'audio/webm;codecs=opus',
+            audioBitsPerSecond: 128000
+        };
+        
+        mediaRecorder = new MediaRecorder(internalRecordingDestination.stream, options);
+        recordedChunks = [];
+        
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+            }
+        };
+        
+        mediaRecorder.onstop = () => {
+            console.log("Internal recording stopped, processing audio...");
+            const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+            
+            // Convert blob to AudioBuffer
+            const reader = new FileReader();
+            reader.onload = () => {
+                audioCtx.decodeAudioData(reader.result)
+                    .then(buffer => {
+                        console.log("Internal recording decoded successfully");
+                        handleRecordingComplete(buffer);
+                    })
+                    .catch(err => {
+                        console.error("Error decoding internal recording:", err);
+                        alert("Failed to process internal recording");
+                    });
+            };
+            reader.readAsArrayBuffer(blob);
+            
+            // Clean up connections
+            if (internalRecordingDestination) {
+                try {
+                    oscillatorMasterGain.disconnect(internalRecordingDestination);
+                    samplerMasterGain.disconnect(internalRecordingDestination);
+                } catch(e) { /* Ignore */ }
+                internalRecordingDestination = null;
+            }
+            
+            isRecording = false;
+            recordingStartTime = null;
+            
+            // Update UI
+            const recButton = document.getElementById('mic-record-button');
+            if (recButton) {
+                recButton.classList.remove('recording');
+                const led = recButton.querySelector('.led-indicator');
+                if (led) led.classList.remove('on');
+            }
+        };
+        
+        mediaRecorder.start();
+        isRecording = true;
+        recordingStartTime = Date.now();
+        
+        // Update UI
+        const recButton = document.getElementById('mic-record-button');
+        if (recButton) {
+            recButton.classList.add('recording');
+            const led = recButton.querySelector('.led-indicator');
+            if (led) led.classList.add('on');
+        }
+        
+        console.log("Internal recording started successfully");
+        
+    } catch (error) {
+        console.error("Error starting internal recording:", error);
+        alert("Failed to start internal recording: " + error.message);
+    }
+}
+// Add this function to create the recording mode dropdown
+function createRecordingModeDropdown() {
+    const recButton = document.getElementById('mic-record-button');
+    if (!recButton) return null;
+
+    // Create dropdown container
+    const dropdown = document.createElement('div');
+    dropdown.id = 'rec-mode-dropdown';
+    dropdown.className = 'rec-mode-dropdown';
+    dropdown.style.display = 'none';
+    dropdown.innerHTML = `
+        <div class="rec-mode-option" data-mode="external">
+            <span class="mode-label">External</span>
+        </div>
+        <div class="rec-mode-option" data-mode="internal">
+            <span class="mode-label">Internal</span>
+        </div>
+    `;
+
+    // Insert dropdown after rec button's container
+    const recContainer = recButton.closest('.rec-button-container');
+    if (recContainer) {
+        recContainer.appendChild(dropdown);
+    } else {
+        recButton.parentNode.insertBefore(dropdown, recButton.nextSibling);
+    }
+
+    // Add click handlers for mode selection
+    const modeOptions = dropdown.querySelectorAll('.rec-mode-option');
+    modeOptions.forEach(option => {
+        option.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const mode = option.getAttribute('data-mode');
+            recordingMode = mode;
+            console.log(`Recording mode set to: ${mode}`);
+            
+            // Update active state
+            modeOptions.forEach(opt => opt.classList.remove('active'));
+            option.classList.add('active');
+            
+            // Hide dropdown
+            dropdown.style.display = 'none';
+            
+            // Start recording with selected mode
+            startRecording(mode);
+        });
+    });
+
+    // Set initial active mode (default to external)
+    const defaultOption = dropdown.querySelector(`[data-mode="external"]`);
+    if (defaultOption) defaultOption.classList.add('active');
+
+    return dropdown;
+}
+
+// Add this function to start recording based on mode
+function startRecording(mode) {
+    if (mode === 'internal') {
+        startInternalRecording();
+    } else {
+        // External (mic) recording - use the recorder from sampler.js
+        console.log("Starting external microphone recording...");
+        if (externalRecorder && externalRecorder.isWorkletReady()) {
+            externalRecorder.startRecording();
+        } else {
+            console.error("External recorder not ready");
+            alert("Microphone recording is not ready yet. Please try again in a moment.");
         }
     }
 }

@@ -1,13 +1,14 @@
 class ShapeHoldProcessor extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [
-            // Frequency is modulated for Linear TZFM
-            { name: 'frequency', defaultValue: 440, minValue: -20000, maxValue: 20000, automationRate: 'a-rate' }, // Allow negative target
+            { name: 'frequency', defaultValue: 440, minValue: -20000, maxValue: 20000, automationRate: 'a-rate' },
             { name: 'detune', defaultValue: 0, minValue: -1200, maxValue: 1200, automationRate: 'k-rate' },
             { name: 'holdAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
             { name: 'quantizeAmount', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
-            { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 }
-            // No separate phaseModulation parameter needed for this approach
+            { name: 'waveformType', defaultValue: 0, minValue: 0, maxValue: 4 },
+            { name: 'gate', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
+            // We'll use this parameter to pass the note's start time as a trigger.
+            { name: 'phaseReset', defaultValue: 0, minValue: 0, maxValue: 99999, automationRate: 'k-rate' }
         ];
     }
 
@@ -16,92 +17,164 @@ class ShapeHoldProcessor extends AudioWorkletProcessor {
         this.phase = 0;
         this.sampleRate = sampleRate;
         this._holdValues = [ 0.0, -1.0, 0.0, 1.0, 1.0 ];
+        this._gateState = 'OPEN';
+        this._lastSample = 0.0;
+        this._prevGateValue = 1;
+        this._currentGateTarget = 1;
+        this._outputGain = 1.0;
+        this._smoothingSteps = 32;
+        this._smoothingCounter = 0;
+        // NEW: Keep track of the last reset time we've seen.
+        this._lastPhaseResetTime = -1;
     }
 
     process(inputs, outputs, parameters) {
         const output = outputs[0];
-        const outputChannel = output[0];
-
-        const frequencyValues = parameters.frequency; // This now includes the FM signal
+        const channel = output[0];
+        
+        const frequencyValues = parameters.frequency;
         const detuneValues = parameters.detune;
         const holdAmountValues = parameters.holdAmount;
         const quantizeAmountValues = parameters.quantizeAmount;
         const waveformTypeValues = parameters.waveformType;
+        const gateValues = parameters.gate;
+        const phaseResetValues = parameters.phaseReset;
+// --- Improved phase reset handling ---
+const phaseResetTime = phaseResetValues[0];
+if (phaseResetTime > this._lastPhaseResetTime) {
+    // Add a fixed offset to ensure consistent phase reset behavior
+    // This helps with paired oscillators
+    this.phase = 0;
+    this._lastPhaseResetTime = phaseResetTime;
+    
+    // Add a small delay to the next possible reset to prevent race conditions
+    this._nextResetAllowedAt = phaseResetTime + 0.02; // 20ms minimum between resets
+} else if (phaseResetTime > 0 && phaseResetTime >= this._nextResetAllowedAt) {
+    // Handle the case of multiple resets with the same timestamp
+    // This can happen during voice stealing race conditions
+    this.phase = 0;
+    this._lastPhaseResetTime = phaseResetTime;
+}
+        // --- END NEW ---
 
         const waveformType = waveformTypeValues[0];
         const holdValue = this._holdValues[waveformType] !== undefined ? this._holdValues[waveformType] : 0.0;
 
-        for (let i = 0; i < outputChannel.length; ++i) {
-            // --- Calculate Instantaneous Frequency ---
-            const baseFreq = frequencyValues.length > 1 ? frequencyValues[i] : frequencyValues[0]; // Base freq + FM modulation
+        for (let i = 0; i < channel.length; ++i) {
+            // --- 1. ALWAYS GENERATE THE OSCILLATOR SAMPLE (FREE-RUNNING) ---
+            const baseFreq = frequencyValues.length > 1 ? frequencyValues[i] : frequencyValues[0];
             const detune = detuneValues.length > 1 ? detuneValues[i] : detuneValues[0];
             const holdAmount = holdAmountValues.length > 1 ? holdAmountValues[i] : holdAmountValues[0];
             const quantizeAmount = quantizeAmountValues.length > 1 ? quantizeAmountValues[i] : quantizeAmountValues[0];
-
-            // Apply detune AFTER getting the modulated frequency
+            
             const instantaneousFreq = baseFreq * Math.pow(2, detune / 1200);
-            // --- End Instantaneous Frequency ---
-
-            // <<< Calculate Phase Increment based on ABSOLUTE frequency >>>
-            // The increment magnitude is always positive
             const phaseIncrementMagnitude = Math.abs(instantaneousFreq) / this.sampleRate;
-
-            // <<< Determine Phase Direction >>>
-            // If instantaneous frequency is negative, phase moves backward
-            const phaseDirection = Math.sign(instantaneousFreq); // 1 if positive/zero, -1 if negative
-
-            // Apply phase increment (magnitude * direction)
+            const phaseDirection = Math.sign(instantaneousFreq);
+            
             this.phase += phaseIncrementMagnitude * phaseDirection;
-
-            // Wrap phase (handle both positive and negative overflow)
-            this.phase = this.phase - Math.floor(this.phase); // Wraps phase to 0.0 - <1.0 range
-
-            // --- Waveform Generation (uses the wrapped phase) ---
-            const currentPhase = this.phase; // Use the potentially reversed phase
+            this.phase = this.phase - Math.floor(this.phase);
+            
+            const currentPhase = this.phase;
             const clampedHoldAmount = Math.max(0.0, Math.min(1.0, holdAmount));
             const activeRatio = 1.0 - clampedHoldAmount;
-            let sample = 0;
+            let currentSample = 0;
 
             if (activeRatio <= 1e-6) {
-                sample = holdValue;
+                currentSample = holdValue;
             } else if (currentPhase < activeRatio) {
                 const squeezedPhase = currentPhase / activeRatio;
-                // ... (Waveform switch cases remain the same, using squeezedPhase) ...
-                 switch (waveformType) {
-                    case 0: sample = Math.sin(squeezedPhase * 2 * Math.PI); break; // Sine
-                    case 1: sample = (squeezedPhase * 2) - 1; break; // Saw
-                    case 2: sample = 1 - 4 * Math.abs(Math.round(squeezedPhase - 0.25) - (squeezedPhase - 0.25)); break; // Tri
-                    case 3: sample = squeezedPhase < 0.5 ? 1 : -1; break; // Square (50% duty)
+                switch (waveformType) {
+                    case 0: currentSample = Math.sin(squeezedPhase * 2 * Math.PI); break;
+                    case 1: currentSample = (squeezedPhase * 2) - 1; break;
+                    case 2: currentSample = 1 - 4 * Math.abs(Math.round(squeezedPhase - 0.25) - (squeezedPhase - 0.25)); break;
+                    case 3: currentSample = squeezedPhase < 0.5 ? 1 : -1; break;
                     case 4: {
                         const dutyCycle = 0.25 + (clampedHoldAmount * 0.75);
-                        sample = squeezedPhase < dutyCycle ? 1 : -1;
+                        currentSample = squeezedPhase < dutyCycle ? 1 : -1;
                         break;
                     }
-                    default: sample = Math.sin(squeezedPhase * 2 * Math.PI); // Sine fallback
+                    default: currentSample = Math.sin(squeezedPhase * 2 * Math.PI);
                 }
             } else {
-                sample = holdValue;
+                currentSample = holdValue;
             }
-            // --- End Waveform Generation ---
 
-            // ... (Quantization logic remains the same) ...
-             const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
+            // Quantization (Bitcrushing)
+            const clampedQuantize = Math.max(0.0, Math.min(1.0, quantizeAmount));
             if (clampedQuantize > 0.005) {
                 const factor = Math.pow(1 - clampedQuantize, 2);
                 const calculatedSteps = 4 + (256 - 4) * factor;
                 const steps = Math.max(4, Math.floor(calculatedSteps));
                 if (steps < 256) {
-                   const normalizedSample = (sample + 1) / 2;
-                   const quantizedScaled = Math.floor(normalizedSample * (steps - 1));
-                   const quantizedNormalized = (steps > 1) ? quantizedScaled / (steps - 1) : quantizedScaled;
-                   sample = quantizedNormalized * 2 - 1;
+                    const normalizedSample = (currentSample + 1) / 2;
+                    const quantizedScaled = Math.floor(normalizedSample * (steps - 1));
+                    const quantizedNormalized = (steps > 1) ? quantizedScaled / (steps - 1) : quantizedScaled;
+                    currentSample = quantizedNormalized * 2 - 1;
                 }
             }
 
+            // --- 2. IMPROVED GATE HANDLING ---
+            const gateCommand = gateValues.length > 1 ? gateValues[i] : gateValues[0];
+            // REPLACEMENT LOGIC STARTS HERE
+            const gateChanged = gateCommand !== this._prevGateValue;
+            this._prevGateValue = gateCommand;
 
-            outputChannel[i] = sample;
+            if (gateChanged) {
+                const isOpening = this._gateState === 'CLOSED' || this._gateState === 'CLOSING';
+                const isClosing = this._gateState === 'OPEN' || this._gateState === 'OPENING';
+                
+                if (gateCommand > 0.5 && isOpening) {
+                    this._gateState = 'OPENING';
+                    this._currentGateTarget = 1;
+                } else if (gateCommand < 0.5 && isClosing) {
+                    this._gateState = 'CLOSING';
+                    this._currentGateTarget = 0;
+                }
+            }
+            
+            // Zero-crossing detection for clean transitions
+            const zeroCrossingOccurred = (this._lastSample > 0 && currentSample <= 0) || 
+                                         (this._lastSample < 0 && currentSample >= 0);
 
-            // Phase increment/wrapping is now handled earlier based on instantaneous frequency
+            // Update state based on zero-crossings
+            if (zeroCrossingOccurred) {
+                if (this._gateState === 'CLOSING') {
+                    this._gateState = 'CLOSED';
+                } else if (this._gateState === 'OPENING') {
+                    this._gateState = 'OPEN';
+                }
+            }
+
+            // --- 3. DETERMINE OUTPUT BASED ON GATE STATE ---
+            let outputSample = 0;
+            
+            switch (this._gateState) {
+                case 'OPEN':
+                    outputSample = currentSample;
+                    break;
+                case 'CLOSING':
+                    outputSample = currentSample;
+                    break;
+                case 'CLOSED':
+                    outputSample = 0;
+                    break;
+                case 'OPENING':
+                    outputSample = zeroCrossingOccurred ? currentSample : 0;
+                    break;
+            }
+            
+            // Apply smooth gain transitions when forcing gate changes
+            if (this._smoothingCounter > 0) {
+                const targetGain = (this._currentGateTarget > 0.5) ? 1.0 : 0.0;
+                this._outputGain += (targetGain - this._outputGain) / this._smoothingCounter;
+                this._smoothingCounter--;
+                outputSample *= this._outputGain;
+            }
+            
+            channel[i] = outputSample;
+            
+            // Update the last sample value for the next iteration's zero-crossing check
+            this._lastSample = currentSample;
         }
         return true;
     }
