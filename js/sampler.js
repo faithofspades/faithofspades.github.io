@@ -181,12 +181,12 @@ export function fixMicRecording(audioCtx, onRecordingComplete, skipButtonSetup =
     };
 }
 /**
- * Creates a loopable buffer (with no actual crossfading).
+ * Creates a loopable buffer with advanced crossfading.
  * @param {AudioContext} audioCtx - The audio context.
  * @param {AudioBuffer} originalBuffer - The buffer to process.
  * @param {number} startFraction - Loop start position (0-1).
  * @param {number} endFraction - Loop end position (0-1).
- * @param {number} crossfadeAmount - Not used for fading, just determines if looping is on.
+ * @param {number} crossfadeAmount - Controls crossfade amount (0-1).
  * @returns {object|null} An object { buffer, adjustedStartFraction } or null on error.
  */
 export function createCrossfadedBuffer(audioCtx, originalBuffer, startFraction, endFraction, crossfadeAmount) {
@@ -205,20 +205,45 @@ export function createCrossfadedBuffer(audioCtx, originalBuffer, startFraction, 
         // Calculate exact trim positions
         const startSample = Math.floor(startFraction * totalSamples);
         const endSample = Math.floor(endFraction * totalSamples);
-        const loopLength = endSample - startSample;
+        const trimmedLength = endSample - startSample;
         
-        // Ensure minimum loop length
-        if (loopLength < 100) {
+        // Ensure minimum trim length
+        if (trimmedLength < 100) {
             console.log("Loop too short, returning minimal buffer");
             return createTrimmedBuffer(audioCtx, originalBuffer, startFraction, endFraction);
         }
         
-        console.log(`Creating loop buffer: ${startSample} to ${endSample} (${loopLength} samples)`);
+        // CHANGED: If crossfade is below 5%, use simple loop with no crossfading
+        if (crossfadeAmount < 0.05) {
+            console.log("Crossfade below 5%, using simple loop with no crossfade");
+            const result = createTrimmedBuffer(audioCtx, originalBuffer, startFraction, endFraction);
+            
+            // Add properties needed for looping but don't actually crossfade
+            result.loopStartSample = 0;
+            result.crossfadeLengthSamples = 0;
+            result.crossfadeFraction = 0;
+            
+            return result;
+        }
         
-        // Simply create a trimmed buffer with the loop portion
+        // Calculate how much of the start to move to the end and crossfade
+        // Scale from 0% at minimum to 50% at maximum crossfadeAmount
+        const maxCrossfadePercent = 0.5; // 50% maximum
+        const scaledCrossfadeFraction = Math.min(maxCrossfadePercent, crossfadeAmount * maxCrossfadePercent);
+        
+        // Calculate samples for crossfade
+        const crossfadeSamples = Math.floor(trimmedLength * scaledCrossfadeFraction);
+        
+        // Calculate loop point - where it will jump back to after playing
+        const loopPoint = crossfadeSamples;
+        
+        console.log(`Creating crossfaded loop: ${(crossfadeSamples / sampleRate).toFixed(3)}s crossfade (${(scaledCrossfadeFraction * 100).toFixed(1)}% of loop)`);
+        console.log(`Loop jumps back to ${(loopPoint / sampleRate).toFixed(3)}s position after playing`);
+        
+        // Create the buffer with the same length as the trimmed section
         const newBuffer = audioCtx.createBuffer(
             channels,
-            loopLength,
+            trimmedLength,
             sampleRate
         );
         
@@ -227,21 +252,45 @@ export function createCrossfadedBuffer(audioCtx, originalBuffer, startFraction, 
             const origData = originalBuffer.getChannelData(channel);
             const newData = newBuffer.getChannelData(channel);
             
-            // Copy the entire trimmed section
-            for (let i = 0; i < loopLength; i++) {
+            // STEP 1: Copy the entire trimmed section
+            for (let i = 0; i < trimmedLength; i++) {
                 newData[i] = origData[startSample + i];
+            }
+            
+            // STEP 2: Apply crossfade between the start and end
+            for (let i = 0; i < crossfadeSamples; i++) {
+                // Position in the output buffer (near the end)
+                const destPos = trimmedLength - crossfadeSamples + i;
+                
+                // Calculate fade ratio (0 to 1)
+                const ratio = i / crossfadeSamples;
+                
+                // Constant power crossfade (equal power curve)
+                // sin²(x) + cos²(x) = 1 ensures constant power
+                const fadeOutGain = Math.cos(ratio * Math.PI / 2);
+                const fadeInGain = Math.sin(ratio * Math.PI / 2);
+                
+                // Mix the end of the loop with the beginning
+                const endSample = newData[destPos];
+                const beginSample = origData[startSample + i];
+                
+                // Apply the crossfade
+                newData[destPos] = (endSample * fadeOutGain) + (beginSample * fadeInGain);
             }
         }
         
-        console.log(`Created simple loop buffer: ${(loopLength / sampleRate).toFixed(3)}s loop`);
+        console.log(`Created advanced crossfaded buffer: ${(trimmedLength / sampleRate).toFixed(3)}s with ${(crossfadeSamples / sampleRate).toFixed(3)}s crossfade`);
         
-        // Return the buffer with the exact trim points preserved
+        // Return the crossfaded buffer with loop information
         return {
             buffer: newBuffer,
-            adjustedStartFraction: startFraction
+            adjustedStartFraction: startFraction,
+            loopStartSample: loopPoint,
+            crossfadeLengthSamples: crossfadeSamples,
+            crossfadeFraction: scaledCrossfadeFraction
         };
     } catch (e) {
-        console.error("Error creating loop buffer:", e);
+        console.error("Error creating crossfaded buffer:", e);
         return null;
     }
 }
@@ -274,65 +323,116 @@ function createTrimmedBuffer(audioCtx, originalBuffer, startFraction, endFractio
     };
 }
 /**
- * Finds the best zero crossing near a target sample position.
- * Looks for zero crossings that come after peaks/troughs for clean cuts.
+ * Finds the best complementary zero crossings for start and end points.
  * @param {AudioBuffer} buffer - The audio buffer to analyze
- * @param {number} targetSample - The approximate sample index to find a zero crossing near
- * @param {number} direction - Direction to search: 1 for forward (end trim), -1 for backward (start trim)
- * @param {number} maxSearchDistance - Maximum distance to search in samples (default: 2% of buffer length)
- * @returns {number} The best zero crossing sample index, or targetSample if none found
+ * @param {number} startSample - Approximate start sample index 
+ * @param {number} endSample - Approximate end sample index
+ * @returns {object} Object with {start, end} sample positions
  */
-export function findBestZeroCrossing(buffer, targetSample, direction = 1, maxSearchDistance = null) {
-    if (!buffer || buffer.length === 0 || !buffer.getChannelData) return targetSample;
+export function findBestZeroCrossings(buffer, startSample, endSample) {
+    if (!buffer || buffer.length === 0 || !buffer.getChannelData) {
+        return { start: startSample, end: endSample };
+    }
     
     const totalSamples = buffer.length;
-    // Default search distance is 2% of total sample length
-    const searchDistance = maxSearchDistance || Math.floor(totalSamples * 0.02);
+    const searchDistance = Math.floor(totalSamples * 0.02); // 2% search radius
     
-    // Get the first channel data (usually we just analyze channel 0 for simplicity)
+    // Get the first channel data
     const audioData = buffer.getChannelData(0);
     
-    // Ensure target is within bounds
-    targetSample = Math.max(0, Math.min(targetSample, totalSamples - 1));
+    // Ensure samples are within bounds
+    startSample = Math.max(0, Math.min(startSample, totalSamples - 1));
+    endSample = Math.max(0, Math.min(endSample, totalSamples - 1));
     
-    // Define search boundaries
-    const searchStart = Math.max(0, targetSample - (direction < 0 ? searchDistance : 0));
-    const searchEnd = Math.min(totalSamples - 2, targetSample + (direction > 0 ? searchDistance : 0));
+    console.log(`Finding complementary zero crossings: start≈${startSample}, end≈${endSample}`);
     
-    console.log(`Finding best zero crossing near sample ${targetSample}, searching ${searchStart}-${searchEnd}`);
+    // Find all candidate zero crossings near start position
+    const startCandidates = findCandidateCrossings(audioData, startSample, searchDistance, 1);
     
-    // Variables to track best zero crossing
-    let bestZeroCrossing = targetSample;
-    let bestScore = -Infinity;
+    // Find all candidate zero crossings near end position
+    const endCandidates = findCandidateCrossings(audioData, endSample, searchDistance, -1);
     
-    // Local minima/maxima detection window size
+    console.log(`Found ${startCandidates.length} start candidates and ${endCandidates.length} end candidates`);
+    
+    // If no candidates found for either, return original positions
+    if (startCandidates.length === 0 || endCandidates.length === 0) {
+        console.log("Insufficient candidates found, using original positions");
+        return { start: startSample, end: endSample };
+    }
+    
+    // Find the best complementary pair
+    let bestPair = { start: startSample, end: endSample, score: -Infinity };
+    
+    for (const start of startCandidates) {
+        for (const end of endCandidates) {
+            // Skip invalid pairs (end must be after start)
+            if (end.index <= start.index + 100) continue; // Minimum 100 samples between
+            
+            let score = 0;
+            
+            // CRITICAL: Prefer complementary pairs (peak→trough or trough→peak)
+            if ((start.hasPeak && end.hasTrough) || (start.hasTrough && end.hasPeak)) {
+                score += 200; // Strongly prefer complementary pairs
+            }
+            
+            // Add individual scores
+            score += start.score + end.score;
+            
+            // Prefer pairs closer to requested positions
+            score -= Math.abs(start.index - startSample) * 0.3;
+            score -= Math.abs(end.index - endSample) * 0.3;
+            
+            if (score > bestPair.score) {
+                bestPair = { 
+                    start: start.index, 
+                    end: end.index, 
+                    score: score,
+                    startType: start.hasPeak ? 'peak' : (start.hasTrough ? 'trough' : 'none'),
+                    endType: end.hasPeak ? 'peak' : (end.hasTrough ? 'trough' : 'none')
+                };
+            }
+        }
+    }
+    
+    if (bestPair.score > -Infinity) {
+        console.log(`Found complementary pair: ${bestPair.startType}→${bestPair.endType}, score: ${bestPair.score.toFixed(1)}`);
+        console.log(`Adjusted start: ${bestPair.start} (${Math.abs(bestPair.start - startSample)} samples offset)`);
+        console.log(`Adjusted end: ${bestPair.end} (${Math.abs(bestPair.end - endSample)} samples offset)`);
+        return { start: bestPair.start, end: bestPair.end };
+    }
+    
+    return { start: startSample, end: endSample };
+}
+
+// Helper function to find candidate zero crossings
+function findCandidateCrossings(audioData, targetSample, searchDistance, direction) {
+    const totalSamples = audioData.length;
+    const searchStart = Math.max(0, targetSample - (direction > 0 ? searchDistance : 0));
+    const searchEnd = Math.min(totalSamples - 2, targetSample + (direction > 0 ? 0 : searchDistance));
     const peakWindow = 5;
+    const candidates = [];
     
-    // Scan the search range
     for (let i = searchStart; i <= searchEnd; i++) {
-        // Check for zero crossing (positive-to-negative or negative-to-positive)
+        // Check for zero crossing
         const isZeroCrossing = (audioData[i] >= 0 && audioData[i + 1] < 0) || 
                                (audioData[i] <= 0 && audioData[i + 1] > 0);
         
         if (isZeroCrossing) {
-            // Look back to see if there was a peak or trough before this
+            // Look for peak/trough before this
             let hasPeak = false;
             let hasTrough = false;
             let peakDistance = 0;
             
-            // Check previous samples within peak window
             for (let j = 1; j <= peakWindow; j++) {
                 const idx = i - j;
                 if (idx < 0) break;
                 
-                // Check for peak (sample is higher than neighbors)
                 if (idx > 0 && idx < totalSamples - 1) {
                     if (audioData[idx] > audioData[idx - 1] && audioData[idx] > audioData[idx + 1]) {
                         hasPeak = true;
                         peakDistance = j;
                         break;
                     }
-                    // Check for trough (sample is lower than neighbors)
                     if (audioData[idx] < audioData[idx - 1] && audioData[idx] < audioData[idx + 1]) {
                         hasTrough = true;
                         peakDistance = j;
@@ -341,37 +441,52 @@ export function findBestZeroCrossing(buffer, targetSample, direction = 1, maxSea
                 }
             }
             
-            // Calculate score - higher is better
             let score = 0;
             
-            // Preferred: Zero crossing after peak/trough
+            // Basic scoring for individual candidates
             if (hasPeak || hasTrough) {
-                score += 100 - peakDistance * 5; // Closer peaks/troughs are better
+                score += 100 - peakDistance * 5;
             }
             
-            // Steeper zero crossings are cleaner
             const slope = Math.abs(audioData[i + 1] - audioData[i]);
-            score += slope * 50; // Steeper slope = higher score
+            score += slope * 50;
             
-            // Prefer zero crossings closer to target
             const distance = Math.abs(i - targetSample);
-            score -= distance * 0.5; // Penalize distance from target
+            score -= distance * 0.5;
             
-            // Check if this is the best so far
-            if (score > bestScore) {
-                bestScore = score;
-                bestZeroCrossing = i;
-            }
+            candidates.push({
+                index: i,
+                hasPeak: hasPeak,
+                hasTrough: hasTrough,
+                peakDistance: peakDistance,
+                score: score
+            });
         }
     }
     
-    // If we found a good zero crossing, return it
-    if (bestScore > -Infinity) {
-        console.log(`Found zero crossing at ${bestZeroCrossing}, score: ${bestScore.toFixed(1)}, ${Math.abs(bestZeroCrossing - targetSample)} samples from target`);
-        return bestZeroCrossing;
+    return candidates;
+}
+
+// For backward compatibility - wrap the new function
+export function findBestZeroCrossing(buffer, targetSample, direction = 1, maxSearchDistance = null) {
+    if (!buffer || buffer.length === 0) return targetSample;
+    
+    const totalSamples = buffer.length;
+    maxSearchDistance = maxSearchDistance || Math.floor(totalSamples * 0.02);
+    
+    // Calculate the other sample position based on direction
+    let startSample, endSample;
+    if (direction > 0) {
+        // We're looking for start position
+        startSample = targetSample;
+        endSample = Math.min(totalSamples - 1, startSample + Math.floor(totalSamples * 0.05));
+    } else {
+        // We're looking for end position
+        endSample = targetSample;
+        startSample = Math.max(0, endSample - Math.floor(totalSamples * 0.05));
     }
     
-    // If no suitable zero crossing found, return original position
-    console.log(`No suitable zero crossing found, using original position ${targetSample}`);
-    return targetSample;
+    // Use the full function but only return what we need
+    const result = findBestZeroCrossings(buffer, startSample, endSample);
+    return direction > 0 ? result.start : result.end;
 }

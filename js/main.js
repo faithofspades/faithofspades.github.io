@@ -23,11 +23,9 @@ oscillatorMasterGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
 const masterGain = audioCtx.createGain();
 masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
 
-// CHANGED ROUTING: Connect both output paths to masterGain first
+// CORRECT ROUTING: Connect both through masterGain to destination
 samplerMasterGain.connect(masterGain);
 oscillatorMasterGain.connect(masterGain);
-
-// Then connect masterGain to destination
 masterGain.connect(audioCtx.destination);
 // Don't connect masterGain yet - we'll do it selectively below
 let isWorkletReady = false;
@@ -2194,7 +2192,7 @@ function updateSamplePlaybackParameters(note) {
         newSource.connect(newSampleNode);
         newSampleNode.connect(fmTap);  // FM tap gets processed signal
         fmTap.connect(newGainNode);    // Pass through to ADSR
-        newGainNode.connect(masterGain);
+        newGainNode.connect(samplerMasterGain); // FIX: Connect to samplerMasterGain instead
 
         // Apply loop settings
         let loopStartTime = 0;
@@ -3987,38 +3985,77 @@ if (audioBuffer && samplerVoice) {
         }
         
         // Create new source with appropriate buffer
-        samplerNote.source = audioCtx.createBufferSource();
+samplerNote.source = audioCtx.createBufferSource();
+
+// Select the appropriate buffer
+let sourceBuffer = audioBuffer;
+let bufferInfo = null;
+if (isSampleLoopOn && cachedCrossfadedBuffer) {
+    sourceBuffer = cachedCrossfadedBuffer;
+    
+    // Get crossfade information
+    if (sampleCrossfadeAmount < 0.05) {
+        // For small crossfade amounts (<5%), use simple loop
+        bufferInfo = {
+            loopStartSample: 0, 
+            crossfadeLengthSamples: 0,
+            crossfadeFraction: 0
+        };
+        samplerNote.usesProcessedBuffer = true;
+        samplerNote.crossfadeActive = false;
+        console.log(`Using simple loop for note ${noteNumber} (no crossfade, clean edges)`);
+    } else {
+        // For larger crossfade amounts, use proper crossfade with loopStartSample
+        bufferInfo = {
+            loopStartSample: lastCachedCrossfade ? Math.floor(cachedCrossfadedBuffer.length * lastCachedCrossfade * 0.5) : 0,
+            crossfadeLengthSamples: lastCachedCrossfade ? Math.floor(cachedCrossfadedBuffer.length * lastCachedCrossfade * 0.5) : 0,
+            crossfadeFraction: lastCachedCrossfade ? lastCachedCrossfade : 0
+        };
+        samplerNote.usesProcessedBuffer = true;
+        samplerNote.crossfadeActive = true;
+        console.log(`Using cached crossfaded buffer for note ${noteNumber}`);
+    }
+} else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
+    sourceBuffer = fadedBuffer;
+    samplerNote.usesProcessedBuffer = true;
+    samplerNote.crossfadeActive = false;
+    console.log(`Using cached faded buffer for note ${noteNumber}`);
+} else {
+    samplerNote.usesProcessedBuffer = false;
+    samplerNote.crossfadeActive = false;
+    console.log(`Using original buffer for note ${noteNumber}`);
+}
+
+// Configure the new source
+samplerNote.source.buffer = sourceBuffer;
+
+// After creating the source and setting the buffer:
+if (isSampleLoopOn) {
+    samplerNote.source.loop = true;
+    
+    if (bufferInfo && bufferInfo.loopStartSample !== undefined && sampleCrossfadeAmount >= 0.05) {
+        // Advanced crossfade mode - use calculated loop start point
+        const loopStartSample = bufferInfo.loopStartSample;
+        const loopStartTime = loopStartSample / samplerNote.source.buffer.sampleRate;
         
-        // Select the appropriate buffer
-        let sourceBuffer = audioBuffer;
-        if (isSampleLoopOn && sampleCrossfadeAmount > 0.01 && cachedCrossfadedBuffer) {
-            sourceBuffer = cachedCrossfadedBuffer;
-            samplerNote.crossfadeActive = true;
-        } else if (fadedBuffer && (!isSampleLoopOn || sampleCrossfadeAmount <= 0.01)) {
-            sourceBuffer = fadedBuffer;
-            samplerNote.usesProcessedBuffer = true;
-        } else if (isEmuModeOn) {
-            sourceBuffer = applyEmuProcessing(audioBuffer);
-            samplerNote.usesProcessedBuffer = true;
-        }
+        samplerNote.source.loopStart = loopStartTime;
+        samplerNote.source.loopEnd = samplerNote.source.buffer.duration;
         
-        if (!sourceBuffer) {
-            console.error(`noteOn: No valid buffer for sampler note ${samplerNote.id}`);
-            return;
-        }
+        // Store crossfade information on the note
+        samplerNote.crossfadeLength = bufferInfo.crossfadeLengthSamples;
+        samplerNote.crossfadeFraction = bufferInfo.crossfadeFraction;
         
-        // Configure the new source
-        samplerNote.source.buffer = sourceBuffer;
+        console.log(`Advanced crossfade loop: loopStart=${loopStartTime.toFixed(3)}s, loopEnd=${samplerNote.source.buffer.duration.toFixed(3)}s`);
+    } else {
+        // Simple loop - loop the entire buffer with no offset
+        samplerNote.source.loopStart = 0;
+        samplerNote.source.loopEnd = samplerNote.source.buffer.duration;
+        samplerNote.crossfadeLength = 0;
+        samplerNote.crossfadeFraction = 0;
         
-        // Configure loop settings
-        samplerNote.source.loop = isSampleLoopOn;
-        samplerNote.looping = isSampleLoopOn;
-        if (isSampleLoopOn) {
-            samplerNote.source.loopStart = sampleStartPosition * sourceBuffer.duration;
-            samplerNote.source.loopEnd = sampleEndPosition * sourceBuffer.duration;
-            samplerNote.calculatedLoopStart = samplerNote.source.loopStart;
-            samplerNote.calculatedLoopEnd = samplerNote.source.loopEnd;
-        }
+        console.log(`Simple loop for note ${noteNumber}: looping entire buffer with clean edges`);
+    }
+}
         // NEW: Apply pitch warble to sampler
     applySamplerWarble(samplerVoice, now);
         // Connect the audio path
@@ -4110,9 +4147,9 @@ if (audioBuffer && samplerVoice) {
 
     // Connect to master gain if not already connected
     if (!samplerNote.gainNode.isConnectedToMaster) {
-        samplerNote.gainNode.connect(masterGain);
-        samplerNote.gainNode.isConnectedToMaster = true;
-    }
+    samplerNote.gainNode.connect(samplerMasterGain); // FIX: Connect to samplerMasterGain instead
+    samplerNote.gainNode.isConnectedToMaster = true;
+}
     
     // Update note status
     samplerNote.state = 'playing';
