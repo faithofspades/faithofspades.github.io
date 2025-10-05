@@ -1,6 +1,6 @@
 import { createiOSStartupOverlay } from './ios.js';
 import { initializeKnob } from './controls.js'; 
-import { fixMicRecording, createCrossfadedBuffer } from './sampler.js'; 
+import { fixMicRecording, createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
 import { initializeModCanvas, getModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
@@ -17,15 +17,18 @@ let samplerMasterGain = audioCtx.createGain();
 let oscillatorMasterGain = audioCtx.createGain();
 let masterOutputVolume = 0.005;
 samplerMasterGain.gain.setValueAtTime(masterOutputVolume, audioCtx.currentTime);
-oscillatorMasterGain.gain.setValueAtTime(1.0, audioCtx.currentTime); // Oscillators always at full volume
+oscillatorMasterGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
-// Connect both to destination
-samplerMasterGain.connect(audioCtx.destination);
-oscillatorMasterGain.connect(audioCtx.destination);
-
-// Now create masterGain and connect oscillators to their dedicated path
+// Create masterGain node
 const masterGain = audioCtx.createGain();
 masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+
+// CHANGED ROUTING: Connect both output paths to masterGain first
+samplerMasterGain.connect(masterGain);
+oscillatorMasterGain.connect(masterGain);
+
+// Then connect masterGain to destination
+masterGain.connect(audioCtx.destination);
 // Don't connect masterGain yet - we'll do it selectively below
 let isWorkletReady = false;
 let pendingInitialization = true;
@@ -1655,183 +1658,130 @@ const knobInitializations = {
         console.log(`Osc1 FM Knob Raw: ${value.toFixed(3)}, Curved: ${osc1FMAmount.toFixed(3)}, Depth: ${scaledDepth.toFixed(1)} Hz`);
     },
     'sample-start-knob': (value) => {
-        const minLoopFractionRequired = 0.001; // Minimum gap always required
-        const minLoopFractionForCrossfade = 0.01; // Minimum 1% loop length if crossfading
+    const minLoopFractionRequired = 0.001;
+    const minLoopFractionForCrossfade = 0.01;
+    const effectiveMinGap = isSampleLoopOn
+        ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
+        : minLoopFractionRequired;
 
-        // Determine the effective minimum gap based on loop state
-        const effectiveMinGap = isSampleLoopOn
-            ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
-            : minLoopFractionRequired;
+    const maxAllowedStart = sampleEndPosition - effectiveMinGap;
+    let newStartPosition = Math.min(value, maxAllowedStart);
+    newStartPosition = Math.max(0, newStartPosition);
 
-        // Calculate the maximum allowed start position
-        const maxAllowedStart = sampleEndPosition - effectiveMinGap;
-
-        // Clamp the incoming value
-        let newStartPosition = Math.min(value, maxAllowedStart);
-        newStartPosition = Math.max(0, newStartPosition); // Ensure not less than 0
-
-        // Only update if the value actually changed
-        if (newStartPosition !== sampleStartPosition) {
-            sampleStartPosition = newStartPosition;
-
-            // Update processing immediately (this handles trimming/fading AND schedules crossfade creation if needed)
-            updateSampleProcessing();
-
-            const tooltip = createTooltipForKnob('sample-start-knob', value); // Use original value for tooltip positioning
-            tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
-            tooltip.style.opacity = '1';
-            console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%');
-
-            // Debounce note updates
-            if (startUpdateTimer) { trackClearTimeout(startUpdateTimer); } // <<< Use trackClearTimeout
-            startUpdateTimer = trackSetTimeout(() => {
-                // updateSampleProcessing should have finished or scheduled buffer creation by now.
-                // updateSamplePlaybackParameters will pick the correct buffer.
-                console.log("Start knob settled - updating active notes.");
-                // <<< CHANGE: Iterate over voicePool >>>
-                voicePool.forEach(voice => {
-                    if (voice.state !== 'inactive' && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
-                        console.log(`Updating sampler note ${voice.samplerNote.id} after start change.`);
-                        updateSamplePlaybackParameters(voice.samplerNote);
-                    } else if (voice.state !== 'inactive' && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
-                        console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after start change.`);
-                    }
-                });
-                // <<< END CHANGE >>>
-                startUpdateTimer = null;
-            }, 150); // Delay to allow updateSampleProcessing's timeouts to potentially finish
-        } else {
-             // If the clamped value is the same as the current, still show tooltip briefly
-             const tooltip = createTooltipForKnob('sample-start-knob', value);
-             tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
-             tooltip.style.opacity = '1';
+    if (newStartPosition !== sampleStartPosition) {
+        // SNAP TO ZERO CROSSING - If we have a buffer to analyze
+        if (audioBuffer) {
+            // Convert fraction to sample position
+            const totalSamples = audioBuffer.length;
+            const rawStartSample = Math.floor(newStartPosition * totalSamples);
+            
+            // Find best zero crossing (search backward for start position)
+            const snappedSample = findBestZeroCrossing(
+                audioBuffer, 
+                rawStartSample, 
+                1, // Direction: forward to find zero crossing after peak/trough
+                Math.floor(totalSamples * 0.02) // Search within 2% of total length
+            );
+            
+            // Convert back to fraction
+            newStartPosition = snappedSample / totalSamples;
+            console.log(`Start position snapped to zero crossing: ${(newStartPosition * 100).toFixed(2)}%`);
         }
-    },
-    'sample-end-knob': (value) => {
-        const minLoopFractionRequired = 0.001; // Minimum gap always required
-        const minLoopFractionForCrossfade = 0.01; // Minimum 1% loop length if crossfading
-
-        // Determine the effective minimum gap based on loop state
-        const effectiveMinGap = isSampleLoopOn
-            ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
-            : minLoopFractionRequired;
-
-        // Calculate the minimum allowed end position
-        const minAllowedEnd = sampleStartPosition + effectiveMinGap;
-
-        // Clamp the incoming value
-        let newEndPosition = Math.max(value, minAllowedEnd);
-        newEndPosition = Math.min(1, newEndPosition); // Ensure not more than 1
-
-        // Only update if the value actually changed
-        if (newEndPosition !== sampleEndPosition) {
-            sampleEndPosition = newEndPosition;
-
-            // Update processing immediately (this handles trimming/fading)
-            updateSampleProcessing();
-
-            const tooltip = createTooltipForKnob('sample-end-knob', value); // Use original value for tooltip positioning
-            tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
-            tooltip.style.opacity = '1';
-            console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
-
-            // Debounce crossfade buffer creation and note updates (existing logic)
-            if (endUpdateTimer) { trackClearTimeout(endUpdateTimer); } // <<< Use trackClearTimeout
-            endUpdateTimer = trackSetTimeout(() => {
-                if (audioBuffer) {
-                    // Create crossfaded buffer if needed (uses processed/faded buffer)
-                    if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
-                        console.log("Creating new crossfaded buffer after end position settled");
-                        const bufferToCrossfade = fadedBuffer || audioBuffer; // Use faded if available
-                        const result = createCrossfadedBuffer(
-                            audioCtx,
-                            bufferToCrossfade,
-                            0, // Use entire processed buffer
-                            1, // Use entire processed buffer
-                            sampleCrossfadeAmount
-                        );
-
-                        if (result && result.buffer) {
-                            // Apply Emu processing AFTER crossfade if enabled
-                            cachedCrossfadedBuffer = isEmuModeOn ? applyEmuProcessing(result.buffer) : result.buffer;
-                            lastCachedStartPos = sampleStartPosition; // Store original requested start
-                            lastCachedEndPos = sampleEndPosition;     // Store original requested end
-                            lastCachedCrossfade = sampleCrossfadeAmount;
-                            console.log("Crossfaded buffer updated after end change.");
-                        } else {
-                            console.warn("Crossfaded buffer creation failed after end change.");
-                            cachedCrossfadedBuffer = null; // Invalidate cache on failure
-                        }
-                    } else {
-                        cachedCrossfadedBuffer = null; // Invalidate if crossfade turned off
-                    }
-
-                    // Update any active (non-held) sampler notes
-                    // <<< CHANGE: Iterate over voicePool >>>
-                    voicePool.forEach(voice => {
-                         if (voice.state !== 'inactive' && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
-                            console.log(`Updating sampler note ${voice.samplerNote.id} after end change.`);
-                            updateSamplePlaybackParameters(voice.samplerNote);
-                        } else if (voice.state !== 'inactive' && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
-                            console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after end change.`);
-                        }
-                    });
-                    // <<< END CHANGE >>>
-                }
-                endUpdateTimer = null;
-            }, 150); // Delay
-        } else {
-             // If the clamped value is the same as the current, still show tooltip briefly
-             const tooltip = createTooltipForKnob('sample-end-knob', value);
-             tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
-             tooltip.style.opacity = '1';
-        }
-    },
-    'sample-crossfade-knob': (value) => {
-        const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
-        tooltip.textContent = `Crossfade: ${(value * 100).toFixed(0)}%`;
-        tooltip.style.opacity = '1';
-
-        const prevCrossfade = sampleCrossfadeAmount;
-        const prevLoopState = isSampleLoopOn;
-
-        sampleCrossfadeAmount = value;
-        isSampleLoopOn = value > 0.01; // Loop is ON if crossfade > 1%
-
-        // If enabling crossfade, disable and reset manual fades
-        if (isSampleLoopOn && !prevLoopState) {
-            console.log("Crossfade enabled, resetting manual fades.");
-            sampleFadeInAmount = 0;
-            sampleFadeOutAmount = 0;
-            const fadeKnob = D('sample-fade-knob');
-            if (fadeKnob && fadeKnob.control) { // Check if control object exists
-                fadeKnob.control.setValue(0.5); // Reset fade knob UI to center
-            }
-        }
-
-        // Update sample processing immediately
+        
+        sampleStartPosition = newStartPosition;
         updateSampleProcessing();
 
-        // Debounce note updates using the correct timer
-        if (crossfadeUpdateTimer) { trackClearTimeout(crossfadeUpdateTimer); } // <<< Use trackClearTimeout
-        crossfadeUpdateTimer = trackSetTimeout(() => {
-            // updateSampleProcessing should have finished or scheduled buffer creation by now.
-            // updateSamplePlaybackParameters will pick the correct buffer.
-            console.log("Crossfade knob settled - updating active notes.");
-            // <<< CHANGE: Iterate over voicePool >>>
-            voicePool.forEach(voice => {
-                if (voice.state !== 'inactive' && voice.samplerNote && !heldNotes.includes(voice.noteNumber)) {
-                    console.log(`Updating sampler note ${voice.samplerNote.id} after crossfade change.`);
-                    updateSamplePlaybackParameters(voice.samplerNote);
-                } else if (voice.state !== 'inactive' && voice.samplerNote && heldNotes.includes(voice.noteNumber)) {
-                    console.log(`Skipping update for held sampler note ${voice.samplerNote.id} after crossfade change.`);
-                }
-            });
-            // <<< END CHANGE >>>
-            crossfadeUpdateTimer = null;
-        }, 150); // Delay to allow updateSampleProcessing's timeouts to potentially finish
+        const tooltip = createTooltipForKnob('sample-start-knob', value);
+        tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        console.log('Sample Start:', (sampleStartPosition * 100).toFixed(0) + '%');
 
-    }, // End of 'sample-crossfade-knob'
+        if (startUpdateTimer) { trackClearTimeout(startUpdateTimer); }
+        startUpdateTimer = null;
+    } else {
+        const tooltip = createTooltipForKnob('sample-start-knob', value);
+        tooltip.textContent = `Start: ${(sampleStartPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+    }
+},
+
+// Around line 1480 - Update sample-end-knob
+'sample-end-knob': (value) => {
+    const minLoopFractionRequired = 0.001;
+    const minLoopFractionForCrossfade = 0.01;
+    const effectiveMinGap = isSampleLoopOn
+        ? Math.max(minLoopFractionRequired, minLoopFractionForCrossfade)
+        : minLoopFractionRequired;
+
+    const minAllowedEnd = sampleStartPosition + effectiveMinGap;
+    let newEndPosition = Math.max(value, minAllowedEnd);
+    newEndPosition = Math.min(1, newEndPosition);
+
+    if (newEndPosition !== sampleEndPosition) {
+        // SNAP TO ZERO CROSSING - If we have a buffer to analyze
+        if (audioBuffer) {
+            // Convert fraction to sample position
+            const totalSamples = audioBuffer.length;
+            const rawEndSample = Math.floor(newEndPosition * totalSamples);
+            
+            // Find best zero crossing (search forward for end position)
+            const snappedSample = findBestZeroCrossing(
+                audioBuffer, 
+                rawEndSample, 
+                -1, // Direction: backward to find zero crossing after peak/trough
+                Math.floor(totalSamples * 0.02) // Search within 2% of total length
+            );
+            
+            // Convert back to fraction
+            newEndPosition = snappedSample / totalSamples;
+            console.log(`End position snapped to zero crossing: ${(newEndPosition * 100).toFixed(2)}%`);
+        }
+        
+        sampleEndPosition = newEndPosition;
+        updateSampleProcessing();
+
+        const tooltip = createTooltipForKnob('sample-end-knob', value);
+        tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        console.log('Sample End:', (sampleEndPosition * 100).toFixed(0) + '%');
+
+        if (endUpdateTimer) { trackClearTimeout(endUpdateTimer); }
+        endUpdateTimer = null;
+    } else {
+        const tooltip = createTooltipForKnob('sample-end-knob', value);
+        tooltip.textContent = `End: ${(sampleEndPosition * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+    }
+},
+    'sample-crossfade-knob': (value) => {
+    const tooltip = createTooltipForKnob('sample-crossfade-knob', value);
+    tooltip.textContent = `Crossfade: ${(value * 100).toFixed(0)}%`;
+    tooltip.style.opacity = '1';
+
+    const prevCrossfade = sampleCrossfadeAmount;
+    const prevLoopState = isSampleLoopOn;
+
+    sampleCrossfadeAmount = value;
+    isSampleLoopOn = value > 0.01;
+
+    if (isSampleLoopOn && !prevLoopState) {
+        console.log("Crossfade enabled, resetting manual fades.");
+        sampleFadeInAmount = 0;
+        sampleFadeOutAmount = 0;
+        const fadeKnob = D('sample-fade-knob');
+        if (fadeKnob && fadeKnob.control) {
+            fadeKnob.control.setValue(0.5);
+        }
+    }
+
+    updateSampleProcessing();
+
+    // CRITICAL FIX: Don't update playing notes
+    if (crossfadeUpdateTimer) { trackClearTimeout(crossfadeUpdateTimer); }
+    crossfadeUpdateTimer = null;
+    
+    console.log("Crossfade changed - will affect next noteOn only");
+}, // End of 'sample-crossfade-knob'
 
     'sample-fade-knob': (value) => {
         const fadeValue = value * 2 - 1; // Convert 0-1 range to -1 to +1 range
@@ -3441,14 +3391,18 @@ function releaseSamplerNote(note) {
     note.state = "releasing";
     clearScheduledEventsForNote(note);
 
-    // Handle loop state
-    if (note.usesProcessedBuffer && note.crossfadeActive) {
+    // CRITICAL FIX: Don't disable loop for crossfaded buffers during release
+    // Only disable loop for non-crossfaded, non-looping samples
+    if (!note.crossfadeActive && !isSampleLoopOn) {
         note.source.loop = false;
         note.looping = false;
+    } else if (note.crossfadeActive && note.source.loop) {
+        // Keep loop enabled for crossfaded buffers during release
+        console.log(`Keeping crossfade loop active during release for ${note.id}`);
     }
 
     // Apply release envelope
-    const release = Math.max(0.01, parseFloat(D('release').value)); // Minimum 10ms release
+    const release = Math.max(0.01, parseFloat(D('release').value));
     const now = audioCtx.currentTime;
     
     // Apply proper release envelope
@@ -3461,19 +3415,26 @@ function releaseSamplerNote(note) {
     note.sampleNode.gain.setValueAtTime(note.sampleNode.gain.value, now);
     note.sampleNode.gain.linearRampToValueAtTime(0, now + release);
 
-    // Schedule stop after release with a small safety margin
+    // CRITICAL FIX: For looping samples, don't schedule a stop time
+    // Let them loop until the kill function disconnects them
+    const stopTime = now + release + 0.05;
+    
+    if (!note.looping && !note.crossfadeActive) {
+        // Only stop non-looping samples
+        try {
+            note.source.stop(stopTime);
+        } catch (e) { /* Ignore errors */ }
+    } else {
+        console.log(`Not scheduling stop for looping/crossfaded sample ${note.id} - will loop during release`);
+    }
 
-    try {
-        note.source.stop(stopTime);
-    } catch (e) { /* Ignore errors */ }
-
-    // FIXED: Use proper kill delay that respects the release time
-    const killDelay = Math.max(5, (release * 1000) + 0); // Minimum 100ms + release time + 100ms safety
+    // Schedule kill after release with proper timing
+    const killDelay = Math.max(5, (release * 1000) + 0);
     trackSetTimeout(() => {
         killSamplerNote(note);
     }, killDelay, note);
     
-    console.log(`releaseSamplerNote: Scheduled kill for ${note.id} in ${killDelay}ms (respecting release time)`);
+    console.log(`releaseSamplerNote: Scheduled kill for ${note.id} in ${killDelay}ms (respecting release time), loop=${note.looping}, crossfade=${note.crossfadeActive}`);
 }
 
 function killSamplerNote(note) {
@@ -3991,21 +3952,30 @@ function noteOn(noteNumber) {
     }
     
     // --- SAMPLER VOICE CONFIGURATION ---
-    if (audioBuffer && samplerVoice) {
-        // Configure the sampler note
-        const samplerNote = samplerVoice.samplerNote;
-        
-        // Determine if we need to create a new source or reuse existing
-        let needNewSource = true;
-        let oldPlaybackRate = 1.0;
-        
-        // FIXED: Also reuse source for notes in the releasing state
-        if (samplerNote.source && (samplerNote.state === 'playing' || samplerNote.state === 'releasing')) {
-            // If the source is already playing OR releasing, we can reuse it
+if (audioBuffer && samplerVoice) {
+    // Configure the sampler note
+    const samplerNote = samplerVoice.samplerNote;
+    
+    // Determine if we need to create a new source or reuse existing
+    let needNewSource = true;
+    let oldPlaybackRate = 1.0;
+    
+    // CRITICAL FIX: Force new source (restart from beginning) when:
+    // 1. Loop/crossfade is OFF, AND
+    // 2. This is a stolen voice (not a fresh voice allocation)
+    if (samplerNote.source && (samplerNote.state === 'playing' || samplerNote.state === 'releasing')) {
+        // Check if we should restart the sampler
+        if (!isSampleLoopOn && wasSamplerStolen) {
+            // Force restart with new source when not looping and voice was stolen
+            needNewSource = true;
+            console.log(`Restarting sampler from beginning for stolen voice ${samplerVoice.id} (crossfade OFF)`);
+        } else {
+            // Otherwise reuse existing source (continue playback)
             needNewSource = false;
             oldPlaybackRate = samplerNote.source.playbackRate.value || 1.0;
             console.log(`Reusing existing sampler source for voice ${samplerVoice.id} (state: ${samplerNote.state})`);
         }
+    }
         
         // Create new source only if needed
         if (needNewSource) {
@@ -5097,29 +5067,49 @@ if (!originalBuffer) {
 }
 
 // Apply reverse if needed
-reverseBufferIfNeeded();
+reverseBufferIfNeeded(false); // Don't trigger FM update yet
 updateSampleProcessing(); // This updates fadedBuffer/cachedCrossfadedBuffer
-
-// <<< CHANGE: Iterate over voicePool >>>
-voicePool.forEach(voice => {
-    if (voice.state !== 'inactive' && voice.samplerNote) {
-        const note = voice.samplerNote; // Get the samplerNote component
-        // Skip held notes
-        if (heldNotes.includes(voice.noteNumber)) {
-            console.log(`Reverse Button: Skipping update for held sampler note ${note.id}`);
-            return;
+// CRITICAL FIX: Use a timeout to ensure processing completes before updating notes
+setTimeout(() => {
+    console.log("Reverse button: Updating all active sampler notes");
+    
+    // Update ALL sampler voices, not just the oscillator voicePool
+    samplerVoicePool.forEach(voice => {
+        if (voice.state !== 'inactive' && voice.samplerNote) {
+            const note = voice.samplerNote;
+            // Skip held notes to avoid interruption
+            if (heldNotes.includes(voice.noteNumber)) {
+                console.log(`Reverse Button: Skipping update for held sampler note ${note.id}`);
+                return;
+            }
+            console.log(`Reverse Button: Updating sampler note ${note.id}`);
+            updateSamplePlaybackParameters(note);
         }
-        console.log(`Reverse Button: Updating sampler note ${note.id}`);
-        // updateSamplePlaybackParameters will pick up the correct buffer (original or reversed, processed)
-        updateSamplePlaybackParameters(note);
-    }
-});
-// <<< END CHANGE >>>
+    });
+    
+    // CRITICAL FIX: Also update FM sources that use sampler
+    const fmUpdateTime = audioCtx.currentTime;
+    voicePool.forEach(voice => {
+        if (voice.state !== 'inactive') {
+            // Update Osc1 FM if using sampler
+            if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                console.log(`Reverse Button: Updating Osc1 FM for voice ${voice.id}`);
+                updateOsc1FmModulatorParameters(voice.osc1Note, fmUpdateTime, voice);
+            }
+            // Update Osc2 FM if using sampler
+            if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                console.log(`Reverse Button: Updating Osc2 FM for voice ${voice.id}`);
+                updateOsc2FmModulatorParameters(voice.osc2Note, fmUpdateTime, voice);
+            }
+        }
+    });
+}, 100); // Wait 100ms for updateSampleProcessing to complete
 }
 
 console.log('Sample Reverse:', isSampleReversed ? 'ON' : 'OFF');
 });
 }
+
 // <<< INITIALIZE OSC 2 CONTROLS >>>
 
     // Initialize Oscillator 2 Octave Slider
