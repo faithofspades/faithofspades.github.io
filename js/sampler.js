@@ -4,14 +4,18 @@
  * @param {AudioContext} audioCtx - The main AudioContext.
  * @param {Function} onRecordingComplete - Callback function executed when recording stops, receives the recorded AudioBuffer.
  */
-export function fixMicRecording(audioCtx, onRecordingComplete) {
+export function fixMicRecording(audioCtx, onRecordingComplete, skipButtonSetup = false) {
     // Get button reference FIRST
     const recButton = document.getElementById('mic-record-button');
     if (!recButton) return;
 
-    // Then clone it to remove potential old listeners
-    const newRecButton = recButton.cloneNode(true);
-    recButton.parentNode.replaceChild(newRecButton, recButton);
+    // ONLY clone and setup the button if skipButtonSetup is false
+    let newRecButton = recButton;
+    if (!skipButtonSetup) {
+        // Then clone it to remove potential old listeners
+        newRecButton = recButton.cloneNode(true);
+        recButton.parentNode.replaceChild(newRecButton, recButton);
+    }
 
     // NOW you can safely access elements inside it
     const recLed = newRecButton.querySelector('.led-indicator');
@@ -57,26 +61,27 @@ export function fixMicRecording(audioCtx, onRecordingComplete) {
         console.log("Audio worklet ready for recording");
     }).catch(err => {
         console.error("Error loading audio worklet:", err);
-        // Optionally disable the button or show an error
         newRecButton.disabled = true;
         newRecButton.title = "Recording unavailable: Worklet failed to load.";
     });
 
-    // --- Event Listener ---
-    newRecButton.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
+    // --- Event Listener (only if not skipping button setup) ---
+    if (!skipButtonSetup) {
+        newRecButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
 
-        if (processingLock || !workletReady) return;
-        processingLock = true;
-        setTimeout(() => { processingLock = false; }, 300); // Debounce
+            if (processingLock || !workletReady) return;
+            processingLock = true;
+            setTimeout(() => { processingLock = false; }, 300);
 
-        if (localIsRecording) {
-            stopRecording();
-        } else {
-            startRecording();
-        }
-    });
+            if (localIsRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        });
+    }
 
     // --- Recording Functions ---
     async function startRecording() {
@@ -88,35 +93,23 @@ export function fixMicRecording(audioCtx, onRecordingComplete) {
             if (recLed) recLed.classList.add('on');
             localIsRecording = true;
 
-            // Reset recording chunks
             recordingChunks = [];
-
-            // Create audio input source
             audioInputStream = stream;
             audioInputNode = audioCtx.createMediaStreamSource(stream);
-
-            // Create and connect the AudioWorkletNode
             recorderWorklet = new AudioWorkletNode(audioCtx, 'recorder-processor');
 
-            // Collect audio chunks
             recorderWorklet.port.onmessage = (event) => {
                 if (event.data.type === 'chunk') {
                     recordingChunks.push(event.data.data);
                 }
             };
 
-            // Tell the worklet to start
             recorderWorklet.port.postMessage({ command: 'setRecording', value: true });
-
-            // Connect nodes
             audioInputNode.connect(recorderWorklet);
-            // Do NOT connect recorderWorklet to destination unless monitoring is desired
-            // recorderWorklet.connect(audioCtx.destination);
 
             console.log("Recording started with AudioWorkletNode");
         } catch (err) {
             console.error("Error starting recording:", err);
-            // Reset UI on error
             newRecButton.classList.remove('recording');
             if (recLed) recLed.classList.remove('on');
             localIsRecording = false;
@@ -124,7 +117,6 @@ export function fixMicRecording(audioCtx, onRecordingComplete) {
     }
 
     function stopRecording() {
-        // Clean up audio nodes and stream first
         if (recorderWorklet) {
             try {
                 recorderWorklet.port.postMessage({ command: 'setRecording', value: false });
@@ -141,28 +133,21 @@ export function fixMicRecording(audioCtx, onRecordingComplete) {
             audioInputStream = null;
         }
 
-        // Update UI
         newRecButton.classList.remove('recording');
         if (recLed) recLed.classList.remove('on');
         localIsRecording = false;
 
-        // Process the recording chunks if we have any
         if (recordingChunks && recordingChunks.length > 0) {
             const recordedBuffer = processRecording(recordingChunks);
             if (recordedBuffer && typeof onRecordingComplete === 'function') {
-                onRecordingComplete(recordedBuffer); // Pass the buffer to the callback
+                onRecordingComplete(recordedBuffer);
             }
-            recordingChunks = []; // Clear chunks after processing
+            recordingChunks = [];
         } else {
             console.log("No audio chunks recorded.");
         }
     }
 
-    /**
-     * Processes recorded chunks into a single AudioBuffer.
-     * @param {Float32Array[]} chunks - Array of recorded audio chunks.
-     * @returns {AudioBuffer|null} The combined AudioBuffer or null if error.
-     */
     function processRecording(chunks) {
         console.log("Processing recorded audio...");
         try {
@@ -186,6 +171,14 @@ export function fixMicRecording(audioCtx, onRecordingComplete) {
             return null;
         }
     }
+
+    // EXPORT these functions so main.js can use them
+    return {
+        startRecording,
+        stopRecording,
+        isRecording: () => localIsRecording,
+        isWorkletReady: () => workletReady
+    };
 }
 /**
  * Creates a properly loopable buffer with crossfades baked in.

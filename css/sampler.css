@@ -427,3 +427,66 @@
 .keytrack-button.active .icon {
   filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
 }
+.rec-mode-dropdown {
+    position: absolute;
+    top: calc(100% + 3px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #f2eed3;
+    border: 2.5px solid #35100B;
+    border-radius: 5px;
+    padding: 4px;
+    min-width: 56px;
+    z-index: 1000;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.rec-mode-option {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px;
+    background: #f2eed3;
+    border: 1.5px solid #35100B;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.rec-mode-option:hover {
+    background: #e5e1c9;
+    transform: scale(1.02);
+}
+
+.rec-mode-option.active {
+    background: #6B8F53;
+    border-color: #35100B;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Hide the emoji icons */
+.mode-icon {
+    display: none;
+}
+
+.mode-label {
+    color: #35100B;
+    font-family: "Nunito", sans-serif;
+    font-size: 9px;
+    font-variant-caps: all-small-caps;
+    font-weight: 750;
+    letter-spacing: 0.3px;
+}
+
+.rec-mode-option.active .mode-label {
+    color: #f2eed3;
+}
+
+/* Make sure rec button container is positioned relative */
+.rec-button-container {
+    position: relative;
+}
