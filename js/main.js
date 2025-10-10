@@ -5,13 +5,28 @@ import { initializeModCanvas, getModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
+import FilterManager from './filter-manager.js';
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
 const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
 const VOICE_STEAL_SAFETY_BUFFER = 0.000; // 2ms safety buffer for voice stealing
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 Tone.setContext(audioCtx);
-
+function initializeFilterSystem() {
+  // Create filter manager instance
+  filterManager = new FilterManager(audioCtx);
+  
+  // Configure filter with proper defaults
+  if (filterManager) {
+    filterManager.setDrive(0.0); // Set to 0% (unity gain, no overdrive)
+    filterManager.setCutoff(1.0); // 100% = 20kHz (no filtering)
+    filterManager.setResonance(0.0); // No resonance
+  }
+  
+  console.log("Filter system initialized - LP24 Moog filter active by default");
+  
+  return filterManager;
+}
 // Create separate output gains for sampler and oscillators
 let samplerMasterGain = audioCtx.createGain();
 let oscillatorMasterGain = audioCtx.createGain();
@@ -51,7 +66,17 @@ const workletReadyPromise = initializeMasterClock()
         pendingInitialization = false;
         return false;
     });
-
+workletReadyPromise.then(() => {
+  console.log("AudioWorklets loaded, initializing filter system...");
+  filterManager = initializeFilterSystem();
+  
+  console.log("Initializing oscillator and sampler voice pools...");
+  initializeVoicePool();
+  initializeSamplerVoicePool();
+  
+  pendingInitialization = false;
+  console.log("All systems initialized - synth is ready");
+});
 // Function to set master clock rate based on a MIDI note number
 function setMasterClockRate(clockNumber, noteNumber, detune = 0) {
     if (!masterClockNode) return;
@@ -67,7 +92,136 @@ function setMasterClockRate(clockNumber, noteNumber, detune = 0) {
     }
 }
 
-
+function initializeFilterControls() {
+  // Filter Type Selector - SET TO LP24 BY DEFAULT
+  const filterTypeSelector = document.querySelector('.filter-type-range');
+  if (filterTypeSelector) {
+    filterTypeSelector.value = 1; // Set to LP24 (index 1)
+    filterTypeSelector.addEventListener('input', (e) => {
+      const value = parseInt(e.target.value);
+      let filterType = 'none';
+      
+      // Map slider position to filter type
+      switch (value) {
+        case 0: filterType = 'lp12'; break;
+        case 1: filterType = 'lp24'; break; // Moog filter
+        case 2: filterType = 'phase'; break;
+        case 3: filterType = 'comb'; break;
+        case 4: filterType = 'dist'; break;
+      }
+      
+      if (filterManager) {
+        filterManager.setFilterType(filterType);
+        console.log(`Filter type set to: ${filterType}`);
+      }
+    });
+  }
+  
+  // Frequency Slider - DEFAULT TO 100% (20kHz = no filtering)
+  const freqSlider = document.querySelector('.freq-slider-range');
+  if (freqSlider) {
+    freqSlider.value = 1.0; // Set to max (100%)
+    freqSlider.addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      if (filterManager) {
+        filterManager.setCutoff(value);
+      }
+    });
+    
+    // Initialize the filter with max cutoff
+    if (filterManager) {
+      filterManager.setCutoff(1.0);
+    }
+  }
+  
+  // Resonance Slider - DEFAULT TO 0%
+  const resSlider = document.querySelector('.res-slider-range');
+  if (resSlider) {
+    resSlider.value = 0.0; // Set to 0%
+    resSlider.addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      if (filterManager) {
+        filterManager.setResonance(value);
+      }
+    });
+  }
+  
+  // Drive Slider - DEFAULT TO 0%
+  const driveSlider = document.querySelector('.drive-slider-range');
+if (driveSlider) {
+  driveSlider.value = 0.0; // Set to 0% (unity gain)
+  driveSlider.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+    if (filterManager) {
+      filterManager.setDrive(value);
+    }
+  });
+}
+  
+  // Variant Slider - DEFAULT TO 50% (unity)
+  const variantSlider = document.querySelector('.variant-slider-range');
+  if (variantSlider) {
+    variantSlider.value = 0.5; // Set to 50% (unity)
+    variantSlider.addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      if (filterManager) {
+        filterManager.setVariant(value);
+      }
+    });
+  }
+  
+  // Check if ADSR knob exists, create it if not
+  let adsrKnob = document.getElementById('adsr-knob');
+  if (!adsrKnob) {
+    console.log("Creating missing ADSR knob element");
+    const filterControls = document.querySelector('.filter-bottom-controls');
+    if (filterControls) {
+      const knobContainer = document.createElement('div');
+      knobContainer.className = 'filter-knob-container';
+      
+      adsrKnob = document.createElement('div');
+      adsrKnob.id = 'adsr-knob';
+      adsrKnob.className = 'knob';
+      
+      const label = document.createElement('label');
+      label.htmlFor = 'adsr-knob';
+      label.textContent = 'ADSR';
+      
+      knobContainer.appendChild(adsrKnob);
+      knobContainer.appendChild(label);
+      filterControls.appendChild(knobContainer);
+    }
+  }
+  
+ 
+  
+  // Do the same for keytrack knob
+  let keytrackKnob = document.getElementById('keytrack-knob');
+  if (!keytrackKnob) {
+    console.log("Creating missing keytrack knob element");
+    const filterControls = document.querySelector('.filter-bottom-controls');
+    if (filterControls) {
+      const knobContainer = document.createElement('div');
+      knobContainer.className = 'filter-knob-container';
+      
+      keytrackKnob = document.createElement('div');
+      keytrackKnob.id = 'keytrack-knob';
+      keytrackKnob.className = 'knob';
+      
+      const label = document.createElement('label');
+      label.htmlFor = 'keytrack-knob';
+      label.textContent = 'Key-Track';
+      
+      knobContainer.appendChild(keytrackKnob);
+      knobContainer.appendChild(label);
+      filterControls.appendChild(knobContainer);
+    }
+  }
+  
+  
+  
+  console.log("Filter controls initialized with correct defaults");
+}
 // --- Handle AudioContext Suspension/Resumption ---
 function handleVisibilityChange() {
     if (!audioCtx) return;
@@ -271,6 +425,7 @@ let nodeMonitorInterval = null; // To store the interval ID
 const activeSynthTimers = new Set(); // <<< ADD: Track active setTimeout IDs
 let sampleSource = null;
 let isPlaying = false;
+let filterManager = null;
 let sampleStartPosition = 0; // 0-1 range representing portion of audio file
 let sampleEndPosition = 1;   // 0-1 range (default to full sample)
 let sampleCrossfadeAmount = 0.02; // 0-1 range for crossfade percentage
@@ -312,7 +467,9 @@ const knobDefaults = {
 'osc2-pwm-knob': 0.0, // Default: 50% duty cycle / minimal shape distortion
 'osc2-quantize-knob': 0.0, // <<< ADD: Default quantize amount
 'osc2-fm-knob': 0.0, // <<< ADD: Default FM amount
-// All other knobs default to 0.5
+// ADD FILTER KNOBS
+    'adsr-knob': 0.5, // 50% = unity
+    'keytrack-knob': 0.5, // 50% = unity
 };
 // Try to create SharedArrayBuffer for clock synchronization
 function initializeMasterClock() {
@@ -548,182 +705,271 @@ function refreshFMSources() {
  * @returns {object} The initialized voice object.
  */
 function createVoice(ctx, index) {
-    const voice = {
-        id: `voice_${index}`,
-        index: index,
+  const voice = {
+    id: `voice_${index}`,
+    index: index,
+    noteNumber: null,
+    startTime: 0,
+    state: 'idle',
+    samplerNote: null,
+    osc1Note: null,
+    osc2Note: null,
+    scheduledTimers: [],
+    currentReleaseId: null,
+    wasStolen: false,
+    panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT,
+    warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT,
+    // ADD: Envelope state tracking
+    envelopeState: 'idle', // 'idle', 'attack', 'decay', 'sustain', 'release'
+    envelopeStartTime: 0,
+    attackEndTime: 0,
+    decayEndTime: 0
+  };
+
+  // --- Create Sampler Nodes ---
+  const samplerGainNode = ctx.createGain();
+  const samplerSampleNode = ctx.createGain();
+  const samplerSource = ctx.createBufferSource();
+  const samplerFMTap = ctx.createGain();
+  samplerFMTap.gain.value = 1.0;
+  
+  const samplerPanner = ctx.createStereoPanner();
+  samplerPanner.pan.value = voice.panOffset;
+  
+  samplerSource.connect(samplerSampleNode);
+  samplerSampleNode.connect(samplerFMTap);
+  samplerFMTap.connect(samplerGainNode);
+  samplerGainNode.connect(samplerPanner);
+  
+  // Store sampler note object immediately after creation
+  voice.samplerNote = {
+    id: `sampler_${index}`,
+    type: 'sampler',
+    noteNumber: null,
+    startTime: 0,
+    isPlaying: false,
+    isPaused: false,
+    state: 'idle',
+    source: samplerSource,
+    gainNode: samplerGainNode,
+    sampleNode: samplerSampleNode,
+    fmTap: samplerFMTap,
+    panner: samplerPanner,
+    sampleStart: 0,
+    sampleEnd: 1,
+    loopStart: 0,
+    loopEnd: 1,
+    loopEnabled: false,
+    crossfadeDuration: 0.02,
+    scheduledTimers: [],
+    currentReleaseId: null
+  };
+  
+  // --- Create OSC1 and OSC2 Nodes ---
+  if (isWorkletReady) {
+    // --- OSC1 Setup ---
+    const osc1LevelNode = ctx.createGain();
+    const osc1GainNode = ctx.createGain();
+    const osc1FMDepthGain = ctx.createGain();
+    osc1FMDepthGain.gain.value = 0;
+    osc1LevelNode.gain.value = 0.5;
+    osc1GainNode.gain.value = 0;
+    
+    const osc1Panner = ctx.createStereoPanner();
+    osc1Panner.pan.value = voice.panOffset;
+    
+    try {
+      const osc1WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        processorOptions: {
+          sharedBuffer: masterClockSharedBuffer,
+          voiceIndex: index
+        }
+      });
+      
+      // Connect OSC1 chain immediately
+      osc1WorkletNode.connect(osc1LevelNode);
+      osc1LevelNode.connect(osc1GainNode);
+      osc1GainNode.connect(osc1Panner);
+      
+      // Store OSC1 note object immediately after creation
+      voice.osc1Note = {
+        id: `osc1_${index}`,
+        type: 'osc1',
         noteNumber: null,
         startTime: 0,
+        isPlaying: false,
         state: 'idle',
-        samplerNote: null,
-        osc1Note: null,
-        osc2Note: null,
+        workletNode: osc1WorkletNode,
+        levelNode: osc1LevelNode,
+        gainNode: osc1GainNode,
+        panner: osc1Panner,
+        fmDepthGain: osc1FMDepthGain,
+        frequency: 440,
+        waveform: 1,
+        pulseWidth: 0.5,
+        quantizeEnabled: false,
+        quantizeMode: 'major',
+        fmAmount: 0,
         scheduledTimers: [],
-        currentReleaseId: null,
-        wasStolen: false,
-        // NEW: Add random pan offsets for this voice (set once, stays consistent)
-        panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT, // Random value between -0.08 and +0.08
-        // NEW: Add random initial warble for pitch instability
-        warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT // Random cents between -8 and +8
-    };
-
-    // --- Create Sampler Nodes ---
-    const samplerGainNode = ctx.createGain();
-    const samplerSampleNode = ctx.createGain();
-    const samplerSource = ctx.createBufferSource();
+        currentReleaseId: null
+      };
+      
+      // Try to set parameters, but don't fail if they're not available yet
+      setTimeout(() => {
+        try {
+          const params = osc1WorkletNode.parameters;
+          if (params && params.get('frequency')) {
+            params.get('frequency').value = 440;
+            params.get('frequencyRatio').value = 1.0;
+            params.get('waveform').value = 1;
+            params.get('pulseWidth').value = 0.5;
+            params.get('phaseOffset').value = 0;
+            params.get('gate').value = 0;
+            params.get('warbleAmount').value = 0;
+            params.get('warbleRate').value = 5.0;
+            params.get('chorusAmount').value = 0;
+            params.get('chorusRate').value = 1.0;
+            params.get('fmInput').value = 0;
+          }
+        } catch (e) {
+          // Silently fail - parameters will be set when first used
+          console.log(`OSC1 parameters will be initialized on first note for voice ${index}`);
+        }
+      }, 50);
+      
+    } catch (error) {
+      console.error(`Failed to create OSC1 worklet for voice ${index}:`, error);
+      voice.osc1Note = null;
+    }
     
-    const samplerFMTap = ctx.createGain();
-    samplerFMTap.gain.value = 1.0;
+    // --- OSC2 Setup ---
+    const osc2LevelNode = ctx.createGain();
+    const osc2GainNode = ctx.createGain();
+    const osc2FMDepthGain = ctx.createGain();
+    osc2FMDepthGain.gain.value = 0;
+    osc2LevelNode.gain.value = 0.5;
+    osc2GainNode.gain.value = 0;
     
-    // NEW: Create pan node for sampler with this voice's random offset
-    const samplerPanner = ctx.createStereoPanner();
-    samplerPanner.pan.value = voice.panOffset;
+    const osc2Panner = ctx.createStereoPanner();
+    osc2Panner.pan.value = voice.panOffset;
     
-    // MODIFIED: Connect sampler through panner
-    samplerSource.connect(samplerSampleNode);
-    samplerSampleNode.connect(samplerFMTap);
-    samplerFMTap.connect(samplerGainNode);
-    samplerGainNode.connect(samplerPanner); // Connect to panner
-    samplerPanner.connect(samplerMasterGain); // Panner to master
-    
-    voice.samplerNote = {
-        id: `sampler_${index}`,
-        type: 'sampler',
+    try {
+      const osc2WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        processorOptions: {
+          sharedBuffer: masterClockSharedBuffer,
+          voiceIndex: index + 100
+        }
+      });
+      
+      // Connect OSC2 chain immediately
+      osc2WorkletNode.connect(osc2LevelNode);
+      osc2LevelNode.connect(osc2GainNode);
+      osc2GainNode.connect(osc2Panner);
+      
+      // Store OSC2 note object immediately after creation
+      voice.osc2Note = {
+        id: `osc2_${index}`,
+        type: 'osc2',
         noteNumber: null,
-        source: samplerSource,
-        gainNode: samplerGainNode,
-        sampleNode: samplerSampleNode,
-        fmTap: samplerFMTap,
-        panner: samplerPanner, // NEW: Store panner reference
         startTime: 0,
+        isPlaying: false,
         state: 'idle',
-        scheduledEvents: [],
-        looping: false,
-        usesProcessedBuffer: false,
-        crossfadeActive: false,
-        calculatedLoopStart: 0,
-        calculatedLoopEnd: 0,
-        isBeingUpdated: false,
-        parentVoice: voice
-    };
-
-    // Create OSC1 with panning
-    if (isWorkletReady) {
-        const osc1LevelNode = ctx.createGain();
-        const osc1GainNode = ctx.createGain();
-        const osc1WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
-            numberOfInputs: 1,
-            numberOfOutputs: 1,
-            outputChannelCount: [1],
-            processorOptions: {
-                sharedBuffer: masterClockSharedBuffer,
-                voiceIndex: index
-            }
-        });
-        
-        // Initialize parameters
-        osc1WorkletNode.parameters.get('voiceIndex').setValueAtTime(index, 0);
-        osc1WorkletNode.parameters.get('clockSource').setValueAtTime(0, 0);
-        osc1WorkletNode.parameters.get('gate').setValueAtTime(0, 0);
-        osc1WorkletNode.parameters.get('sawLevel').setValueAtTime(0, 0);
-        osc1WorkletNode.parameters.get('pulseLevel').setValueAtTime(0, 0);
-        osc1WorkletNode.parameters.get('sineLevel').setValueAtTime(0, 0);
-        osc1WorkletNode.parameters.get('triangleLevel').setValueAtTime(0, 0);
-        osc1WorkletNode.parameters.get('pulseWidth').setValueAtTime(0.5, 0);
-        osc1WorkletNode.parameters.get('quantizeAmount').setValueAtTime(osc1QuantizeValue, 0);
-        osc1WorkletNode.parameters.get('fmDepth').setValueAtTime(0, 0);
-        
-        const osc1FMDepthGain = ctx.createGain();
-        osc1FMDepthGain.gain.value = 0;
-        
-        osc1LevelNode.gain.value = 0.5;
-        osc1GainNode.gain.value = 0;
-
-        // NEW: Create pan node for osc1 with this voice's random offset
-        const osc1Panner = ctx.createStereoPanner();
-        osc1Panner.pan.value = voice.panOffset;
-
-        // MODIFIED: Connect oscillator through panner
-        osc1WorkletNode.connect(osc1LevelNode);
-        osc1LevelNode.connect(osc1GainNode);
-        osc1GainNode.connect(osc1Panner); // Connect to panner
-        osc1Panner.connect(oscillatorMasterGain); // Panner to master
-
-        voice.osc1Note = {
-            id: `osc1_${index}`,
-            type: 'osc1',
-            noteNumber: null,
-            workletNode: osc1WorkletNode,
-            levelNode: osc1LevelNode,
-            gainNode: osc1GainNode,
-            fmDepthGain: osc1FMDepthGain,
-            panner: osc1Panner, // NEW: Store panner reference
-            startTime: 0,
-            state: 'idle',
-            scheduledEvents: [],
-            parentVoice: voice
-        };
+        workletNode: osc2WorkletNode,
+        levelNode: osc2LevelNode,
+        gainNode: osc2GainNode,
+        panner: osc2Panner,
+        fmDepthGain: osc2FMDepthGain,
+        frequency: 440,
+        waveform: 1,
+        pulseWidth: 0.5,
+        quantizeEnabled: false,
+        quantizeMode: 'major',
+        fmAmount: 0,
+        scheduledTimers: [],
+        currentReleaseId: null
+      };
+      
+      // Try to set parameters, but don't fail if they're not available yet
+      setTimeout(() => {
+        try {
+          const params = osc2WorkletNode.parameters;
+          if (params && params.get('frequency')) {
+            params.get('frequency').value = 440;
+            params.get('frequencyRatio').value = 1.0;
+            params.get('waveform').value = 1;
+            params.get('pulseWidth').value = 0.5;
+            params.get('phaseOffset').value = 0;
+            params.get('gate').value = 0;
+            params.get('warbleAmount').value = 0;
+            params.get('warbleRate').value = 5.0;
+            params.get('chorusAmount').value = 0;
+            params.get('chorusRate').value = 1.0;
+            params.get('fmInput').value = 0;
+          }
+        } catch (e) {
+          // Silently fail - parameters will be set when first used
+          console.log(`OSC2 parameters will be initialized on first note for voice ${index}`);
+        }
+      }, 50);
+      
+    } catch (error) {
+      console.error(`Failed to create OSC2 worklet for voice ${index}:`, error);
+      voice.osc2Note = null;
     }
-    
-    // Create OSC2 with panning
-    if (isWorkletReady) {
-        const osc2LevelNode = ctx.createGain();
-        const osc2GainNode = ctx.createGain();
-        const osc2WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
-            numberOfInputs: 1,
-            numberOfOutputs: 1,
-            outputChannelCount: [1],
-            processorOptions: {
-                sharedBuffer: masterClockSharedBuffer,
-                voiceIndex: index
-            }
-        });
+  }
+
+  // --- Create Persistent Filter for This Voice ---
+  if (filterManager && voice.osc1Note && voice.osc2Note) {
+    filterManager.createPersistentFilter(`osc-${voice.id}`).then(filterNode => {
+        // CRITICAL: Connect amplitude gain node to filter for real-time tracking
+    filterManager.setAmplitudeGainNode(`osc-${voice.id}`, voice.osc1Note.gainNode);
+
+      if (filterNode) {
+        // Connect both oscillator panners to the filter input
+        if (voice.osc1Note && voice.osc1Note.panner) {
+          voice.osc1Note.panner.connect(filterNode);
+          console.log(`Connected OSC1 panner for voice ${voice.id} to filter`);
+        }
+        if (voice.osc2Note && voice.osc2Note.panner) {
+          voice.osc2Note.panner.connect(filterNode);
+          console.log(`Connected OSC2 panner for voice ${voice.id} to filter`);
+        }
         
-        osc2WorkletNode.parameters.get('voiceIndex').setValueAtTime(index, 0);
-        osc2WorkletNode.parameters.get('clockSource').setValueAtTime(1, 0);
-        osc2WorkletNode.parameters.get('gate').setValueAtTime(0, 0);
-        osc2WorkletNode.parameters.get('sawLevel').setValueAtTime(0, 0);
-        osc2WorkletNode.parameters.get('pulseLevel').setValueAtTime(0, 0);
-        osc2WorkletNode.parameters.get('sineLevel').setValueAtTime(0, 0);
-        osc2WorkletNode.parameters.get('triangleLevel').setValueAtTime(0, 0);
-        osc2WorkletNode.parameters.get('pulseWidth').setValueAtTime(0.5, 0);
-        osc2WorkletNode.parameters.get('quantizeAmount').setValueAtTime(osc2QuantizeValue, 0);
-        osc2WorkletNode.parameters.get('fmDepth').setValueAtTime(0, 0);
+        filterNode.connect(oscillatorMasterGain);
+        voice.filterNode = filterNode;
+        voice.hasFilter = true;
         
-        const osc2FMDepthGain = ctx.createGain();
-        osc2FMDepthGain.gain.value = 0;
-        
-        osc2LevelNode.gain.value = 0.5;
-        osc2GainNode.gain.value = 0;
+        console.log(`Created and connected persistent filter for voice ${voice.id}`);
+      } else {
+        console.warn(`Filter creation failed for voice ${voice.id}, connecting directly`);
+        if (voice.osc1Note && voice.osc1Note.panner) voice.osc1Note.panner.connect(oscillatorMasterGain);
+        if (voice.osc2Note && voice.osc2Note.panner) voice.osc2Note.panner.connect(oscillatorMasterGain);
+        voice.hasFilter = false;
+      }
+    }).catch(err => {
+      console.error(`Failed to create filter for voice ${voice.id}:`, err);
+      if (voice.osc1Note && voice.osc1Note.panner) voice.osc1Note.panner.connect(oscillatorMasterGain);
+      if (voice.osc2Note && voice.osc2Note.panner) voice.osc2Note.panner.connect(oscillatorMasterGain);
+      voice.hasFilter = false;
+    });
+  } else {
+    if (voice.osc1Note && voice.osc1Note.panner) voice.osc1Note.panner.connect(oscillatorMasterGain);
+    if (voice.osc2Note && voice.osc2Note.panner) voice.osc2Note.panner.connect(oscillatorMasterGain);
+    voice.hasFilter = false;
+  }
+  
+  // Connect sampler panner directly to sampler master gain
+  samplerPanner.connect(samplerMasterGain);
 
-        // NEW: Create pan node for osc2 with this voice's random offset
-        const osc2Panner = ctx.createStereoPanner();
-        osc2Panner.pan.value = voice.panOffset;
-
-        // MODIFIED: Connect oscillator through panner
-        osc2WorkletNode.connect(osc2LevelNode);
-        osc2LevelNode.connect(osc2GainNode);
-        osc2GainNode.connect(osc2Panner); // Connect to panner
-        osc2Panner.connect(oscillatorMasterGain); // Panner to master
-
-        voice.osc2Note = {
-            id: `osc2_${index}`,
-            type: 'osc2',
-            noteNumber: null,
-            workletNode: osc2WorkletNode,
-            levelNode: osc2LevelNode,
-            gainNode: osc2GainNode,
-            fmDepthGain: osc2FMDepthGain,
-            panner: osc2Panner, // NEW: Store panner reference
-            startTime: 0,
-            state: 'idle',
-            scheduledEvents: [],
-            parentVoice: voice
-        };
-    }
-
-    console.log(`Created voice ${index} with pan offset: ${(voice.panOffset * 100).toFixed(1)}%, warble offset: ${voice.warbleOffset.toFixed(1)} cents`);
-    return voice;
+  return voice;
 }
+
 // Track timers per voice for proper cleanup
 function trackVoiceTimer(voice, callback, delay) {
     const timerId = setTimeout(() => {
@@ -1512,7 +1758,45 @@ const knobInitializations = {
         masterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
         console.log('Master Volume:', value.toFixed(2));
     },
+    'adsr-knob': (value) => {
+    // Map 0-1 to -1 to +1 (bipolar control)
+    const bipolarValue = (value - 0.5) * 2; // 0.5 = unity (no effect)
     
+    const tooltip = createTooltipForKnob('adsr-knob', value);
+    if (Math.abs(bipolarValue) < 0.02) {
+        tooltip.textContent = `Env: Unity`;
+    } else if (bipolarValue > 0) {
+        tooltip.textContent = `Env: +${Math.round(bipolarValue * 100)}%`;
+    } else {
+        tooltip.textContent = `Env: ${Math.round(bipolarValue * 100)}%`;
+    }
+    tooltip.style.opacity = '1';
+    
+    if (filterManager) {
+        filterManager.setEnvelopeAmount(value);
+    }
+    console.log('Filter Envelope Amount:', bipolarValue.toFixed(2));
+},
+
+'keytrack-knob': (value) => {
+    // Map 0-1 to -1 to +1 (bipolar control)
+    const bipolarValue = (value - 0.5) * 2; // 0.5 = unity (no effect)
+    
+    const tooltip = createTooltipForKnob('keytrack-knob', value);
+    if (Math.abs(bipolarValue) < 0.02) {
+        tooltip.textContent = `Key: Unity`;
+    } else if (bipolarValue > 0) {
+        tooltip.textContent = `Key: +${Math.round(bipolarValue * 100)}%`;
+    } else {
+        tooltip.textContent = `Key: ${Math.round(bipolarValue * 100)}%`;
+    }
+    tooltip.style.opacity = '1';
+    
+    if (filterManager) {
+        filterManager.setKeytrackAmount(value);
+    }
+    console.log('Filter Keytrack Amount:', bipolarValue.toFixed(2));
+},
     'sample-volume-knob': (value) => {
         const tooltip = createTooltipForKnob('sample-volume-knob', value);
         
@@ -1541,11 +1825,26 @@ const knobInitializations = {
 
     // CRITICAL FIX: Update samplerVoicePool, not voicePool
     samplerVoicePool.forEach(voice => {
-        if (voice.state !== 'inactive' && voice.samplerNote && voice.samplerNote.source) {
-            voice.samplerNote.source.detune.cancelScheduledValues(now);
-            voice.samplerNote.source.detune.setValueAtTime(currentSampleDetune, now);
-            console.log(`Real-time pitch update for sampler voice ${voice.id}: ${currentSampleDetune.toFixed(0)} cents`);
+      // FIX: Check if filterNode exists AND has a gain parameter or property
+      if (voice.filterNode) {
+        // First try to access as AudioWorkletNode parameter
+        if (voice.filterNode.parameters && voice.filterNode.parameters.get('gain')) {
+          voice.filterNode.parameters.get('gain').value = 1.0;
+          console.log(`Set sampler filter gain parameter for voice ${voice.id}`);
         }
+        // Otherwise check if it has a direct gain property (for native nodes)
+        else if (voice.filterNode.gain) {
+          voice.filterNode.gain.value = 1.0;
+          console.log(`Set sampler filter gain property for voice ${voice.id}`);
+        }
+      }
+    });
+
+    // Update playback rate for active sampler notes
+    samplerVoicePool.forEach(voice => {
+      if (voice.state === 'playing' && voice.samplerNote && voice.samplerNote.source) {
+        voice.samplerNote.source.detune.setValueAtTime(currentSampleDetune, now);
+      }
     });
 
     // Also update FM modulators that use sampler in the voicePool
@@ -2328,59 +2627,105 @@ let nextSamplerVoiceIndex = 0; // To cycle through sampler voices for allocation
 
 // Function to create a sampler voice
 function createSamplerVoice(ctx, index) {
-    const voice = {
-        id: `sampler_voice_${index}`,
-        index: index,
-        noteNumber: null,
-        startTime: 0,
-        state: 'inactive',
-        samplerNote: null,
-        // NEW: Add random pan and warble offsets
-        panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT,
-        warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT
-    };
+  const voice = {
+    id: `sampler_voice_${index}`,
+    index: index,
+    noteNumber: null,
+    startTime: 0,
+    state: 'inactive',
+    samplerNote: null,
+    panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT,
+    warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT,
+    // ADD: Envelope state tracking for sampler voices too
+    envelopeState: 'idle', // 'idle', 'attack', 'decay', 'sustain', 'release'
+    envelopeStartTime: 0,
+    attackEndTime: 0,
+    decayEndTime: 0
+  };
 
-    const samplerGainNode = ctx.createGain();
-    const samplerSampleNode = ctx.createGain();
-    const samplerSource = ctx.createBufferSource();
-    
-    const samplerFMTap = ctx.createGain();
-    samplerFMTap.gain.value = 1.0;
-    
-    // NEW: Create pan node with random offset
-    const samplerPanner = ctx.createStereoPanner();
-    samplerPanner.pan.value = voice.panOffset;
-    
-    // MODIFIED: Connect through panner
-    samplerSource.connect(samplerSampleNode);
-    samplerSampleNode.connect(samplerFMTap);
-    samplerFMTap.connect(samplerGainNode);
-    samplerGainNode.connect(samplerPanner);
+  const samplerGainNode = ctx.createGain();
+  const samplerSampleNode = ctx.createGain();
+  const samplerSource = ctx.createBufferSource();
+  
+  // FM tap - gets signal BEFORE filter (unfiltered for FM)
+  const samplerFMTap = ctx.createGain();
+  samplerFMTap.gain.value = 1.0;
+  
+  // Create panner
+  const samplerPanner = ctx.createStereoPanner();
+  samplerPanner.pan.value = voice.panOffset;
+  
+  // CRITICAL: Build chain but DON'T connect panner to anything yet
+  // Chain: source → sampleNode → fmTap (splits here for FM) → gainNode → panner → [FILTER or MASTER]
+  samplerSource.connect(samplerSampleNode);
+  samplerSampleNode.connect(samplerFMTap);
+  samplerFMTap.connect(samplerGainNode);
+  samplerGainNode.connect(samplerPanner);
+  
+  // CRITICAL: Don't connect panner anywhere yet - filter creation will do it
+  
+  voice.samplerNote = {
+    id: `sampler_${index}`,
+    type: 'sampler',
+    noteNumber: null,
+    source: samplerSource,
+    gainNode: samplerGainNode,
+    sampleNode: samplerSampleNode,
+    fmTap: samplerFMTap,
+    panner: samplerPanner,
+    startTime: 0,
+    state: 'inactive',
+    scheduledEvents: [],
+    looping: false,
+    usesProcessedBuffer: false,
+    crossfadeActive: false,
+    calculatedLoopStart: 0,
+    calculatedLoopEnd: 0,
+    isBeingUpdated: false,
+    parentVoice: voice,
+  };
+  
+  // CRITICAL FIX: Create filter and ensure ONLY ONE connection path
+  if (filterManager) {
+  filterManager.createPersistentFilter(`sampler-${voice.id}`).then(filterNode => {
+    // CRITICAL: Connect amplitude gain node to filter for real-time tracking
+    filterManager.setAmplitudeGainNode(`sampler-${voice.id}`, samplerGainNode);
+
+      if (filterNode) {
+        // ONLY connection: panner → filter → samplerMasterGain
+        samplerPanner.connect(filterNode);
+        filterNode.connect(samplerMasterGain);
+        
+        voice.filterNode = filterNode;
+        voice.hasFilter = true;
+        voice.samplerNote.hasFilter = true; // Mark the note too
+        
+        console.log(`✓ Sampler voice ${voice.id} ONLY path: panner → filter → samplerMasterGain`);
+      } else {
+        // Fallback: Direct connection ONLY if filter failed
+        samplerPanner.connect(samplerMasterGain);
+        voice.hasFilter = false;
+        voice.samplerNote.hasFilter = false;
+        
+        console.log(`✗ Sampler voice ${voice.id} direct: panner → samplerMasterGain (filter failed)`);
+      }
+    }).catch(err => {
+      console.error(`Failed to create filter for sampler voice ${voice.id}:`, err);
+      // Fallback on error
+      samplerPanner.connect(samplerMasterGain);
+      voice.hasFilter = false;
+      voice.samplerNote.hasFilter = false;
+    });
+  } else {
+    // No filter manager - direct connection
     samplerPanner.connect(samplerMasterGain);
-    
-    voice.samplerNote = {
-        id: `sampler_${index}`,
-        type: 'sampler',
-        noteNumber: null,
-        source: samplerSource,
-        gainNode: samplerGainNode,
-        sampleNode: samplerSampleNode,
-        fmTap: samplerFMTap,
-        panner: samplerPanner, // NEW: Store panner
-        startTime: 0,
-        state: 'inactive',
-        scheduledEvents: [],
-        looping: false,
-        usesProcessedBuffer: false,
-        crossfadeActive: false,
-        calculatedLoopStart: 0,
-        calculatedLoopEnd: 0,
-        isBeingUpdated: false,
-        parentVoice: voice,
-    };
+    voice.hasFilter = false;
+    voice.samplerNote.hasFilter = false;
+    console.log(`No filter manager for sampler voice ${voice.id}`);
+  }
 
-    console.log(`Created sampler voice ${index} with pan: ${(voice.panOffset * 100).toFixed(1)}%, warble: ${voice.warbleOffset.toFixed(1)} cents`);
-    return voice;
+  console.log(`Created sampler voice ${index} with pan: ${(voice.panOffset * 100).toFixed(1)}%, warble: ${voice.warbleOffset.toFixed(1)} cents`);
+  return voice;
 }
 
 // Function to initialize the sampler voice pool
@@ -2425,6 +2770,14 @@ D('attack-value').textContent = parseFloat(D('attack').value).toFixed(3);
 D('decay-value').textContent = parseFloat(D('decay').value).toFixed(2);
 D('sustain-value').textContent = parseFloat(D('sustain').value).toFixed(2);
 D('release-value').textContent = parseFloat(D('release').value).toFixed(3);
+if (filterManager && filterManager.isActive) {
+    filterManager.setADSR(
+      parseFloat(D('attack').value),
+      parseFloat(D('decay').value),
+      parseFloat(D('sustain').value),
+      parseFloat(D('release').value)
+    );
+  }
 
 updateADSRVisualization();
 }
@@ -2543,6 +2896,8 @@ D('release').addEventListener('input', updateSliderValues);
 // Initialize switches on DOM load
 document.addEventListener('DOMContentLoaded', () => {
 //nitializeSwitches();
+// Add this:
+
 });
 
 
@@ -2741,7 +3096,25 @@ function cleanupAllNotes() {
     // Clear held notes
     heldNotes = [];
     lastPlayedNoteNumber = null;
+    // Clean up all filters
+if (filterManager) {
+    voicePool.forEach(voice => {
+        if (filterManager && voice.hasFilter) {
+        filterManager.noteOff(`osc-${voice.id}`);
+        console.log(`Released filter envelope for voice ${voice.id} during cleanup`);
+      }
+    });
+
     
+    samplerVoicePool.forEach(samplerVoice => {
+    if (filterManager && samplerVoice.hasFilter) {  // FIXED: Changed 'voice' to 'samplerVoice'
+        filterManager.noteOff(`sampler-${samplerVoice.id}`);  // FIXED: Changed 'voice' to 'samplerVoice'
+        console.log(`Released filter envelope for sampler voice ${samplerVoice.id} during cleanup`);  // FIXED: Changed 'voice' to 'samplerVoice'
+    }
+});
+    
+    console.log("All filters cleaned up");
+}
     // Reset UI
     resetKeyStates();
     updateVoiceDisplay_Pool();
@@ -3910,7 +4283,15 @@ function noteOn(noteNumber) {
     
     // Store old note for glide
     const oldNoteNumber = voice.noteNumber;
-    
+
+// Store previous envelope state for sophisticated retriggering
+const previousEnvelopeState = voice.envelopeState;
+const wasInAttack = previousEnvelopeState === 'attack';
+const wasInDecay = previousEnvelopeState === 'decay';
+const wasInSustain = previousEnvelopeState === 'sustain';
+const wasInRelease = previousEnvelopeState === 'release';
+const wasReleasing = voice.state === 'releasing' || previousEnvelopeState === 'release';
+setMasterClockRate(1, noteNumber, osc1Detune);
     // Update voice state
     voice.noteNumber = noteNumber;
     voice.startTime = now;
@@ -4102,55 +4483,242 @@ if (isSampleLoopOn) {
         samplerNote.sampleNode.gain.cancelScheduledValues(now);
         samplerNote.sampleNode.gain.setValueAtTime(currentSampleGain, now);
         
-        samplerNote.gainNode.gain.cancelScheduledValues(now);
-        
-        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
-        if (legatoTransition && samplerNote.state === 'playing') {
-            // For legato, don't reset envelope - just keep current gain values
-            console.log(`Legato: Keeping current sampler envelope for note ${noteNumber}`);
-            
-            // No envelope changes - just maintain current state
-            // We don't cancel or set new values to the gain nodes
-        } 
-        else if (wasSamplerStolen || samplerVoice.state !== 'inactive') {
-    // Get current gain value before any modifications
-            const currentGain = samplerNote.gainNode.gain.value || 0;
-            
-            // Always start from the current gain with no dip
-            samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
-            
-            // For releasing notes, use a slightly more gradual transition to avoid discontinuity
-            if (samplerNote.state === 'releasing') {
-                // More gradual transition for notes that were releasing
-                const transitionTime = Math.min(0.05, attack * 0.5); // Smaller of 50ms or half the attack time
-                
-                // First smoothly move to a small intermediate value
-                const intermediateGain = Math.max(0.05, currentGain * 0.7); // Don't go below 5%
-                samplerNote.gainNode.gain.linearRampToValueAtTime(intermediateGain, now + transitionTime);
-                
-                // Then perform the attack phase from this intermediate point
-                samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + transitionTime + attack);
-                samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + transitionTime + attack + decay);
-            } else {
-                // For active notes or other states, just apply the envelope directly
-                samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-                samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-            }
-        } else {
-            // Fresh note with standard envelope
-            const fadeInTime = 0.005;
-            samplerNote.gainNode.gain.setValueAtTime(0, now);
-            samplerNote.gainNode.gain.linearRampToValueAtTime(0.01, now + fadeInTime);
-            samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeInTime + attack);
-            samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeInTime + attack + decay);
-        }
+        // SOPHISTICATED SAMPLER ENVELOPE
+samplerNote.gainNode.gain.cancelScheduledValues(now);
 
-    // Connect to master gain if not already connected
-    if (!samplerNote.gainNode.isConnectedToMaster) {
-    samplerNote.gainNode.connect(samplerMasterGain); // FIX: Connect to samplerMasterGain instead
-    samplerNote.gainNode.isConnectedToMaster = true;
-}
+if (legatoTransition && samplerNote.state === 'playing') {
+    // LEGATO MODE: Continue from current position or reset to sustain
+    // CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
+    samplerNote.gainNode.gain.cancelScheduledValues(now);
+    const currentGain = samplerNote.gainNode.gain.value;
     
+    if (wasInAttack || wasInDecay) {
+        // Continue from current gain if in attack or decay
+        samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+        
+        if (wasInAttack) {
+            // Continue attack to completion, then decay
+            const remainingAttackTime = attack * (1.0 - currentGain);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+            
+            voice.envelopeState = 'attack';
+            voice.attackEndTime = now + remainingAttackTime;
+            voice.decayEndTime = now + remainingAttackTime + decay;
+            
+            console.log(`Legato sampler: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining`);
+        } else {
+            // Continue from decay - don't restart attack, just continue decay
+            const decayProgress = (1.0 - currentGain) / (1.0 - sustain);
+            const remainingDecayTime = decay * (1.0 - decayProgress);
+            samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingDecayTime);
+            
+            voice.envelopeState = 'decay';
+            voice.decayEndTime = now + remainingDecayTime;
+            
+            console.log(`Legato sampler: Continuing decay from ${currentGain.toFixed(3)}, ${remainingDecayTime.toFixed(3)}s remaining`);
+        }
+    } else {
+        // Reset to sustain if in sustain or release
+        samplerNote.gainNode.gain.setValueAtTime(sustain, now);
+        voice.envelopeState = 'sustain';
+        console.log(`Legato sampler: Reset to sustain ${sustain.toFixed(3)}`);
+    }
+
+} else if (!isMonoMode && wasSamplerStolen) {
+    // MULTI MODE: Sophisticated envelope behavior
+    samplerNote.gainNode.gain.cancelScheduledValues(now);
+    const currentGain = samplerNote.gainNode.gain.value;
+    
+    // CRITICAL FIX: Check if we're stealing from a RELEASING voice
+    const stealingFromRelease = voice.state === 'releasing' || previousEnvelopeState === 'release';
+    
+    if (stealingFromRelease) {
+        // Always start fresh from 0 when stealing from release
+        samplerNote.gainNode.gain.setValueAtTime(0, now);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        
+        voice.envelopeState = 'attack';
+        voice.envelopeStartTime = now;
+        voice.attackEndTime = now + attack;
+        voice.decayEndTime = now + attack + decay;
+        
+        samplerVoice.envelopeState = 'attack';
+        samplerVoice.envelopeStartTime = now;
+        samplerVoice.attackEndTime = now + attack;
+        samplerVoice.decayEndTime = now + attack + decay;
+        
+        console.log(`Multi sampler: Fresh attack from 0 (stolen from release)`);
+    } else if (wasInAttack) {
+        const remainingAttackTime = attack * (1.0 - currentGain);
+        samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+        
+        // CRITICAL FIX: Update BOTH voice objects
+        voice.envelopeState = 'attack';
+        voice.envelopeStartTime = now;
+        voice.attackEndTime = now + remainingAttackTime;
+        voice.decayEndTime = now + remainingAttackTime + decay;
+        
+        // ADD: Also update the sampler voice
+        samplerVoice.envelopeState = 'attack';
+        samplerVoice.envelopeStartTime = now;
+        samplerVoice.attackEndTime = now + remainingAttackTime;
+        samplerVoice.decayEndTime = now + remainingAttackTime + decay;
+        
+        console.log(`Multi sampler: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining`);
+    } else if (wasInDecay) {
+        const currentGain = samplerNote.gainNode.gain.value;
+        samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        
+        voice.envelopeState = 'attack';
+        voice.envelopeStartTime = now;
+        voice.attackEndTime = now + attack;
+        voice.decayEndTime = now + attack + decay;
+        
+        // ADD: Also update the sampler voice
+        samplerVoice.envelopeState = 'attack';
+        samplerVoice.envelopeStartTime = now;
+        samplerVoice.attackEndTime = now + attack;
+        samplerVoice.decayEndTime = now + attack + decay;
+        
+        console.log(`Multi sampler: Reset from decay (gain ${currentGain.toFixed(3)}) to attack`);
+    } else if (wasInSustain) {
+        samplerNote.gainNode.gain.setValueAtTime(sustain, now);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        
+        voice.envelopeState = 'attack';
+        voice.envelopeStartTime = now;
+        voice.attackEndTime = now + attack;
+        voice.decayEndTime = now + attack + decay;
+        
+        // ADD: Also update the sampler voice
+        samplerVoice.envelopeState = 'attack';
+        samplerVoice.envelopeStartTime = now;
+        samplerVoice.attackEndTime = now + attack;
+        samplerVoice.decayEndTime = now + attack + decay;
+        
+        console.log(`Multi sampler: From sustain ${sustain.toFixed(3)}, new envelope`);
+    } else {
+        const currentGain = samplerNote.gainNode.gain.value || 0;
+        samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        
+        voice.envelopeState = 'attack';
+        voice.envelopeStartTime = now;
+        voice.attackEndTime = now + attack;
+        voice.decayEndTime = now + attack + decay;
+        
+        // ADD: Also update the sampler voice
+        samplerVoice.envelopeState = 'attack';
+        samplerVoice.envelopeStartTime = now;
+        samplerVoice.attackEndTime = now + attack;
+        samplerVoice.decayEndTime = now + attack + decay;
+    }
+} else {
+    // Fresh note - standard envelope
+    const currentGain = samplerNote.gainNode.gain.value || 0;
+    samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+    samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+    samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    
+    voice.envelopeState = 'attack';
+    voice.envelopeStartTime = now;
+    voice.attackEndTime = now + attack;
+    voice.decayEndTime = now + attack + decay;
+    
+    // ADD: Also update the sampler voice
+    samplerVoice.envelopeState = 'attack';
+    samplerVoice.envelopeStartTime = now;
+    samplerVoice.attackEndTime = now + attack;
+    samplerVoice.decayEndTime = now + attack + decay;
+}
+
+// Schedule envelope state updates for BOTH voices
+trackVoiceTimer(voice, () => {
+    if (voice.envelopeState === 'attack') {
+        voice.envelopeState = 'decay';
+        samplerVoice.envelopeState = 'decay'; // ADD: Keep sampler voice in sync
+        console.log(`Voice ${voice.id} entered decay state`);
+    }
+}, attack * 1000);
+
+trackVoiceTimer(voice, () => {
+    if (voice.envelopeState === 'decay') {
+        voice.envelopeState = 'sustain';
+        samplerVoice.envelopeState = 'sustain'; // ADD: Keep sampler voice in sync
+        console.log(`Voice ${voice.id} entered sustain state`);
+    }
+}, (attack + decay) * 1000);
+
+samplerNote.state = 'playing';
+        // --- FILTER TRIGGER (simplified) ---
+if (filterManager) {
+  const voiceId = `osc-${voice.id}`;
+  
+  if (legatoTransition) {
+    filterManager.noteOn(voiceId, noteNumber, 1.0);
+    console.log(`Filter continues tracking amplitude for voice ${voice.id} (legato)`);
+  } else if (!isMonoMode && wasActive) {
+    // CRITICAL FIX: This is MULTI MODE with voice stealing
+    // ALWAYS reset filter to 0 on voice steal in multi mode
+    const filterData = filterManager.voiceFilters.get(voiceId);
+    if (filterData && filterData.filterNode) {
+      const envAmountParam = filterData.filterNode.parameters.get('envelopeAmount');
+      if (envAmountParam) {
+        envAmountParam.setValueAtTime(0, now);
+      }
+      filterData.filterNode.reset();
+    }
+    filterManager.noteOn(voiceId, noteNumber, 1.0);
+    console.log(`Filter forced to 0 then reset for voice ${voice.id} (MULTI MODE STEAL)`);
+  } else if (isMonoMode) {
+    // MONO MODE: Continue tracking amplitude (no reset)
+    filterManager.noteOn(voiceId, noteNumber, 1.0);
+    console.log(`Filter continues tracking amplitude for voice ${voice.id} (mono)`);
+  } else {
+    // Fresh note in either mode
+    filterManager.noteOn(voiceId, noteNumber, 1.0);
+    console.log(`Filter tracking new attack for voice ${voice.id} (fresh note)`);
+  }
+}
+
+// Around line 4660 - Fix Sampler filter trigger
+if (samplerVoice && filterManager) {
+  const samplerVoiceId = `sampler-${samplerVoice.id}`;
+  
+  if (legatoTransition) {
+    filterManager.noteOn(samplerVoiceId, noteNumber, 1.0);
+    console.log(`Filter continues tracking amplitude for sampler ${samplerVoice.id} (legato)`);
+  } else if (!isMonoMode && wasSamplerStolen) {
+    // CRITICAL FIX: MULTI MODE with voice stealing - ALWAYS reset
+    const filterData = filterManager.voiceFilters.get(samplerVoiceId);
+    if (filterData && filterData.filterNode) {
+      const envAmountParam = filterData.filterNode.parameters.get('envelopeAmount');
+      if (envAmountParam) {
+        envAmountParam.setValueAtTime(0, now);
+      }
+      filterData.filterNode.reset();
+    }
+    filterManager.noteOn(samplerVoiceId, noteNumber, 1.0);
+    console.log(`Filter forced to 0 then reset for sampler ${samplerVoice.id} (MULTI MODE STEAL)`);
+  } else if (isMonoMode) {
+    // MONO MODE: Continue tracking amplitude (no reset)
+    filterManager.noteOn(samplerVoiceId, noteNumber, 1.0);
+    console.log(`Filter continues tracking amplitude for sampler ${samplerVoice.id} (mono)`);
+  } else {
+    // Fresh note in either mode
+    filterManager.noteOn(samplerVoiceId, noteNumber, 1.0);
+    console.log(`Filter tracking new attack for sampler ${samplerVoice.id} (fresh note)`);
+  }
+}
+    console.log(`Sampler note ${samplerNote.id} using existing audio path (filter=${samplerVoice.hasFilter})`);
     // Update note status
     samplerNote.state = 'playing';
     samplerNote.noteNumber = noteNumber;
@@ -4224,34 +4792,87 @@ if (isSampleLoopOn) {
     // Ensure gate is open
         osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
         
-        // CONTINUOUS ENVELOPE TRANSITION
-        // Get the current gain without any cancellation first
-        const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
-        osc1.gainNode.gain.cancelScheduledValues(now);
+        // SOPHISTICATED OSC1 ENVELOPE
+// SOPHISTICATED OSC1 ENVELOPE
+// CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
+osc1.gainNode.gain.cancelScheduledValues(now);
+const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
+
+if (legatoTransition && osc1.state === 'playing') {
+    // LEGATO MODE
+    if (wasInAttack || wasInDecay) {
+        osc1.gainNode.gain.setValueAtTime(currentGain, now);
         
-        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
-        if (legatoTransition && osc1.state === 'playing') {
-            // For legato, preserve the current envelope state
-            console.log(`Legato: Keeping current osc1 envelope for note ${noteNumber}`);
-            // Just set current gain value to maintain envelope position
-            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        if (wasInAttack) {
+            // Continue attack
+            const remainingAttackTime = attack * (1.0 - currentGain);
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+            console.log(`Legato osc1: Continuing attack from ${currentGain.toFixed(3)}`);
         } else {
-            // Non-legato: Always start from current gain, no dips
-            osc1.gainNode.gain.setValueAtTime(currentGain, now);
-            
-            // Apply new envelope directly from current point
-            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+            // Continue decay
+            const decayProgress = (1.0 - currentGain) / (1.0 - sustain);
+            const remainingDecayTime = decay * (1.0 - decayProgress);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingDecayTime);
+            console.log(`Legato osc1: Continuing decay from ${currentGain.toFixed(3)}`);
         }
+    } else {
+        osc1.gainNode.gain.setValueAtTime(sustain, now);
+        console.log(`Legato osc1: Reset to sustain ${sustain.toFixed(3)}`);
+    }
+} else if (!isMonoMode && wasActive) {
+    // MULTI MODE
+    // CRITICAL FIX: Check if we're stealing from a RELEASING voice
+    const stealingFromRelease = voice.state === 'releasing' || previousEnvelopeState === 'release';
+    
+    if (stealingFromRelease) {
+        osc1.gainNode.gain.setValueAtTime(0, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
         
-        osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
+        console.log(`Multi osc1: Fresh attack from 0 (stolen from release)`);
+    } else if (wasInAttack) {
+        // CRITICAL FIX: Calculate remaining attack time
+        const remainingAttackTime = attack * (1.0 - currentGain);
+        
+        osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+        
+        console.log(`Multi osc1: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining`);
+    } else if (wasInDecay) {
+        // Start from current gain
+        osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        console.log(`Multi osc1: Reset from decay (gain ${currentGain.toFixed(3)}) to attack`);
+    } else if (wasInSustain) {
+        osc1.gainNode.gain.setValueAtTime(sustain, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        console.log(`Multi osc1: From sustain, new envelope`);
+    } else {
+        osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    }
+} else {
+    // Fresh note
+    osc1.gainNode.gain.setValueAtTime(currentGain, now);
+    osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+    osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+}
+
+osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
         osc1.state = 'playing';
         osc1.noteNumber = noteNumber;
     }
 
     // CONTINUOUS OSCILLATOR ENVELOPE - OSC2
-    if (voice.osc2Note && voice.osc2Note.workletNode) {
+if (voice.osc2Note && voice.osc2Note.workletNode) {
     const osc2 = voice.osc2Note;
+    
+    console.log(`Setting up OSC2 for voice ${voice.id}, note ${noteNumber}`);
     
     // CRITICAL FIX: Add +1 octave offset to OSC2 to make it permanently one octave higher
     const adjustedOsc2Offset = osc2OctaveOffset + 1;
@@ -4259,6 +4880,8 @@ if (isSampleLoopOn) {
     // Calculate frequencies with the adjusted offset
     const oldFrequency = glideSourceNote ? noteToFrequency(glideSourceNote, adjustedOsc2Offset, osc2Detune) : 0;
     const newFrequency = noteToFrequency(noteNumber, adjustedOsc2Offset, osc2Detune);
+
+    console.log(`OSC2 target frequency: ${newFrequency.toFixed(2)} Hz`);
 
     // Handle frequency changes
     if (glideSourceNote !== null && effectiveGlideTime > 0.001) {
@@ -4279,45 +4902,89 @@ if (isSampleLoopOn) {
     // Don't apply frequencyRatio - octave offset is already in the frequency
     osc2.workletNode.parameters.get('frequencyRatio').setValueAtTime(1.0, now);
     applyPitchWarble(voice, now);
+    
     // Get waveform from selector
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
     const osc2WaveSelector = D('osc2-wave-selector');
     const selectedWaveform = waveformMap[osc2WaveSelector ? parseInt(osc2WaveSelector.value) : 1];
     
-    // FIXED: Apply waveform with proper PWM - if PWM knob is 0, use waveform default
+    console.log(`OSC2 waveform: ${selectedWaveform}`);
+    
+    // Apply waveform with proper PWM
     const pulseWidth = (osc2PWMValue === 0) ? 
         getJunoWaveformParams(selectedWaveform).pulseWidth : 
         (osc2PWMValue * 0.95);
     setJunoWaveform(osc2.workletNode, selectedWaveform, pulseWidth);
     
     // Ensure gate is open
-        osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);
-        
-        // CONTINUOUS ENVELOPE TRANSITION
-        // Get the current gain without any cancellation first
-        const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
-        osc2.gainNode.gain.cancelScheduledValues(now);
-        
-        // LEGATO BEHAVIOR: Skip envelope retrigger if in legato transition
-        if (legatoTransition && osc2.state === 'playing') {
-            // For legato, preserve the current envelope state
-            console.log(`Legato: Keeping current osc2 envelope for note ${noteNumber}`);
-            // Just set current gain value to maintain envelope position
-            osc2.gainNode.gain.setValueAtTime(currentGain, now);
-        } else {
-            // Non-legato: Always start from current gain, no dips
-            osc2.gainNode.gain.setValueAtTime(currentGain, now);
-            
-            // Apply new envelope directly from current point
-            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-        }
-        
-        osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
-        osc2.state = 'playing';
-        osc2.noteNumber = noteNumber;
-    }
+    osc2.workletNode.parameters.get('gate').setValueAtTime(1, now);
+    console.log(`OSC2 gate opened for voice ${voice.id}`);
     
+// SOPHISTICATED OSC2 ENVELOPE
+// CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
+osc2.gainNode.gain.cancelScheduledValues(now);
+const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
+
+if (legatoTransition && osc2.state === 'playing') {
+    if (wasInAttack || wasInDecay) {
+        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        
+        if (wasInAttack) {
+            const remainingAttackTime = attack * (1.0 - currentGain);
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+        } else {
+            const decayProgress = (1.0 - currentGain) / (1.0 - sustain);
+            const remainingDecayTime = decay * (1.0 - decayProgress);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingDecayTime);
+        }
+    } else {
+        osc2.gainNode.gain.setValueAtTime(sustain, now);
+    }
+} else if (!isMonoMode && wasActive) {
+    // CRITICAL FIX: Check if we're stealing from a RELEASING voice
+    const stealingFromRelease = voice.state === 'releasing' || previousEnvelopeState === 'release';
+    
+    if (stealingFromRelease) {
+        osc2.gainNode.gain.setValueAtTime(0, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    } else if (wasInAttack) {
+        const remainingAttackTime = attack * (1.0 - currentGain);
+        
+        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+    } else if (wasInDecay) {
+        // Start from current gain
+        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    } else if (wasInSustain) {
+        osc2.gainNode.gain.setValueAtTime(sustain, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    } else {
+        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    }
+} else {
+    osc2.gainNode.gain.setValueAtTime(currentGain, now);
+    osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+    osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+}
+
+osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
+    console.log(`OSC2 level set to ${osc2GainValue} for voice ${voice.id}`);
+    
+    osc2.state = 'playing';
+    osc2.noteNumber = noteNumber;
+}
+    if (filterManager && filterManager.isActive) {
+    filterManager.noteOn(noteNumber, 1.0); // Pass note number and default velocity
+  }
+  
 // Update FM for ALL oscillators regardless of FM amount
 const nowFM = audioCtx.currentTime + 0.01;
 
@@ -4457,7 +5124,23 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
                 }
             }, release * 1000 + 40);
         }
+        // --- FILTER CLEANUP ---
+// // Clean up filters when voices are released
+// if (filterManager) {
+//   for (const voice of voicesToRelease) {
+//     const voiceId = `osc-${voice.id}`;
+//     filterManager.noteOff(voiceId);
+//     console.log(`Released filter envelope for osc voice ${voice.id}`);
+//   }
+// }
 
+// if (filterManager && samplerVoicesToRelease && samplerVoicesToRelease.length > 0) {
+//   samplerVoicesToRelease.forEach(samplerVoice => {
+//     const samplerVoiceId = `sampler-${samplerVoice.id}`;
+//     filterManager.noteOff(samplerVoiceId);
+//     console.log(`Released filter envelope for sampler voice ${samplerVoice.id}`);
+//   });
+// }
         // Clean up voice assignment after release
         trackVoiceTimer(voice, () => {
             // Only cleanup if this is still the active release for this voice
@@ -4732,7 +5415,25 @@ updateVoiceDisplay_Pool();
 updateADSRVisualization();
 // Initialize Keyboard Module
 initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool);
-
+initializeFilterControls();
+// Set filter defaults
+  if (filterManager) {
+    // Set default filter values
+    filterManager.setCutoff(1.0); // 100% = 20kHz
+    filterManager.setResonance(0.0); // 0% resonance
+    filterManager.setVariant(0.5); // 50% bass compensation (neutral)
+    filterManager.setDrive(0.0); // No drive
+    filterManager.setEnvelopeAmount(0.5); // Center position (no envelope)
+    filterManager.setKeytrackAmount(0.5); // Center position (no keytracking)
+    
+    // Set filter ADSR to match main ADSR
+    filterManager.setADSR(
+      parseFloat(D('attack').value),
+      parseFloat(D('decay').value),
+      parseFloat(D('sustain').value),
+      parseFloat(D('release').value)
+    );
+  }
 // Initialize controls
 fixAllKnobs(knobInitializations, knobDefaults); // <-- Add this line, passing dependencies
 // CRITICAL FIX: Initialize FM sources AFTER knobs are set up
