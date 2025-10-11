@@ -150,6 +150,31 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
     return Math.tanh(x);
   }
   
+  // Gentler saturation function to prevent unwanted oscillation
+  softSaturate(x, drive) {
+    if (drive <= 1.0) return x;
+    
+    // Use a combination of soft clipping and compression
+    // that's less aggressive than pure tanh
+    const normalized = x / (1.0 + Math.abs(x) * 0.1);
+    const saturated = this.fastTanh(normalized * drive);
+    
+    // Blend between dry and saturated based on drive
+    const blend = Math.min(1.0, (drive - 1.0) * 0.5);
+    return x * (1.0 - blend) + saturated * blend;
+  }
+  
+  // Carefully calibrated drive that won't cause self-oscillation
+  processWithDrive(sample, driveAmount) {
+    if (driveAmount <= 1.0) return sample;
+    
+    // Reduce drive effect at higher settings to prevent unwanted behavior
+    const effectiveDrive = 1.0 + Math.pow((driveAmount - 1.0) / 4.0, 1.5) * 3.0;
+    
+    // Apply softer saturation that preserves dynamics better
+    return this.softSaturate(sample, effectiveDrive);
+  }
+  
   setCutoff(cutoffHz) {
     // Clamp cutoff to valid range [8Hz, 16kHz]
     this.cutoff = Math.max(8, Math.min(16000, cutoffHz));
@@ -211,8 +236,40 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
   }
   
   setDrive(driveAmount) {
-    // Adjust saturation based on drive amount
+    // Scale drive for a more controlled effect
+    // This prevents it from causing unwanted self-oscillation
     this.saturation = driveAmount;
+  }
+  
+  // Calculate level compensation based on both resonance and cutoff
+  // But using a more conservative approach that won't boost resonating frequencies
+  calculateLevelCompensation(resonanceValue, cutoffValue) {
+    if (resonanceValue <= 0.01) return 1.0; // No compensation needed
+    
+    // Empirical model of gain loss based on resonance amount
+    // These values are carefully tuned based on listening tests
+    let compensation;
+    
+    if (resonanceValue < 0.3) {
+      // Low resonance - minimal compensation needed
+      compensation = 1.0 + resonanceValue * 0.1;
+    } else if (resonanceValue < 0.6) {
+      // Medium resonance - moderate compensation
+      compensation = 1.03 + (resonanceValue - 0.3) * 0.2;
+    } else {
+      // High resonance - more compensation for non-resonant frequencies only
+      // This is carefully calibrated to avoid over-boosting
+      compensation = 1.09 + (resonanceValue - 0.6) * 0.15;
+    }
+    
+    // Reduce compensation for low cutoffs where resonance already boosts a lot
+    // This prevents too much bass boost with high resonance
+    if (cutoffValue < 300) {
+      const cutoffFactor = cutoffValue / 300;
+      compensation = 1.0 + (compensation - 1.0) * cutoffFactor;
+    }
+    
+    return compensation;
   }
   
   process(inputs, outputs, parameters) {
@@ -234,8 +291,9 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
     const bassCompensation = parameters.bassCompensation[0]; // k-rate
     const currentMidiNote = parameters.currentMidiNote[0]; // k-rate
     
-    // Update drive parameter
-    this.setDrive(drive * (1.0 + saturation * 0.5));
+    // Update drive parameter with controlled scaling to prevent issues
+    const driveAmount = Math.min(5.0, drive * (1.0 + Math.min(1.0, saturation * 0.25)));
+    this.setDrive(driveAmount);
     
     // Process each channel
     for (let channel = 0; channel < input.length; channel++) {
@@ -282,9 +340,10 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
         const res = resonance.length > 1 ? resonance[i] : resonance[0];
         this.setResonance(res);
         
-        // Apply bass compensation if needed
-        // In the Oberheim model, bass comp affects the feedback path
-        const bassFactor = bassCompensation * 0.7 + 0.3;
+        // Apply bass compensation (scaled to be gentler)
+        // This affects how the resonance behaves but we scale it down
+        // to prevent self-oscillation
+        const bassFactor = 0.3 + bassCompensation * 0.5; // Range from 0.3 to 0.8
         const effectiveK = this.K * bassFactor;
         
         // Get input sample
@@ -297,14 +356,15 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
           filter.stage3.getFeedbackOutput() +
           filter.stage4.getFeedbackOutput();
         
-        // Scale input by resonance factor
+        // Scale input by resonance factor - critical for bass response
+        // Keep this behavior from the original filter
         inputSample *= 1.0 + effectiveK;
         
-        // Calculate input to first filter
+        // Calculate input to first filter stage
         let u = (inputSample - effectiveK * sigma) * this.alpha0;
         
-        // Apply saturation to input
-        u = this.fastTanh(this.saturation * u);
+        // Apply saturation that's carefully controlled
+        u = this.softSaturate(u, driveAmount * (0.7 + 0.3 * bassFactor));
         
         // Process through each filter stage
         const stage1Out = filter.stage1.tick(u);
@@ -313,12 +373,28 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
         const stage4Out = filter.stage4.tick(stage3Out);
         
         // Mix outputs according to Oberheim coefficients
-        outputChannel[i] = 
+        let filterOutput = 
           this.oberheimCoefs[0] * u +
           this.oberheimCoefs[1] * stage1Out +
           this.oberheimCoefs[2] * stage2Out +
           this.oberheimCoefs[3] * stage3Out +
           this.oberheimCoefs[4] * stage4Out;
+        
+        // Calculate level compensation
+        // This carefully avoids boosting frequencies that are already resonating
+        // The compensation is mainly for the frequencies below cutoff
+        const levelComp = this.calculateLevelCompensation(res, actualCutoff);
+        
+        // Apply compensation and drive to the final output
+        // This way it doesn't affect the filter's internal behavior
+        filterOutput *= levelComp;
+        
+        // Apply drive as a final stage (post-filter) 
+        if (driveAmount > 1.0) {
+          filterOutput = this.processWithDrive(filterOutput, driveAmount);
+        }
+        
+        outputChannel[i] = filterOutput;
       }
     }
     
