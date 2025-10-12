@@ -4658,26 +4658,18 @@ trackVoiceTimer(voice, () => {
 }, (attack + decay) * 1000);
 
 samplerNote.state = 'playing';
-        // --- FILTER TRIGGER (simplified) ---
+// --- FILTER TRIGGER (simplified) ---
 if (filterManager) {
   const voiceId = `osc-${voice.id}`;
   
+  // Simplified logic - NEVER reset filter to 0
   if (legatoTransition) {
     filterManager.noteOn(voiceId, noteNumber, 1.0);
     console.log(`Filter continues tracking amplitude for voice ${voice.id} (legato)`);
   } else if (!isMonoMode && wasActive) {
-    // CRITICAL FIX: This is MULTI MODE with voice stealing
-    // ALWAYS reset filter to 0 on voice steal in multi mode
-    const filterData = filterManager.voiceFilters.get(voiceId);
-    if (filterData && filterData.filterNode) {
-      const envAmountParam = filterData.filterNode.parameters.get('envelopeAmount');
-      if (envAmountParam) {
-        envAmountParam.setValueAtTime(0, now);
-      }
-      filterData.filterNode.reset();
-    }
+    // MULTI MODE with voice stealing - NO RESET
     filterManager.noteOn(voiceId, noteNumber, 1.0);
-    console.log(`Filter forced to 0 then reset for voice ${voice.id} (MULTI MODE STEAL)`);
+    console.log(`Filter continues tracking amplitude for voice ${voice.id} (voice steal)`);
   } else if (isMonoMode) {
     // MONO MODE: Continue tracking amplitude (no reset)
     filterManager.noteOn(voiceId, noteNumber, 1.0);
@@ -4693,21 +4685,14 @@ if (filterManager) {
 if (samplerVoice && filterManager) {
   const samplerVoiceId = `sampler-${samplerVoice.id}`;
   
+  // Simplified logic - NEVER reset filter to 0
   if (legatoTransition) {
     filterManager.noteOn(samplerVoiceId, noteNumber, 1.0);
     console.log(`Filter continues tracking amplitude for sampler ${samplerVoice.id} (legato)`);
   } else if (!isMonoMode && wasSamplerStolen) {
-    // CRITICAL FIX: MULTI MODE with voice stealing - ALWAYS reset
-    const filterData = filterManager.voiceFilters.get(samplerVoiceId);
-    if (filterData && filterData.filterNode) {
-      const envAmountParam = filterData.filterNode.parameters.get('envelopeAmount');
-      if (envAmountParam) {
-        envAmountParam.setValueAtTime(0, now);
-      }
-      filterData.filterNode.reset();
-    }
+    // MULTI MODE with voice stealing - NO RESET
     filterManager.noteOn(samplerVoiceId, noteNumber, 1.0);
-    console.log(`Filter forced to 0 then reset for sampler ${samplerVoice.id} (MULTI MODE STEAL)`);
+    console.log(`Filter continues tracking amplitude for sampler ${samplerVoice.id} (voice steal)`);
   } else if (isMonoMode) {
     // MONO MODE: Continue tracking amplitude (no reset)
     filterManager.noteOn(samplerVoiceId, noteNumber, 1.0);

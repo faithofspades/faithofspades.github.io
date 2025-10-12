@@ -173,40 +173,75 @@ class FilterManager {
     console.log(`Filter ${voiceId} now tracking amplitude gain node`);
   }
 }
-  // Trigger note on for a specific voice (only updates MIDI note and envelope)
-  noteOn(voiceId, noteNumber, velocity = 1, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0) {
+  // Add this method to the FilterManager class
+connectVoiceEnvelope(voiceId, voiceGainNode) {
+  const filterData = this.voiceFilters.get(voiceId);
+  if (filterData && filterData.filterNode instanceof MoogFilterNode) {
+    filterData.filterNode.setAmplitudeGainNode(voiceGainNode);
+    
+    // Start automatic envelope tracking
+    if (!filterData.updateInterval) {
+      filterData.updateInterval = setInterval(() => {
+        filterData.filterNode.updateFromAmplitude();
+      }, 5); // Poll every 5ms for smooth envelope following
+    }
+    
+    console.log(`Filter for ${voiceId} now tracking voice envelope`);
+  }
+}
+
+// Also update the noteOn method to synchronize filter ADSR with voice ADSR
+noteOn(voiceId, noteNumber, velocity = 1, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0) {
   const filterData = this.voiceFilters.get(voiceId);
   if (filterData) {
     filterData.currentNote = noteNumber;
     
     // Update MIDI note parameter for keytracking
     if (filterData.filterNode instanceof MoogFilterNode) {
-      // CRITICAL FIX: Pass envelope state and current value to filter
+      // Pass envelope state and current value to ensure filter ADSR stays synchronized
       filterData.filterNode.noteOn(noteNumber, velocity, retrigger, envelopeState, currentEnvelopeValue);
     }
     
     console.log(`Filter noteOn for voice ${voiceId}, note ${noteNumber}, retrigger=${retrigger}, state=${envelopeState}`);
   }
 }
-  resetFilterEnvelope(voiceId) {
-  const filterData = this.voiceFilters.get(voiceId);
-  if (filterData && filterData.filterNode instanceof MoogFilterNode) {
-    filterData.filterNode.reset();
-    console.log(`Reset filter envelope for voice ${voiceId}`);
-  }
-}
 
-  // Trigger note off for a specific voice
-  noteOff(voiceId, reset = false) {
+// Update noteOff to properly handle release phase
+noteOff(voiceId, reset = false) {
   const filterData = this.voiceFilters.get(voiceId);
   if (filterData && filterData.filterNode instanceof MoogFilterNode) {
     filterData.filterNode.noteOff();
-    // DON'T set currentNote to null - let it continue tracking amplitude
-    
-    console.log(`Filter noteOff for voice ${voiceId} - continuing to track amplitude`);
+    console.log(`Filter noteOff for voice ${voiceId} - resonance will fade with release`);
   }
 }
-  
+  resetFilterEnvelope(voiceId, targetAdsrValue = null, isVoiceSteal = false) {
+  const filterData = this.voiceFilters.get(voiceId);
+  if (filterData && filterData.filterNode instanceof MoogFilterNode) {
+    // Pass the voice steal flag and target ADSR value
+    filterData.filterNode.reset(targetAdsrValue, isVoiceSteal);
+    
+    if (isVoiceSteal) {
+      console.log(`Smoothly transitioning filter ${voiceId} for voice steal`);
+    } else {
+      console.log(`Reset filter envelope for voice ${voiceId}`);
+    }
+  }
+}
+handleVoiceSteal(stolenVoiceId, newGainNode, targetAdsrValue) {
+  const filterData = this.voiceFilters.get(stolenVoiceId);
+  if (filterData && filterData.filterNode instanceof MoogFilterNode) {
+    // First smoothly transition the ADSR value
+    filterData.filterNode.reset(targetAdsrValue, true);
+    
+    // Then update the amplitude gain node to track
+    // Allow a small delay for the transition to start
+    setTimeout(() => {
+      filterData.filterNode.setAmplitudeGainNode(newGainNode);
+    }, 5);
+    
+    console.log(`Filter for stolen voice ${stolenVoiceId} now tracking new gain node`);
+  }
+}
   // Set cutoff frequency (0-1 normalized value)
   setCutoff(normalizedValue) {
   // FIXED: Map 0-1 to 8Hz-22050Hz logarithmically

@@ -1,5 +1,6 @@
 export class MoogFilterNode extends AudioWorkletNode {
   constructor(audioContext, options = {}) {
+    // Add adsrValue parameter to the default options
     const defaultOptions = {
       outputChannelCount: [2],
       parameterData: {
@@ -10,7 +11,8 @@ export class MoogFilterNode extends AudioWorkletNode {
         envelopeAmount: 0.0,
         keytrackAmount: 0.0,
         bassCompensation: 0.5,
-        currentMidiNote: 69
+        currentMidiNote: 69,
+        adsrValue: 0.0 // Add this parameter for direct ADSR resonance following
       }
     };
     
@@ -21,17 +23,23 @@ export class MoogFilterNode extends AudioWorkletNode {
     
     super(audioContext, 'moog-filter-processor', nodeOptions);
     
-    // CRITICAL CHANGE: Remove internal envelope, we'll follow external amplitude
     this._currentMidiNote = 69;
     this._keytrackAmount = 0;
     this._envelopeAmount = 0;
     this._notePlaying = false;
-    this._amplitudeGainNode = null; // Reference to the voice's amplitude gain node
+    this._amplitudeGainNode = null;
+    
+    // Add ADSR polling interval
+    this._adsrPollingInterval = null;
   }
-  // NEW: Set the amplitude gain node to follow
+  
+  // Set the amplitude gain node to follow
   setAmplitudeGainNode(gainNode) {
     this._amplitudeGainNode = gainNode;
     console.log(`Filter ${this._currentMidiNote} now tracking amplitude gain node`);
+    
+    // Start ADSR polling when gain node is set
+    this._startAdsrPolling();
   }
   _setupEnvelope() {
     // ADSR parameters for filter envelope
@@ -113,7 +121,36 @@ export class MoogFilterNode extends AudioWorkletNode {
     this.parameters.get('envelopeAmount').value = this._envelopeAmount * value;
   }
   
-  // MODIFIED: Simple note on - just updates note number for keytracking
+  // Start polling the amplitude gain node to update the ADSR value
+  _startAdsrPolling() {
+    // Clear any existing interval
+    if (this._adsrPollingInterval) {
+      clearInterval(this._adsrPollingInterval);
+    }
+    
+    // Poll every 5ms for smooth ADSR following
+    this._adsrPollingInterval = setInterval(() => {
+      this.updateFromAmplitude();
+    }, 5);
+  }
+  
+  // Update filter parameters from amplitude envelope
+  updateFromAmplitude() {
+    if (!this._amplitudeGainNode) return;
+    
+    try {
+      // Get current gain value (the ADSR envelope value)
+      const amplitudeValue = this._amplitudeGainNode.gain.value;
+      
+      // MODIFIED: Update adsrValue parameter instead of envelopeAmount
+      // This directly controls resonance following in the processor
+      this.parameters.get('adsrValue').value = amplitudeValue;
+    } catch (e) {
+      console.error('Error updating filter from amplitude:', e);
+    }
+  }
+  
+  // Simple note on - just updates note number for keytracking
   noteOn(midiNote, velocity = 1.0, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0) {
     this._currentMidiNote = midiNote;
     this._notePlaying = true;
@@ -124,39 +161,46 @@ export class MoogFilterNode extends AudioWorkletNode {
     console.log(`Filter noteOn for note ${midiNote} - will follow amplitude envelope`);
   }
   
-  // MODIFIED: Simple note off - just marks as not playing
+  // Simple note off - just marks as not playing
   noteOff() {
     this._notePlaying = false;
     console.log(`Filter noteOff - will continue following amplitude until it reaches 0`);
   }
-  
-  // NEW: Update filter envelope from amplitude envelope (call this regularly)
-  updateFromAmplitude() {
-    if (!this._amplitudeGainNode) return;
-    
-    // Read the current amplitude gain value
-    const amplitudeValue = this._amplitudeGainNode.gain.value;
-    
-    // Apply to filter envelope parameter with the envelope amount scaling
-    this.parameters.get('envelopeAmount').value = this._envelopeAmount * amplitudeValue;
+  reset(targetValue = null, isVoiceSteal = false) {
+  // For normal resets (not voice stealing), reset the filter processor state
+  if (!isVoiceSteal) {
+    this.port.postMessage({ type: 'reset' });
   }
   
-  reset() {
-  this.port.postMessage({ type: 'reset' });
+  // Handle ADSR value differently based on whether this is a voice steal
+  if (isVoiceSteal && targetValue !== null) {
+    // Voice steal - transition smoothly from current value to the target
+    const currentValue = this.parameters.get('adsrValue').value;
+    const now = this.context.currentTime;
+    
+    // Rapid but smooth transition (5ms) to the new value
+    this.parameters.get('adsrValue').cancelScheduledValues(now);
+    this.parameters.get('adsrValue').setValueAtTime(currentValue, now);
+    this.parameters.get('adsrValue').linearRampToValueAtTime(targetValue, now + 0.005);
+    
+    console.log(`Filter smoothly transitioning to new ADSR value ${targetValue.toFixed(2)} (voice steal)`);
+  } else {
+    // Normal reset (note end) - don't abruptly set to 0, let ADSR naturally complete
+    // The voice's gain node tracking will gradually bring this to zero
+  }
   
-  // CRITICAL: Force envelope to 0 immediately
+  // Reconnect to the amplitude gain node if there's a new one
   if (this._amplitudeGainNode) {
-    // Disconnect temporarily to force re-sync
     const currentGainNode = this._amplitudeGainNode;
+    
+    // Brief tracking pause during transition to avoid glitches
     this._amplitudeGainNode = null;
     
-    // Reconnect after a brief moment to start tracking from 0
+    // Reconnect after a brief moment to continue tracking
     setTimeout(() => {
       this._amplitudeGainNode = currentGainNode;
-    }, 1);
+    }, 5);
   }
-  
-  console.log(`Filter reset - will track new attack from 0`);
 }
   // Parameter setters
   setCutoff(value) {
@@ -211,8 +255,19 @@ setResonance(value) {
   }
   
   // Cleanup
+  // Clean up resources when disconnected
   disconnect() {
-    clearInterval(this._envelopeInterval);
+    // Stop ADSR polling
+    if (this._adsrPollingInterval) {
+      clearInterval(this._adsrPollingInterval);
+      this._adsrPollingInterval = null;
+    }
+    
+    // Clear any other intervals
+    if (this._envelopeInterval) {
+      clearInterval(this._envelopeInterval);
+    }
+    
     super.disconnect();
   }
 }
