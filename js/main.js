@@ -3428,8 +3428,14 @@ dropdown.classList.remove('show');
 function loadPresetSample(filename) {
     console.log(`Loading preset sample: ${filename}`);
 
-    // Build the URL to the sample file
-    const sampleUrl = `samples/${filename}`;
+    // Build the URL to the sample file with base URL awareness
+    // This handles both local development and GitHub Pages deployments
+    const baseUrl = window.location.pathname.includes('/faithofspades.github.io/') 
+        ? '/faithofspades.github.io/' // GitHub Pages path
+        : '/';                        // Local development path
+    
+    const sampleUrl = `${baseUrl}samples/${filename}`;
+    console.log(`Attempting to load from: ${sampleUrl}`);
 
     // Fetch the sample file
     fetch(sampleUrl)
