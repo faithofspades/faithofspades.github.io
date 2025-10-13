@@ -353,6 +353,10 @@ function checkReleasingNotesOnResume() {
 const VOICE_PAN_LIMIT = 0.08; // 8% pan variation
 const VOICE_DETUNE_LIMIT = 20; // 20 cents max detune
 const WARBLE_SETTLE_TIME = 0.15; // 150ms to settle
+const SAMPLE_BASE_PATH = window.location.hostname.includes('github.io') 
+    ? '/faithofspades.github.io/samples/'  // GitHub Pages path
+    : '/samples/';                         // Local path
+
 let masterClockNode = null;
 let masterClockSharedBuffer = null;
 let masterClockPhases = null;
@@ -3428,13 +3432,7 @@ dropdown.classList.remove('show');
 function loadPresetSample(filename) {
     console.log(`Loading preset sample: ${filename}`);
 
-    // Build the URL to the sample file with base URL awareness
-    // This handles both local development and GitHub Pages deployments
-    const baseUrl = window.location.pathname.includes('/faithofspades.github.io/') 
-        ? '/faithofspades.github.io/' // GitHub Pages path
-        : '/';                        // Local development path
-    
-    const sampleUrl = `${baseUrl}samples/${filename}`;
+    const sampleUrl = SAMPLE_BASE_PATH + filename;
     console.log(`Attempting to load from: ${sampleUrl}`);
 
     // Fetch the sample file
