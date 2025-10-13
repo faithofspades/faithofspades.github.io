@@ -3432,11 +3432,19 @@ dropdown.classList.remove('show');
 function loadPresetSample(filename) {
     console.log(`Loading preset sample: ${filename}`);
 
+    // Build URL with proper content type handling
     const sampleUrl = SAMPLE_BASE_PATH + filename;
     console.log(`Attempting to load from: ${sampleUrl}`);
 
-    // Fetch the sample file
-    fetch(sampleUrl)
+    // Use proper fetch with responseType setting
+    fetch(sampleUrl, {
+        // Add cache control to prevent cached corrupted responses
+        cache: 'no-cache',
+        // Ensure proper headers are sent
+        headers: {
+            'Accept': 'audio/*'
+        }
+    })
     .then(response => {
         if (!response.ok) {
             throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
@@ -3444,8 +3452,11 @@ function loadPresetSample(filename) {
         return response.arrayBuffer();
     })
     .then(arrayBuffer => {
-        // Decode the audio data
-        return audioCtx.decodeAudioData(arrayBuffer);
+        // Add more robust error handling for decoding
+        return audioCtx.decodeAudioData(arrayBuffer).catch(err => {
+            console.error('Audio decoding failed:', err);
+            throw new Error(`Audio decoding failed: ${err.message || 'Unknown error'}`);
+        });
     })
     .then(buffer => {
         audioBuffer = buffer;
@@ -3544,10 +3555,13 @@ function loadPresetSample(filename) {
     })
     .catch(error => {
         console.error('Error loading preset sample:', error);
-        alert(`Failed to load sample: ${filename}`);
+        
+        // More user-friendly error message
+        const errorMsg = `Failed to load sample: ${filename}. 
+                         Please try refreshing the page or using a different browser.`;
+        alert(errorMsg);
     });
 }
-
 // In your processBufferWithFades function:
 function processBufferWithFades(buffer) {
 if (!buffer) return null;
