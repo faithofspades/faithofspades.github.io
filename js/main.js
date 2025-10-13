@@ -353,6 +353,10 @@ function checkReleasingNotesOnResume() {
 const VOICE_PAN_LIMIT = 0.08; // 8% pan variation
 const VOICE_DETUNE_LIMIT = 20; // 20 cents max detune
 const WARBLE_SETTLE_TIME = 0.15; // 150ms to settle
+const SAMPLE_BASE_PATH = window.location.hostname.includes('github.io') 
+    ? '/faithofspades.github.io/samples/'  // GitHub Pages path
+    : '/samples/';                         // Local path
+
 let masterClockNode = null;
 let masterClockSharedBuffer = null;
 let masterClockPhases = null;
@@ -3428,8 +3432,8 @@ dropdown.classList.remove('show');
 function loadPresetSample(filename) {
     console.log(`Loading preset sample: ${filename}`);
 
-    // Build the URL to the sample file
-    const sampleUrl = `samples/${filename}`;
+    const sampleUrl = SAMPLE_BASE_PATH + filename;
+    console.log(`Attempting to load from: ${sampleUrl}`);
 
     // Fetch the sample file
     fetch(sampleUrl)
@@ -5656,27 +5660,30 @@ if (osc1WaveSelector) {
     console.warn("Osc1 wave selector not found in DOM");
 }
 
-// // Set default sample volume to 1%
-    // currentSampleGain = 0.01;
+// Instead, add a one-time listener for first interaction
+  function loadInitialSampleOnInteraction() {
+    console.log("User interaction detected - loading initial sample");
+    loadPresetSample('noise.wav');
     
-    // // Update the sample volume knob UI to match
-    // const sampleVolumeKnob = D('sample-volume-knob');
-    // if (sampleVolumeKnob && sampleVolumeKnob.control) {
-    //     sampleVolumeKnob.control.setValue(0.01, false);
-    // }
-    
-    // Load the noise sample by default after a short delay to ensure audio context is ready
-    setTimeout(() => {
-        loadPresetSample('noise.wav'); // Assuming you have noise.wav in your samples folder
-        
-        // Update the label to show we've loaded the noise sample
-        const fileLabel = document.querySelector('label[for="audio-file"]');
-        if (fileLabel) {
-            fileLabel.textContent = 'Noise (default)';
-        }
-        
-        console.log('Default noise sample loaded at 1% volume');
-    }, 500);
+    // Remove this event listener after first use
+    document.removeEventListener('click', loadInitialSampleOnInteraction);
+    document.removeEventListener('keydown', loadInitialSampleOnInteraction);
+    document.removeEventListener('touchstart', loadInitialSampleOnInteraction);
+  }
+
+  // Add the event listeners for common interaction events
+  document.addEventListener('click', loadInitialSampleOnInteraction, { once: true });
+  document.addEventListener('keydown', loadInitialSampleOnInteraction, { once: true });
+  document.addEventListener('touchstart', loadInitialSampleOnInteraction, { once: true });
+  
+  // Also load sample after audio context resume (for iOS/mobile)
+  audioCtx.addEventListener('statechange', function() {
+    if (audioCtx.state === 'running' && !audioBuffer) {
+      console.log("AudioContext running - loading initial sample");
+      loadPresetSample('noise.wav');
+    }
+  });
+
 // --- Modulation Source Button Logic ---
 const modModeSelector = document.querySelector('.mod-mode-selector'); // Get the container
 if (modModeSelector) {
