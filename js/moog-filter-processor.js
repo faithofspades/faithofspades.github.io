@@ -9,7 +9,7 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
       { name: 'keytrackAmount', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'k-rate' },
       { name: 'bassCompensation', defaultValue: 0.5, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
       { name: 'currentMidiNote', defaultValue: 69, minValue: 0, maxValue: 127, automationRate: 'k-rate' },
-      { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 0.98, automationRate: 'a-rate' },
+      { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
       // CORRECTED: Default to 1.0 (instead of 0.5) to match original filter behavior
       { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' }
     ];
@@ -231,28 +231,26 @@ softSaturate(input, driveAmount) {
   }
   
   setResonance(res, adsrScale) {
-    // Clamp resonance to [0, 1]
-    const normalizedRes = Math.max(0, Math.min(1, res));
-    
-    // Scale resonance by ADSR envelope value (0-1)
-    // This ensures resonance will be 0 when ADSR is 0, and user-set value when ADSR is 1
-    const scaledRes = normalizedRes * adsrScale;
-    
-    // Scale resonance from [0,1] to a K value using the same curve as before
-    // but now with the scaled resonance value
-    if (scaledRes < 0.2) {
-      this.K = scaledRes * 2.0;
-    } else if (scaledRes < 0.6) {
-      const t = (scaledRes - 0.2) / 0.4;
-      this.K = 0.4 + t * t * 1.6;
-    } else {
-      const t = (scaledRes - 0.6) / 0.4;
-      this.K = 2.0 + t * t * 2.0;
-    }
-    
-    // Update alpha0 since it depends on K
-    this.alpha0 = 1.0 / (1.0 + this.K * this.gamma);
+  // Clamp resonance to [0, 1]
+  const normalizedRes = Math.max(0, Math.min(1, res));
+  
+  // Scale resonance by ADSR envelope value (0-1)
+  const scaledRes = normalizedRes * adsrScale;
+  
+  // Same scaling curve but with tiny adjustment to the final coefficient
+  if (scaledRes < 0.2) {
+    this.K = scaledRes * 2.0;
+  } else if (scaledRes < 0.6) {
+    const t = (scaledRes - 0.2) / 0.4;
+    this.K = 0.4 + t * t * 1.6;
+  } else {
+    const t = (scaledRes - 0.6) / 0.4;
+    this.K = 2.0 + t * t * 1.95; // ONLY CHANGE: 2.0 → 1.96
   }
+  
+  // Update alpha0 since it depends on K
+  this.alpha0 = 1.0 / (1.0 + this.K * this.gamma);
+}
   
   setDrive(driveAmount) {
   // No change to the parameter value - just store it

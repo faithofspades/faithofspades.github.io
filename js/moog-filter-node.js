@@ -228,7 +228,7 @@ setResonance(value) {
   
   setBassCompensation(value) {
   // Already correct - accepts 0.0 to 1.0
-  this.parameters.get('bassCompensation').value = Math.max(0.0, Math.min(0.98, value));
+  this.parameters.get('bassCompensation').value = Math.max(0.0, Math.min(1.0, value));
 }
   
   setKeytrackAmount(value) {
