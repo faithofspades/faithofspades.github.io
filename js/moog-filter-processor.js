@@ -9,8 +9,9 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
       { name: 'keytrackAmount', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'k-rate' },
       { name: 'bassCompensation', defaultValue: 0.5, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
       { name: 'currentMidiNote', defaultValue: 69, minValue: 0, maxValue: 127, automationRate: 'k-rate' },
-      // Add a direct adsr value parameter that will come from main.js
-      { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' }
+      { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 0.98, automationRate: 'a-rate' },
+      // CORRECTED: Default to 1.0 (instead of 0.5) to match original filter behavior
+      { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' }
     ];
   }
 
@@ -160,11 +161,38 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
   }
 }
   
-  // Fast approximation of tanh for efficiency
-  fastTanh(x) {
-    // Simple approximation that's good enough for audio
-    return Math.tanh(x);
+  // Improved drive/saturation implementation
+softSaturate(input, driveAmount) {
+  // No saturation at drive = 1
+  if (driveAmount <= 1.0) {
+    return input;
   }
+  
+  // Drive parameter determines amount of saturation - REDUCED RANGE
+  const normalizedDrive = Math.min(0.7, (driveAmount - 1.0) / 5.0); // Reduced from 0.9
+  
+  // Stronger gain compensation
+  const gainCompensation = 1.0 / (1.0 + normalizedDrive * 0.8); // Increased from 0.6
+  
+  // Higher threshold for minimal shaping
+  if (Math.abs(input) < 0.3) { // Increased from 0.2
+    // For small signals (including resonant peaks), apply minimal shaping
+    return input * gainCompensation;
+  } else {
+    // Gentler soft-clipping function
+    const absInput = Math.abs(input);
+    const sign = Math.sign(input);
+    
+    // Softer curve
+    const shaped = sign * (1.0 - Math.exp(-absInput * 0.8)) / (1.0 - Math.exp(-0.8));
+    
+    // Blend between input and shaped based on drive - MORE ORIGINAL
+    const blended = input * (1.0 - normalizedDrive * 0.8) + shaped * normalizedDrive * 0.8;
+    
+    // Apply gain compensation
+    return blended * gainCompensation;
+  }
+}
   
   setCutoff(cutoffHz) {
     // Clamp cutoff to valid range [8Hz, 16kHz]
@@ -227,71 +255,85 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
   }
   
   setDrive(driveAmount) {
-    // Adjust saturation based on drive amount
-    this.saturation = driveAmount;
-  }
+  // No change to the parameter value - just store it
+  this.drive = Math.max(0.1, Math.min(5.0, driveAmount));
+}
+  processWithDrive(input, driveAmount) {
+  // Only apply if drive > 1
+  if (driveAmount <= 1.0) return input;
   
-  process(inputs, outputs, parameters) {
-    const input = inputs[0];
-    const output = outputs[0];
+  // GENTLER post-filter drive curve
+  const normalizedDrive = (driveAmount - 1.0) / 6.0; // Reduced from /4.0
+  
+  // Stronger gain compensation
+  const gainCompensation = 1.0 / (1.0 + normalizedDrive * 0.7); // Increased from 0.5
+  
+  // Higher threshold for preservation
+  const absInput = Math.abs(input);
+  const sign = Math.sign(input);
+  
+  if (absInput < 0.5) { // Increased from 0.4
+    // Preserve more details
+    return input * gainCompensation;
+  } else {
+    // Gentler soft clipping with higher threshold
+    const softClipped = sign * (1.0 - Math.exp(-(absInput - 0.5) * (0.8 + normalizedDrive))) / (1.0 - Math.exp(-0.8)) + sign * 0.5;
+    return softClipped * gainCompensation;
+  }
+}
+  // In process method, replace the existing input gain handling:
+process(inputs, outputs, parameters) {
+  const input = inputs[0];
+  const output = outputs[0];
+  
+  if (!input || input.length === 0) return true;
+  
+  this.ensureChannelFilters(input.length);
+  
+  // Extract parameters
+  const cutoff = parameters.cutoff;
+  const resonance = parameters.resonance;
+  const drive = parameters.drive[0];  // Keep original drive parameter
+  const saturation = parameters.saturation[0]; 
+  const envelopeAmount = parameters.envelopeAmount;
+  const keytrackAmount = parameters.keytrackAmount[0];
+  const bassCompensation = parameters.bassCompensation[0];
+  const currentMidiNote = parameters.currentMidiNote[0];
+  const adsrValue = parameters.adsrValue;
+  // Get the new input gain parameter
+  const inputGain = parameters.inputGain[0];
+  
+  // Update drive parameter - keep this as-is
+  this.setDrive(drive * (1.0 + saturation * 0.5));
+  
+  // Process each channel
+  for (let channel = 0; channel < input.length; channel++) {
+    const inputChannel = input[channel];
+    const outputChannel = output[channel];
+    const filter = this.channelFilters[channel];
     
-    if (!input || input.length === 0) return true;
-    
-    // Ensure we have filters for all channels
-    this.ensureChannelFilters(input.length);
-    
-    // Extract parameters
-    const cutoff = parameters.cutoff;
-    const resonance = parameters.resonance;
-    const drive = parameters.drive[0]; 
-    const saturation = parameters.saturation[0];
-    const envelopeAmount = parameters.envelopeAmount;
-    const keytrackAmount = parameters.keytrackAmount[0];
-    const bassCompensation = parameters.bassCompensation[0];
-    const currentMidiNote = parameters.currentMidiNote[0];
-    
-    // Get the ADSR envelope value directly from parameter
-    const adsrValue = parameters.adsrValue;
-    
-    // Update drive parameter
-    this.setDrive(drive * (1.0 + saturation * 0.5));
-    
-    // Process each channel
-    for (let channel = 0; channel < input.length; channel++) {
-      const inputChannel = input[channel];
-      const outputChannel = output[channel];
-      const filter = this.channelFilters[channel];
+    // Process each sample
+    for (let i = 0; i < inputChannel.length; i++) {
+      // Apply the input gain to the input sample
+      let inputSample = inputChannel[i] * inputGain;
       
-      // Process each sample
-      for (let i = 0; i < inputChannel.length; i++) {
-        // Get input sample
-        let inputSample = inputChannel[i];
-        
-        // Get the current ADSR value (a-rate parameter)
-        const currentAdsrValue = adsrValue.length > 1 ? adsrValue[i] : adsrValue[0];
-        
-        // Calculate the actual cutoff frequency based on keytracking and envelope
-        let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
-        
-        // Apply keytracking
-        if (keytrackAmount !== 0) {
-          const noteFreqRatio = Math.pow(2, (currentMidiNote - 69) / 12);
-          actualCutoff *= Math.pow(noteFreqRatio, keytrackAmount);
-        }
-        
-        // Apply envelope modulation
-        if (envelopeAmount.length > 1) {
-          const envValue = envelopeAmount[i];
-          if (envValue !== 0) {
-            if (envValue > 0) {
-              const scaledEnv = Math.min(0.95, envValue);
-              actualCutoff *= 1 + (scaledEnv * 8);
-            } else {
-              actualCutoff *= Math.pow(10, envValue * 0.8);
-            }
-          }
-        } else if (envelopeAmount[0] !== 0) {
-          const envValue = envelopeAmount[0];
+      // Rest of the filter processing...
+      // Get the current ADSR value
+      const currentAdsrValue = adsrValue.length > 1 ? adsrValue[i] : adsrValue[0];
+      
+      // Calculate the actual cutoff frequency
+      let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
+      
+      // Apply keytracking
+      if (keytrackAmount !== 0) {
+        const noteFreqRatio = Math.pow(2, (currentMidiNote - 69) / 12);
+        actualCutoff *= Math.pow(noteFreqRatio, keytrackAmount);
+      }
+      
+      // Apply envelope modulation
+      if (envelopeAmount.length > 1) {
+        const envValue = envelopeAmount[i];
+        if (envValue !== 0) {
           if (envValue > 0) {
             const scaledEnv = Math.min(0.95, envValue);
             actualCutoff *= 1 + (scaledEnv * 8);
@@ -299,56 +341,73 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
             actualCutoff *= Math.pow(10, envValue * 0.8);
           }
         }
-        
-        // Update filter cutoff
-        this.setCutoff(actualCutoff);
-        
+      } else if (envelopeAmount[0] !== 0) {
+        const envValue = envelopeAmount[0];
+        if (envValue > 0) {
+          const scaledEnv = Math.min(0.95, envValue);
+          actualCutoff *= 1 + (scaledEnv * 8);
+        } else {
+          actualCutoff *= Math.pow(10, envValue * 0.8);
+        }
+      }
+      
+      // Update filter cutoff
+      this.setCutoff(actualCutoff);
       
       // Get resonance for this sample
       const res = resonance.length > 1 ? resonance[i] : resonance[0];
       
       // Set resonance with ADSR envelope scaling
       this.setResonance(res, currentAdsrValue);
-
-        
-        // Apply bass compensation
-        const bassFactor = bassCompensation * 0.7 + 0.3;
-        const effectiveK = this.K * bassFactor;
-        
-        // Calculate feedback from all stages
-        const sigma = 
-          filter.stage1.getFeedbackOutput() +
-          filter.stage2.getFeedbackOutput() +
-          filter.stage3.getFeedbackOutput() +
-          filter.stage4.getFeedbackOutput();
-        
-        // Scale input by resonance factor
-        inputSample *= 1.0 + effectiveK;
-        
-        // Calculate input to first filter
-        let u = (inputSample - effectiveK * sigma) * this.alpha0;
-        
-        // Apply saturation to input
-        u = this.fastTanh(this.saturation * u);
-        
-        // Process through each filter stage
-        const stage1Out = filter.stage1.tick(u);
-        const stage2Out = filter.stage2.tick(stage1Out);
-        const stage3Out = filter.stage3.tick(stage2Out);
-        const stage4Out = filter.stage4.tick(stage3Out);
-        
-        // Mix outputs according to Oberheim coefficients
-        outputChannel[i] = 
-          this.oberheimCoefs[0] * u +
-          this.oberheimCoefs[1] * stage1Out +
-          this.oberheimCoefs[2] * stage2Out +
-          this.oberheimCoefs[3] * stage3Out +
-          this.oberheimCoefs[4] * stage4Out;
+      
+      // Apply bass compensation
+      const bassFactor = bassCompensation * 0.7 + 0.3;
+      const effectiveK = this.K * bassFactor;
+      
+      // Calculate feedback from all stages
+      const sigma = 
+        filter.stage1.getFeedbackOutput() +
+        filter.stage2.getFeedbackOutput() +
+        filter.stage3.getFeedbackOutput() +
+        filter.stage4.getFeedbackOutput();
+      
+      // Scale input by resonance factor
+      inputSample *= 1.0 + effectiveK * 0.7;
+      
+      // Calculate input to first filter
+      let u = (inputSample - effectiveK * sigma) * this.alpha0;
+      
+      // Apply saturation based on the drive parameter - keep this as-is
+      if (this.saturation > 1.0) {
+        u = this.softSaturate(u, this.saturation);
       }
+      
+      // Process through each filter stage
+      const stage1Out = filter.stage1.tick(u);
+      const stage2Out = filter.stage2.tick(stage1Out);
+      const stage3Out = filter.stage3.tick(stage2Out);
+      const stage4Out = filter.stage4.tick(stage3Out);
+      
+      // Mix outputs according to Oberheim coefficients
+      let filterOutput = 
+        this.oberheimCoefs[0] * u +
+        this.oberheimCoefs[1] * stage1Out +
+        this.oberheimCoefs[2] * stage2Out +
+        this.oberheimCoefs[3] * stage3Out +
+        this.oberheimCoefs[4] * stage4Out;
+      
+      // Apply post-filter saturation - keep this as-is
+      if (this.saturation > 1.0) {
+        const postDrive = this.saturation;
+        filterOutput = this.processWithDrive(filterOutput, postDrive);
+      }
+      
+      outputChannel[i] = filterOutput;
     }
-    
-    return true; // Keep the processor alive
   }
+  
+  return true;
+}
 }
 
 registerProcessor('moog-filter-processor', MoogFilterProcessor);

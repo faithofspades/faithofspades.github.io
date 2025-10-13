@@ -207,7 +207,12 @@ export class MoogFilterNode extends AudioWorkletNode {
   // FIXED: Accept 8Hz to 16000Hz range
   this.parameters.get('cutoff').value = Math.max(8, Math.min(16000, value));
 }
-
+setInputGain(value) {
+  const param = this.parameters.get('inputGain');
+  if (param) {
+    param.setValueAtTime(value, this.context.currentTime);
+  }
+}
 setResonance(value) {
   // FIXED: Accept 0.0 to 1.0 range (processor will map to Q)
   this.parameters.get('resonance').value = Math.max(0.0, Math.min(1.0, value));

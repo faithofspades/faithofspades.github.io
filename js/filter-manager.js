@@ -2,20 +2,22 @@ import { MoogFilterNode } from './moog-filter-node.js';
 
 class FilterManager {
   constructor(audioContext) {
-    this.audioCtx = audioContext;
-    this.currentFilterType = 'lp24'; // DEFAULT to LP24 filter
-    
-    // Store persistent filter instances
-    this.voiceFilters = new Map(); // voiceId -> filter instance
-    
-    // Global filter parameters with CORRECTED DEFAULTS
-    this.cutoff = 16000; // DEFAULT: 16kHz (100% = no filtering)
-    this.resonance = 0.0; // DEFAULT: 0% (no resonance)
-    this.variant = 0.5; // DEFAULT: 50% (unity bass)
-    this.keytrackAmount = 0.5; // DEFAULT: 50% (unity)
-    this.envelopeAmount = 0.5; // DEFAULT: 50% (unity)
-    this.drive = 1.0; // DEFAULT: unity drive
-    this.saturation = 1.0; // DEFAULT: normal saturation
+  this.audioCtx = audioContext;
+  this.currentFilterType = 'lp24'; // DEFAULT to LP24 filter
+  
+  // Store persistent filter instances
+  this.voiceFilters = new Map(); // voiceId -> filter instance
+  
+  // Global filter parameters with CORRECTED DEFAULTS
+  this.cutoff = 16000; // DEFAULT: 16kHz (100% = no filtering)
+  this.resonance = 0.0; // DEFAULT: 0% (no resonance)
+  this.variant = 1.0; // DEFAULT: 50% (unity bass)
+  this.keytrackAmount = 0.5; // DEFAULT: 50% (unity)
+  this.envelopeAmount = 0.5; // DEFAULT: 50% (unity)
+  this.drive = 1.0; // DEFAULT: unity gain (50% on slider)
+  this.inputGain = 1.0;
+  this.saturation = 1.0; // DEFAULT: no saturation
+  
     
     // ADSR parameters
     this.attackTime = 0.01;
@@ -51,9 +53,30 @@ class FilterManager {
       this._processorLoaded = false;
     }
   }
+  setInputGain(normalizedValue) {
+  // CORRECTED: Map 0-1 to input gain range (0.0-2.0)
+  // At 0%, input gain = 0.0 (silence)
+  // At 50%, input gain = 1.0 (original unmodified level)
+  // At 100%, input gain = 2.0 (2x boost)
+  this.inputGain = normalizedValue * 2.0;
   
-  // Create a persistent filter for a voice (called once during voice creation)
-  async createPersistentFilter(voiceId) {
+  this.voiceFilters.forEach((filterData) => {
+    if (filterData.filterNode instanceof MoogFilterNode) {
+      filterData.filterNode.setInputGain(this.inputGain);
+    }
+  });
+  
+  if (normalizedValue < 0.45) {
+    console.log(`Filter input gain set to ${(normalizedValue * 100).toFixed(0)}% (attenuated)`);
+  } else if (normalizedValue > 0.55) {
+    console.log(`Filter input gain set to ${(normalizedValue * 100).toFixed(0)}% (boosted)`);
+  } else {
+    console.log(`Filter input gain set to original level (50%)`);
+  }
+}
+
+// Update createPersistentFilter to initialize with the correct input gain
+async createPersistentFilter(voiceId) {
   // Wait for processor to load
   if (!this._processorLoaded) {
     await this._loadWorkletProcessor();
@@ -75,7 +98,8 @@ class FilterManager {
         bassCompensation: this.variant,
         keytrackAmount: (this.keytrackAmount - 0.5) * 2, // Bipolar
         envelopeAmount: (this.envelopeAmount - 0.5) * 2, // Bipolar
-        currentMidiNote: 69
+        currentMidiNote: 69,
+        inputGain: this.inputGain // Add inputGain parameter
       }
     });
     

@@ -149,11 +149,12 @@ function initializeFilterControls() {
   // Drive Slider - DEFAULT TO 0%
   const driveSlider = document.querySelector('.drive-slider-range');
 if (driveSlider) {
-  driveSlider.value = 0.0; // Set to 0% (unity gain)
+  driveSlider.value = 0.5; // Set to 50% (unity gain)
   driveSlider.addEventListener('input', (e) => {
     const value = parseFloat(e.target.value);
     if (filterManager) {
-      filterManager.setDrive(value);
+      // Use the new method instead of setDrive
+      filterManager.setInputGain(value);
     }
   });
 }
@@ -161,7 +162,7 @@ if (driveSlider) {
   // Variant Slider - DEFAULT TO 50% (unity)
   const variantSlider = document.querySelector('.variant-slider-range');
   if (variantSlider) {
-    variantSlider.value = 0.5; // Set to 50% (unity)
+    variantSlider.value = 1.0; // Set to 100% (maximum)
     variantSlider.addEventListener('input', (e) => {
       const value = parseFloat(e.target.value);
       if (filterManager) {
@@ -470,6 +471,7 @@ const knobDefaults = {
 // ADD FILTER KNOBS
     'adsr-knob': 0.5, // 50% = unity
     'keytrack-knob': 0.5, // 50% = unity
+    'drive-slider-range': 0.5,
 };
 // Try to create SharedArrayBuffer for clock synchronization
 function initializeMasterClock() {
@@ -5406,7 +5408,7 @@ initializeFilterControls();
     // Set default filter values
     filterManager.setCutoff(1.0); // 100% = 20kHz
     filterManager.setResonance(0.0); // 0% resonance
-    filterManager.setVariant(0.5); // 50% bass compensation (neutral)
+    filterManager.setVariant(1); // 100% oscillation
     filterManager.setDrive(0.0); // No drive
     filterManager.setEnvelopeAmount(0.5); // Center position (no envelope)
     filterManager.setKeytrackAmount(0.5); // Center position (no keytracking)
