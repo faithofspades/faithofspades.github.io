@@ -3432,8 +3432,8 @@ dropdown.classList.remove('show');
 function loadPresetSample(filename) {
     console.log(`Loading preset sample: ${filename}`);
 
-    const sampleUrl = SAMPLE_BASE_PATH + filename;
-    console.log(`Attempting to load from: ${sampleUrl}`);
+    // Build the URL to the sample file
+    const sampleUrl = `samples/${filename}`;
 
     // Fetch the sample file
     fetch(sampleUrl)
