@@ -5460,7 +5460,7 @@ fixAllKnobs(knobInitializations, knobDefaults); // <-- Add this line, passing de
     // Add a listener for user interaction before loading sample
     const userInteractionHandler = function() {
         console.log("User interaction detected - loading initial sample");
-        loadPresetSample('noise.wav');
+        loadPresetSample('Noise.wav');
         
         // Remove these event listeners after first use
         document.removeEventListener('click', userInteractionHandler);
@@ -5682,7 +5682,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add a listener for user interaction before loading sample
     const userInteractionHandler = function() {
         console.log("User interaction detected - loading initial sample");
-        loadPresetSample('noise.wav');
+        loadPresetSample('Noise.wav');
         
         // Remove these event listeners after first use
         document.removeEventListener('click', userInteractionHandler);
