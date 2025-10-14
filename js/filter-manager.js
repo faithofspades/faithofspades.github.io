@@ -343,17 +343,18 @@ handleVoiceSteal(stolenVoiceId, newGainNode, targetAdsrValue) {
   
   // Set envelope amount (0-1 normalized value)
   setEnvelopeAmount(normalizedValue) {
-    this.envelopeAmount = normalizedValue;
-    const bipolarValue = (normalizedValue - 0.5) * 2;
-    
-    this.voiceFilters.forEach((filterData) => {
-      if (filterData.filterNode instanceof MoogFilterNode) {
-        filterData.filterNode.setEnvelopeAmount(bipolarValue);
-      }
-    });
-    
-    console.log(`Filter envelope amount set to ${normalizedValue.toFixed(2)}`);
-  }
+  this.envelopeAmount = normalizedValue;
+  const bipolarValue = (normalizedValue - 0.5) * 2;
+  
+  this.voiceFilters.forEach((filterData) => {
+    if (filterData.filterNode instanceof MoogFilterNode) {
+      // Pass the bipolar value directly to the filter node
+      filterData.filterNode.setEnvelopeAmount(bipolarValue);
+    }
+  });
+  
+  console.log(`Filter envelope amount set to ${normalizedValue.toFixed(2)} (bipolar: ${bipolarValue.toFixed(2)})`);
+}
   
   // Set key tracking amount (0-1 normalized value)
   setKeytrackAmount(normalizedValue) {

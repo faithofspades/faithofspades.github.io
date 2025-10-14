@@ -230,22 +230,22 @@ softSaturate(input, driveAmount) {
     this.oberheimCoefs = [0.0, 0.0, 0.0, 0.0, 1.0];
   }
   
-  setResonance(res, adsrScale) {
+  setResonance(res) {
   // Clamp resonance to [0, 1]
   const normalizedRes = Math.max(0, Math.min(1, res));
   
-  // Scale resonance by ADSR envelope value (0-1)
-  const scaledRes = normalizedRes * adsrScale;
+  // No more ADSR scaling - use raw resonance value
+  const safeRes = Math.min(0.99, normalizedRes);
   
-  // Same scaling curve but with tiny adjustment to the final coefficient
-  if (scaledRes < 0.2) {
-    this.K = scaledRes * 2.0;
-  } else if (scaledRes < 0.6) {
-    const t = (scaledRes - 0.2) / 0.4;
+  // Same curve calculation
+  if (safeRes < 0.2) {
+    this.K = safeRes * 2.0;
+  } else if (safeRes < 0.6) {
+    const t = (safeRes - 0.2) / 0.4;
     this.K = 0.4 + t * t * 1.6;
   } else {
-    const t = (scaledRes - 0.6) / 0.4;
-    this.K = 2.0 + t * t * 1.95; // ONLY CHANGE: 2.0 → 1.96
+    const t = (safeRes - 0.6) / 0.4;
+    this.K = 2.0 + t * t * 1.95;
   }
   
   // Update alpha0 since it depends on K
@@ -291,17 +291,16 @@ process(inputs, outputs, parameters) {
   // Extract parameters
   const cutoff = parameters.cutoff;
   const resonance = parameters.resonance;
-  const drive = parameters.drive[0];  // Keep original drive parameter
+  const drive = parameters.drive[0];
   const saturation = parameters.saturation[0]; 
   const envelopeAmount = parameters.envelopeAmount;
   const keytrackAmount = parameters.keytrackAmount[0];
   const bassCompensation = parameters.bassCompensation[0];
   const currentMidiNote = parameters.currentMidiNote[0];
   const adsrValue = parameters.adsrValue;
-  // Get the new input gain parameter
   const inputGain = parameters.inputGain[0];
   
-  // Update drive parameter - keep this as-is
+  // Update drive parameter as before
   this.setDrive(drive * (1.0 + saturation * 0.5));
   
   // Process each channel
@@ -312,57 +311,80 @@ process(inputs, outputs, parameters) {
     
     // Process each sample
     for (let i = 0; i < inputChannel.length; i++) {
-      // Apply the input gain to the input sample
-      let inputSample = inputChannel[i] * inputGain;
-      
-      // Rest of the filter processing...
-      // Get the current ADSR value
+      // Get current ADSR value
       const currentAdsrValue = adsrValue.length > 1 ? adsrValue[i] : adsrValue[0];
+      
+      // Get envelope modulation amount
+      const envValue = envelopeAmount.length > 1 ? envelopeAmount[i] : envelopeAmount[0];
+      
+      // NEW: Calculate ADSR-modulated input gain (FIXED: This was missing)
+      let effectiveInputGain = inputGain;
+      if (envValue !== 0) {
+        // Convert envelope amount from bipolar [-1,1] to unipolar [0,1] for input gain modulation
+        const normalizedEnvAmount = (envValue + 1) * 0.5; // 0 = no effect, 1 = max effect
+        
+        if (normalizedEnvAmount > 0.5) { // Positive envelope effect
+          // Scale input gain up with ADSR, more effect as normalizedEnvAmount approaches 1
+          const envEffect = (normalizedEnvAmount - 0.5) * 2; // 0 to 1
+          effectiveInputGain = inputGain * (1 + envEffect * currentAdsrValue * 3);
+        } else if (normalizedEnvAmount < 0.5) { // Negative envelope effect
+          // Scale input gain down with ADSR, more effect as normalizedEnvAmount approaches 0
+          const envEffect = (0.5 - normalizedEnvAmount) * 2; // 0 to 1
+          effectiveInputGain = inputGain * (1 - envEffect * currentAdsrValue);
+        }
+      }
+      
+      // Apply modulated input gain
+      let inputSample = inputChannel[i] * effectiveInputGain;
       
       // Calculate the actual cutoff frequency
       let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
       
-      // Apply keytracking
+      // Apply keytracking as before...
       if (keytrackAmount !== 0) {
         const noteFreqRatio = Math.pow(2, (currentMidiNote - 69) / 12);
         actualCutoff *= Math.pow(noteFreqRatio, keytrackAmount);
       }
       
-      // Apply envelope modulation
-      if (envelopeAmount.length > 1) {
-        const envValue = envelopeAmount[i];
-        if (envValue !== 0) {
-          if (envValue > 0) {
-            const scaledEnv = Math.min(0.95, envValue);
-            actualCutoff *= 1 + (scaledEnv * 8);
-          } else {
-            actualCutoff *= Math.pow(10, envValue * 0.8);
-          }
-        }
-      } else if (envelopeAmount[0] !== 0) {
-        const envValue = envelopeAmount[0];
-        if (envValue > 0) {
-          const scaledEnv = Math.min(0.95, envValue);
-          actualCutoff *= 1 + (scaledEnv * 8);
-        } else {
-          actualCutoff *= Math.pow(10, envValue * 0.8);
-        }
+      // Apply envelope modulation to cutoff with direct mapping at max
+      if (envValue !== 0) {
+  if (envValue > 0) {
+    // Check if envelope amount is at maximum (bipolar scale: 1.0 = maximum)
+    if (envValue >= 0.95) {
+      // Direct logarithmic mapping from min to max frequency based on ADSR
+      const minFreq = 8;
+      const maxFreq = 16000;
+      const logMinFreq = Math.log(minFreq);
+      const logMaxFreq = Math.log(maxFreq);
+      
+      // Map ADSR value (0-1) directly to logarithmic frequency range
+      const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
+      actualCutoff = Math.exp(logFreq);
+      
+      // Add debug logging for direct mapping
+      if (i === 0) {
+        console.log(`Direct ADSR mapping: ADSR=${currentAdsrValue.toFixed(2)}, Cutoff=${actualCutoff.toFixed(1)}Hz`);
       }
+    } else {
+      // Original behavior for non-maximum envelope amount
+      const scaledEnv = Math.min(0.95, envValue);
+      actualCutoff *= 1 + (scaledEnv * 8);
+    }
+  } else {
+    // Keep existing negative envelope behavior
+    actualCutoff *= Math.pow(10, envValue * 0.8);
+  }
+}
       
-      // Update filter cutoff
+      // Rest of the processing remains the same...
       this.setCutoff(actualCutoff);
-      
-      // Get resonance for this sample
       const res = resonance.length > 1 ? resonance[i] : resonance[0];
+      this.setResonance(res);
       
-      // Set resonance with ADSR envelope scaling
-      this.setResonance(res, currentAdsrValue);
-      
-      // Apply bass compensation
+      // Continue with the rest of the filter processing as before
       const bassFactor = bassCompensation * 0.7 + 0.3;
       const effectiveK = this.K * bassFactor;
       
-      // Calculate feedback from all stages
       const sigma = 
         filter.stage1.getFeedbackOutput() +
         filter.stage2.getFeedbackOutput() +
@@ -372,21 +394,17 @@ process(inputs, outputs, parameters) {
       // Scale input by resonance factor
       inputSample *= 1.0 + effectiveK * 0.7;
       
-      // Calculate input to first filter
       let u = (inputSample - effectiveK * sigma) * this.alpha0;
       
-      // Apply saturation based on the drive parameter - keep this as-is
       if (this.saturation > 1.0) {
         u = this.softSaturate(u, this.saturation);
       }
       
-      // Process through each filter stage
       const stage1Out = filter.stage1.tick(u);
       const stage2Out = filter.stage2.tick(stage1Out);
       const stage3Out = filter.stage3.tick(stage2Out);
       const stage4Out = filter.stage4.tick(stage3Out);
       
-      // Mix outputs according to Oberheim coefficients
       let filterOutput = 
         this.oberheimCoefs[0] * u +
         this.oberheimCoefs[1] * stage1Out +
@@ -394,7 +412,6 @@ process(inputs, outputs, parameters) {
         this.oberheimCoefs[3] * stage3Out +
         this.oberheimCoefs[4] * stage4Out;
       
-      // Apply post-filter saturation - keep this as-is
       if (this.saturation > 1.0) {
         const postDrive = this.saturation;
         filterOutput = this.processWithDrive(filterOutput, postDrive);

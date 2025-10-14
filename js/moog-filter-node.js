@@ -238,9 +238,18 @@ setResonance(value) {
   }
   
   setEnvelopeAmount(value) {
-    // Bipolar envelope amount (-1.0 to 1.0)
-    this._envelopeAmount = Math.max(-1.0, Math.min(1.0, value));
-  }
+  // Bipolar envelope amount (-1.0 to 1.0)
+  this._envelopeAmount = Math.max(-1.0, Math.min(1.0, value));
+  
+  // CRITICAL FIX: Update the actual parameter in the processor
+  // This was missing before - we were storing the value but not sending it
+  this.parameters.get('envelopeAmount').setValueAtTime(
+    this._envelopeAmount,
+    this.context.currentTime
+  );
+  
+  console.log(`MoogFilterNode: envelope amount set to ${this._envelopeAmount.toFixed(2)}`);
+}
   
   // ADSR parameter setters
   setAttackTime(value) {

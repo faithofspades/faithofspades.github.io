@@ -1538,33 +1538,48 @@ function initializeFilterPrecisionSlider(slider) {
   let lastY;
   let isDragging = false;
   
-  // Get actual range values for frequency slider (8-16000)
+  // Get actual range values for frequency slider
   const minFreq = parseFloat(slider.min); // 8 Hz
   const maxFreq = parseFloat(slider.max); // 16000 Hz
-  const totalRange = maxFreq - minFreq;
+  
+  // Define transition point
+  const transitionFreq = 600; // Hz where precision begins to level out
 
   function handleMouseMove(e) {
     if (!isDragging) return;
 
-    // Calculate sensitivity based on shift key
-    const sensitivity = e.shiftKey ? 0.01 : 1.0;
-    
-    // Calculate vertical movement (positive = up, negative = down)
+    // Calculate vertical movement
     const deltaY = lastY - e.clientY;
-    
-    // Update last position for next calculation
     lastY = e.clientY;
 
-    // Calculate a fixed step size regardless of current frequency position
-    // 1 pixel of movement = 0.5% of the total range by default (100 pixels = 50% of range)
-    const stepPerPixel = totalRange * 0.005; // 0.5% of total range per pixel
-    const frequencyChange = stepPerPixel * deltaY * sensitivity;
-    
-    // Get current frequency and add the change
+    // Get current frequency
     const currentFreq = parseFloat(slider.value);
-    let newFreq = currentFreq + frequencyChange;
     
-    // Clamp to min/max values
+    // Base sensitivity factors - shift key provides additional precision
+    const shiftFactor = e.shiftKey ? 0.2 : 1.0;
+    
+    // Calculate new frequency based on current range
+    let newFreq;
+    
+    if (currentFreq < transitionFreq) {
+      // Below 600Hz: Reduced sensitivity that scales with frequency
+      // Start at 0.4x sensitivity at lowest frequencies (8Hz)
+      // Gradually increase to 1.0x sensitivity as it approaches 600Hz
+      
+      // Calculate scaling factor from 0.4 to 1.0 based on where we are in the range
+      const normalizedPosition = (currentFreq - minFreq) / (transitionFreq - minFreq);
+      const sensitivityScale = 0.4 + (normalizedPosition * 0.6); // 0.4 at min, 1.0 at transitionFreq
+      
+      // Apply scaled Hz-per-pixel approach for more consistent control
+      // Use 15Hz per pixel as base value, adjusted by the sensitivity scale
+      newFreq = currentFreq + (deltaY * shiftFactor * 15 * sensitivityScale);
+    } else {
+      // Above 600Hz: Normal 1:1 control with linear response
+      // Use a direct Hz-per-pixel approach for more predictable control
+      newFreq = currentFreq + (deltaY * shiftFactor * 40);
+    }
+    
+    // Clamp to valid range
     newFreq = Math.max(minFreq, Math.min(maxFreq, newFreq));
     
     // Round to nearest integer Hz and update slider
@@ -1895,23 +1910,26 @@ const knobInitializations = {
         console.log('Master Volume:', value.toFixed(2));
     },
     'adsr-knob': (value) => {
-    // Map 0-1 to -1 to +1 (bipolar control)
-    const bipolarValue = (value - 0.5) * 2; // 0.5 = unity (no effect)
-    
-    const tooltip = createTooltipForKnob('adsr-knob', value);
-    if (Math.abs(bipolarValue) < 0.02) {
-        tooltip.textContent = `Env: Unity`;
-    } else if (bipolarValue > 0) {
-        tooltip.textContent = `Env: +${Math.round(bipolarValue * 100)}%`;
-    } else {
-        tooltip.textContent = `Env: ${Math.round(bipolarValue * 100)}%`;
-    }
-    tooltip.style.opacity = '1';
-    
-    if (filterManager) {
-        filterManager.setEnvelopeAmount(value);
-    }
-    console.log('Filter Envelope Amount:', bipolarValue.toFixed(2));
+  // Map 0-1 to -1 to +1 (bipolar control)
+  const bipolarValue = (value - 0.5) * 2; // 0.5 = unity (no effect)
+  
+  const tooltip = createTooltipForKnob('adsr-knob', value);
+  if (Math.abs(bipolarValue) < 0.02) {
+    tooltip.textContent = `Env: Center`;
+  } else if (bipolarValue > 0) {
+    tooltip.textContent = `Env: +${Math.abs(bipolarValue * 100).toFixed(0)}%`;
+  } else {
+    tooltip.textContent = `Env: -${Math.abs(bipolarValue * 100).toFixed(0)}%`;
+  }
+  tooltip.style.opacity = '1';
+  
+  if (filterManager) {
+    // CRITICAL FIX: Pass the normalized value directly to the filter manager
+    // The filter manager will convert it to bipolar internally
+    filterManager.setEnvelopeAmount(value);
+  }
+  
+  console.log('Filter Envelope Amount:', bipolarValue.toFixed(2));
 },
 
 'keytrack-knob': (value) => {
