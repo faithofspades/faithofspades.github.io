@@ -351,9 +351,13 @@ process(inputs, outputs, parameters) {
   if (envValue > 0) {
     // Check if envelope amount is at maximum (bipolar scale: 1.0 = maximum)
     if (envValue >= 0.95) {
-      // Direct logarithmic mapping from min to max frequency based on ADSR
-      const minFreq = 8;
+      // UPDATED: Use current cutoff slider value as minimum instead of hardcoded 8Hz
+      // Get base cutoff (from slider, before any keytracking)
+      const baseSliderCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
+      const minFreq = baseSliderCutoff; // Use slider value as minimum 
       const maxFreq = 16000;
+      
+      // Use logarithmic mapping for musical cutoff sweeps
       const logMinFreq = Math.log(minFreq);
       const logMaxFreq = Math.log(maxFreq);
       
@@ -363,7 +367,7 @@ process(inputs, outputs, parameters) {
       
       // Add debug logging for direct mapping
       if (i === 0) {
-        console.log(`Direct ADSR mapping: ADSR=${currentAdsrValue.toFixed(2)}, Cutoff=${actualCutoff.toFixed(1)}Hz`);
+        console.log(`Direct ADSR mapping: ADSR=${currentAdsrValue.toFixed(2)}, From=${minFreq.toFixed(1)}Hz To=16000Hz, Current=${actualCutoff.toFixed(1)}Hz`);
       }
     } else {
       // Original behavior for non-maximum envelope amount
@@ -371,8 +375,31 @@ process(inputs, outputs, parameters) {
       actualCutoff *= 1 + (scaledEnv * 8);
     }
   } else {
-    // Keep existing negative envelope behavior
-    actualCutoff *= Math.pow(10, envValue * 0.8);
+    // NEW HANDLING FOR NEGATIVE ENVELOPE
+    // Check if envelope amount is at minimum (bipolar scale: -1.0 = minimum)
+    if (envValue <= -0.95) {
+      // Direct mapping for extreme negative case - map ADSR in REVERSE from cutoff to 8Hz
+      // Get base cutoff (from slider, before any keytracking)
+      const baseSliderCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
+      const maxFreq = baseSliderCutoff; // Use slider value as maximum
+      const minFreq = 8; // Minimum possible frequency
+      
+      // Use logarithmic mapping for musical cutoff sweeps
+      const logMinFreq = Math.log(minFreq);
+      const logMaxFreq = Math.log(maxFreq);
+      
+      // INVERTED mapping - higher ADSR = lower frequency
+      const logFreq = logMaxFreq - (currentAdsrValue * (logMaxFreq - logMinFreq));
+      actualCutoff = Math.exp(logFreq);
+      
+      // Add debug logging for direct mapping
+      if (i === 0) {
+        console.log(`Negative ADSR mapping: ADSR=${currentAdsrValue.toFixed(2)}, From=${maxFreq.toFixed(1)}Hz To=8Hz, Current=${actualCutoff.toFixed(1)}Hz`);
+      }
+    } else {
+      // Original behavior for moderate negative envelope amounts
+      actualCutoff *= Math.pow(10, envValue * 0.8);
+    }
   }
 }
       

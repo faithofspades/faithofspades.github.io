@@ -1910,26 +1910,40 @@ const knobInitializations = {
         console.log('Master Volume:', value.toFixed(2));
     },
     'adsr-knob': (value) => {
-  // Map 0-1 to -1 to +1 (bipolar control)
-  const bipolarValue = (value - 0.5) * 2; // 0.5 = unity (no effect)
-  
-  const tooltip = createTooltipForKnob('adsr-knob', value);
-  if (Math.abs(bipolarValue) < 0.02) {
-    tooltip.textContent = `Env: Center`;
-  } else if (bipolarValue > 0) {
-    tooltip.textContent = `Env: +${Math.abs(bipolarValue * 100).toFixed(0)}%`;
+  // Convert to stepped values: 0, 0.5, or 1 only
+  // Determine which step is closest
+  let steppedValue;
+  if (value < 0.25) {
+    steppedValue = 0;
+  } else if (value < 0.75) {
+    steppedValue = 0.5;
   } else {
-    tooltip.textContent = `Env: -${Math.abs(bipolarValue * 100).toFixed(0)}%`;
+    steppedValue = 1;
+  }
+  
+  // Map to -100%, 0%, or +100%
+  const bipolarValue = (steppedValue - 0.5) * 2; // Convert to -1, 0, or 1
+  
+  // Update tooltip with precise stepped value description
+  const tooltip = createTooltipForKnob('adsr-knob', steppedValue);
+  if (steppedValue === 0.5) {
+    tooltip.textContent = `Env: Center (0%)`;
+  } else if (steppedValue === 0) {
+    tooltip.textContent = `Env: -100%`;
+  } else {
+    tooltip.textContent = `Env: +100%`;
   }
   tooltip.style.opacity = '1';
   
   if (filterManager) {
-    // CRITICAL FIX: Pass the normalized value directly to the filter manager
-    // The filter manager will convert it to bipolar internally
-    filterManager.setEnvelopeAmount(value);
+    // Pass the stepped value to filter manager
+    filterManager.setEnvelopeAmount(steppedValue);
   }
   
-  console.log('Filter Envelope Amount:', bipolarValue.toFixed(2));
+  console.log(`Filter Envelope Amount: ${bipolarValue.toFixed(2)} (stepped to ${steppedValue})`);
+  
+  // Return the stepped value to update the knob's visual position
+  return steppedValue;
 },
 
 'keytrack-knob': (value) => {
@@ -2748,7 +2762,7 @@ function updateSamplePlaybackParameters(note) {
 * (Do not call updateSamplePlaybackParameters or createNote here.)
 */
 
-
+delete knobInitializations['adsr-knob']; 
 // Update the DOMContentLoaded event listener
 document.addEventListener('DOMContentLoaded', () => {
 // Initialize all regular knobs
@@ -5948,6 +5962,142 @@ console.log('LFO Depth:', value.toFixed(2));
 });
 // Add this to your existing JavaScript
 document.addEventListener('DOMContentLoaded', function() {
+    // FIRST: Disconnect any previous initialization of the ADSR knob
+    const adsrKnob = document.getElementById('adsr-knob');
+    if (adsrKnob) {
+        // Clone the element to remove all event listeners
+        const newAdsrKnob = adsrKnob.cloneNode(true);
+        adsrKnob.parentNode.replaceChild(newAdsrKnob, adsrKnob);
+        
+        // Now set up the stepped knob with 3 fixed positions
+        let currentPosition = 1; // 0=left(-100%), 1=middle(0%), 2=right(+100%)
+        let isDragging = false;
+        let startY;
+        let totalMovement = 0;
+        const positions = [-150, 0, 150]; // Rotation degrees for each position
+        const moveThreshold = 30; // Pixels of movement needed to change position
+        let lastTap = 0;
+
+        function updateKnobPosition() {
+            newAdsrKnob.style.transform = `rotate(${positions[currentPosition]}deg)`;
+            
+            // Convert position to filter envelope amount value (0, 0.5, or 1)
+            const values = [0, 0.5, 1];
+            const value = values[currentPosition];
+            
+            // Update filter envelope with the stepped value
+            if (filterManager) {
+                filterManager.setEnvelopeAmount(value);
+            }
+            
+            // Update tooltip
+            const tooltip = createTooltipForKnob('adsr-knob', value);
+            if (currentPosition === 0) {
+                tooltip.textContent = `Env: -100%`;
+            } else if (currentPosition === 1) {
+                tooltip.textContent = `Env: Center (0%)`;
+            } else {
+                tooltip.textContent = `Env: +100%`;
+            }
+            tooltip.style.opacity = '1';
+            
+            // Log the value change
+            const bipolarValue = (value - 0.5) * 2;
+            console.log(`Filter Envelope Amount: ${bipolarValue.toFixed(2)} (stepped to ${value})`);
+        }
+        
+        // Set initial position from knob defaults
+        const defaultValue = knobDefaults['adsr-knob'] || 0.5;
+        currentPosition = defaultValue < 0.25 ? 0 : defaultValue > 0.75 ? 2 : 1;
+        updateKnobPosition(); // Apply initial position
+
+        // Mouse event handlers
+        newAdsrKnob.addEventListener('mousedown', function(e) {
+            isDragging = true;
+            startY = e.clientY;
+            totalMovement = 0;
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            const deltaY = startY - e.clientY;
+            totalMovement += deltaY;
+            startY = e.clientY;
+            
+            if (totalMovement >= moveThreshold) {
+                if (currentPosition < 2) {
+                    currentPosition++;
+                    updateKnobPosition();
+                }
+                totalMovement = 0;
+            } else if (totalMovement <= -moveThreshold) {
+                if (currentPosition > 0) {
+                    currentPosition--;
+                    updateKnobPosition();
+                }
+                totalMovement = 0;
+            }
+        });
+        
+        document.addEventListener('mouseup', function() {
+            isDragging = false;
+            totalMovement = 0;
+        });
+        
+        // Touch event handlers
+        newAdsrKnob.addEventListener('touchstart', function(e) {
+            if (e.touches.length !== 1) return;
+            isDragging = true;
+            startY = e.touches[0].clientY;
+            totalMovement = 0;
+            e.preventDefault();
+        }, { passive: false });
+        
+        document.addEventListener('touchmove', function(e) {
+            if (!isDragging || e.touches.length !== 1) return;
+            const deltaY = startY - e.touches[0].clientY;
+            totalMovement += deltaY;
+            startY = e.touches[0].clientY;
+            
+            if (totalMovement >= moveThreshold) {
+                if (currentPosition < 2) {
+                    currentPosition++;
+                    updateKnobPosition();
+                }
+                totalMovement = 0;
+            } else if (totalMovement <= -moveThreshold) {
+                if (currentPosition > 0) {
+                    currentPosition--;
+                    updateKnobPosition();
+                }
+                totalMovement = 0;
+            }
+            e.preventDefault();
+        }, { passive: false });
+        
+        document.addEventListener('touchend', function() {
+            isDragging = false;
+            totalMovement = 0;
+        });
+        
+        // Double-click and double-tap to reset to center position
+        newAdsrKnob.addEventListener('dblclick', function() {
+            currentPosition = 1; // Center position (0%)
+            updateKnobPosition();
+            console.log("ADSR reset to center position (0%)");
+        });
+        
+        newAdsrKnob.addEventListener('touchend', function(e) {
+            const now = Date.now();
+            if (now - lastTap < 300) {
+                currentPosition = 1; // Center position (0%)
+                updateKnobPosition();
+                console.log("ADSR reset to center position (0%)");
+            }
+            lastTap = now;
+        });
+    }
 const reverseButton = document.getElementById('reverse-button');
 if (reverseButton) {
 reverseButton.addEventListener('click', function() {
