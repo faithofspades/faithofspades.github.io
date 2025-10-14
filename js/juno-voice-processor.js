@@ -187,55 +187,37 @@ class JunoVoiceProcessor extends AudioWorkletProcessor {
             // Generate all waveforms using the modified phase
             
             // Sawtooth: Linear ramp from -1 to 1
-            const sawtoothCore = (modifiedPhase * 2) - 1;
-            
-            // Sine: Use Math.sin for proper sine wave
-            const sineWave = Math.sin(modifiedPhase * 2 * Math.PI);
-            
-            // Triangle: Create from phase with proper shape
-            let triangleWave;
-            if (modifiedPhase < 0.25) {
-                // Rising from 0 to 1 (first quarter)
-                triangleWave = modifiedPhase * 4;
-            } else if (modifiedPhase < 0.75) {
-                // Falling from 1 to -1 (middle half)
-                triangleWave = 2 - (modifiedPhase * 4);
-            } else {
-                // Rising from -1 to 0 (last quarter)
-                triangleWave = (modifiedPhase * 4) - 4;
-            }
-            
-            // Pulse: Standard pulse wave with direct pulse width control
-            let pulseWave;
-            if (this.localPhase < clampedPW) {
-                // Phase is in the "high" part of the pulse wave
-                pulseWave = 1;
-            } else {
-                // Phase is in the "low" part of the pulse wave
-                pulseWave = -1;
-            }
-            
-            // When there's a significant PW change, track it for smoother transitions
-            if (Math.abs(this.previousPW - clampedPW) > 0.01) {
-                this.pulseTransitionPos = this.localPhase;
-                this.previousPW = clampedPW;
-            }
-            
-            // Store last value for potential zero-crossing detection later
-            this.lastPulseValue = pulseWave;
-            
-            // Get level parameters for this sample
-            const sawLvl = sawLevel.length > 1 ? sawLevel[i] : sawLevel[0];
-            const pulseLvl = pulseLevel.length > 1 ? pulseLevel[i] : pulseLevel[0];
-            const sineLvl = sineLevel.length > 1 ? sineLevel[i] : sineLevel[0];
-            const triangleLvl = triangleLevel.length > 1 ? triangleLevel[i] : triangleLevel[0];
-            
-            // Mix waveforms based on levels
-            let mixedSample = 0;
-            mixedSample += sawtoothCore * sawLvl;
-            mixedSample += pulseWave * pulseLvl;
-            mixedSample += sineWave * sineLvl;
-            mixedSample += triangleWave * triangleLvl;
+        const sawtoothCore = (modifiedPhase * 2) - 1;
+        
+        // Sine: Use Math.sin for proper sine wave
+        const sineWave = Math.sin(modifiedPhase * 2 * Math.PI);
+        
+        // Triangle: Create from phase with proper shape
+        let triangleWave;
+        if (modifiedPhase < 0.25) {
+            triangleWave = modifiedPhase * 4;
+        } else if (modifiedPhase < 0.75) {
+            triangleWave = 2 - (modifiedPhase * 4);
+        } else {
+            triangleWave = (modifiedPhase * 4) - 4;
+        }
+        
+        // Pulse: Use raw phase to ensure smooth transitions when PW changes
+        const pulseWave = this.localPhase < clampedPW ? 1 : -1;
+        
+        // CRITICAL CHANGE: Always read parameter values directly for every sample
+        // Don't use any cached values to ensure immediate updates
+        const sawLvl = sawLevel.length > 1 ? sawLevel[i] : sawLevel[0];
+        const pulseLvl = pulseLevel.length > 1 ? pulseLevel[i] : pulseLevel[0];
+        const sineLvl = sineLevel.length > 1 ? sineLevel[i] : sineLevel[0];
+        const triangleLvl = triangleLevel.length > 1 ? triangleLevel[i] : triangleLevel[0];
+        
+        // Mix waveforms based on current levels
+        let mixedSample = 0;
+        mixedSample += sawtoothCore * sawLvl;
+        mixedSample += pulseWave * pulseLvl;
+        mixedSample += sineWave * sineLvl;
+        mixedSample += triangleWave * triangleLvl;
             
             // Normalize if multiple waveforms are mixed
             const totalLevel = Math.max(0.001, sawLvl + pulseLvl + sineLvl + triangleLvl);

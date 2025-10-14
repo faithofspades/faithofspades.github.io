@@ -267,12 +267,9 @@ handleVoiceSteal(stolenVoiceId, newGainNode, targetAdsrValue) {
   }
 }
   // Set cutoff frequency (0-1 normalized value)
-  setCutoff(normalizedValue) {
-  // FIXED: Map 0-1 to 8Hz-22050Hz logarithmically
-  // At 0%: 8Hz
-  // At 50%: ~419Hz
-  // At 100%: 16000Hz
-  this.cutoff = 8 * Math.pow(16000 / 8, normalizedValue);
+  setCutoff(frequency) {
+  // Directly use the frequency value, just ensure it's within valid range
+  this.cutoff = Math.max(8, Math.min(16000, frequency));
   
   this.voiceFilters.forEach((filterData) => {
     if (filterData.filterNode instanceof MoogFilterNode) {
@@ -282,7 +279,7 @@ handleVoiceSteal(stolenVoiceId, newGainNode, targetAdsrValue) {
     }
   });
   
-  console.log(`Filter cutoff set to ${this.cutoff.toFixed(1)}Hz (${(normalizedValue * 100).toFixed(0)}%)`);
+  console.log(`Filter cutoff set to ${this.cutoff.toFixed(1)}Hz`);
 }
   
   // Set resonance (0-1 normalized value)

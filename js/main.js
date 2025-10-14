@@ -88,7 +88,7 @@ function initializeFilterSystem() {
   // Configure filter with proper defaults
   if (filterManager) {
     filterManager.setDrive(0.0); // Set to 0% (unity gain, no overdrive)
-    filterManager.setCutoff(1.0); // 100% = 20kHz (no filtering)
+    filterManager.setCutoff(16000); // 100% = 20kHz (no filtering)
     filterManager.setResonance(0.0); // No resonance
   }
   
@@ -165,18 +165,18 @@ function initializeFilterControls() {
   // Filter Type Selector - SET TO LP24 BY DEFAULT
   const filterTypeSelector = document.querySelector('.filter-type-range');
   if (filterTypeSelector) {
-    filterTypeSelector.value = 1; // Set to LP24 (index 1)
+    filterTypeSelector.value = 3; // Set to LP24 (index 1)
     filterTypeSelector.addEventListener('input', (e) => {
       const value = parseInt(e.target.value);
       let filterType = 'none';
       
       // Map slider position to filter type
       switch (value) {
-        case 0: filterType = 'lp12'; break;
-        case 1: filterType = 'lp24'; break; // Moog filter
+        case 4: filterType = 'lp12'; break;
+        case 3: filterType = 'lp24'; break; // Moog filter
         case 2: filterType = 'phase'; break;
-        case 3: filterType = 'comb'; break;
-        case 4: filterType = 'dist'; break;
+        case 1: filterType = 'comb'; break;
+        case 0: filterType = 'dist'; break;
       }
       
       if (filterManager) {
@@ -186,20 +186,20 @@ function initializeFilterControls() {
     });
   }
   
-  // Frequency Slider - DEFAULT TO 100% (20kHz = no filtering)
+  // Frequency Slider - DEFAULT TO 16000Hz (max, no filtering)
   const freqSlider = document.querySelector('.freq-slider-range');
   if (freqSlider) {
-    freqSlider.value = 1.0; // Set to max (100%)
+    freqSlider.value = 16000; // Set to max frequency (16000 Hz)
     freqSlider.addEventListener('input', (e) => {
-      const value = parseFloat(e.target.value);
+      const frequency = parseFloat(e.target.value);
       if (filterManager) {
-        filterManager.setCutoff(value);
+        filterManager.setCutoff(frequency);
       }
     });
     
     // Initialize the filter with max cutoff
     if (filterManager) {
-      filterManager.setCutoff(1.0);
+      filterManager.setCutoff(16000);
     }
   }
   
@@ -1524,8 +1524,72 @@ function noteToFrequency(noteNumber, octaveOffset = 0, detuneCents = 0) {
     // return frequency * Math.pow(2, detuneCents / 1200);
     return frequency;
 }
+document.addEventListener('DOMContentLoaded', () => {
+  // Add precision control to frequency cutoff slider
+  const freqSlider = document.querySelector('.freq-slider-range');
+  if (freqSlider) {
+    initializeFilterPrecisionSlider(freqSlider);
+    console.log('Precision control added to frequency slider');
+  }
+});
 
+// Specialized precision slider function for filter parameters (0-1 range)
+function initializeFilterPrecisionSlider(slider) {
+  let lastY;
+  let isDragging = false;
+  
+  // Get actual range values for frequency slider (8-16000)
+  const minFreq = parseFloat(slider.min); // 8 Hz
+  const maxFreq = parseFloat(slider.max); // 16000 Hz
+  const totalRange = maxFreq - minFreq;
 
+  function handleMouseMove(e) {
+    if (!isDragging) return;
+
+    // Calculate sensitivity based on shift key
+    const sensitivity = e.shiftKey ? 0.01 : 1.0;
+    
+    // Calculate vertical movement (positive = up, negative = down)
+    const deltaY = lastY - e.clientY;
+    
+    // Update last position for next calculation
+    lastY = e.clientY;
+
+    // Calculate a fixed step size regardless of current frequency position
+    // 1 pixel of movement = 0.5% of the total range by default (100 pixels = 50% of range)
+    const stepPerPixel = totalRange * 0.005; // 0.5% of total range per pixel
+    const frequencyChange = stepPerPixel * deltaY * sensitivity;
+    
+    // Get current frequency and add the change
+    const currentFreq = parseFloat(slider.value);
+    let newFreq = currentFreq + frequencyChange;
+    
+    // Clamp to min/max values
+    newFreq = Math.max(minFreq, Math.min(maxFreq, newFreq));
+    
+    // Round to nearest integer Hz and update slider
+    slider.value = Math.round(newFreq);
+
+    // Trigger input event to update filter
+    slider.dispatchEvent(new Event('input'));
+
+    e.preventDefault();
+  }
+
+  function handleMouseUp() {
+    isDragging = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  }
+
+  slider.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    lastY = e.clientY;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    e.preventDefault();
+  });
+}
 // Initialize for all mobile devices to be safe
 if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
 // Use DOMContentLoaded for more reliable initialization
@@ -3249,7 +3313,7 @@ function handleMouseMove(e) {
 if (!isDragging) return;
 
 // Calculate sensitivity based on shift key
-const sensitivity = e.shiftKey ? 0.2 : 1.0;
+const sensitivity = e.shiftKey ? 0.03 : 1.0;
 const deltaY = (lastY - e.clientY) * sensitivity;
 lastY = e.clientY;
 
@@ -5481,7 +5545,7 @@ initializeFilterControls();
 // Set filter defaults
   if (filterManager) {
     // Set default filter values
-    filterManager.setCutoff(1.0); // 100% = 20kHz
+    filterManager.setCutoff(16000); // 100% = 20kHz
     filterManager.setResonance(0.0); // 0% resonance
     filterManager.setVariant(1); // 100% oscillation
     filterManager.setDrive(0.0); // No drive
@@ -5725,15 +5789,15 @@ if (osc1WaveSelector) {
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
     osc1Waveform = waveformMap[parseInt(osc1WaveSelector.value)];
     
-    osc1WaveSelector.addEventListener('change', (e) => {
+    // Change from 'change' to 'input' event for immediate updates
+    osc1WaveSelector.addEventListener('input', (e) => {
         osc1Waveform = waveformMap[parseInt(e.target.value)];
         console.log(`Osc1 waveform changed to: ${osc1Waveform}`);
         
         // Update all active Osc1 notes with new waveform
         const now = audioCtx.currentTime;
         voicePool.forEach(voice => {
-            if (voice.osc1Note && voice.osc1Note.workletNode && voice.osc1Note.state === 'active') {
-                // FIXED: Use waveform default if PWM is 0, otherwise use PWM value
+            if (voice.osc1Note && voice.osc1Note.workletNode) {
                 const pulseWidth = (osc1PWMValue === 0) ? 
                     getJunoWaveformParams(osc1Waveform).pulseWidth : 
                     (osc1PWMValue * 0.95);
@@ -5743,8 +5807,6 @@ if (osc1WaveSelector) {
         
         updatePWMKnobState(); // Update PWM knob visibility/state
     });
-} else {
-    console.warn("Osc1 wave selector not found in DOM");
 }
 // Replace your existing sample auto-loading code with this:
 // document.addEventListener('DOMContentLoaded', function() {
@@ -5963,21 +6025,21 @@ if (osc2OctaveSelector) {
     console.warn("Oscillator 2 Octave Selector element not found!"); 
 }
     // Initialize Oscillator 2 Wave Shape Selector
-    const osc2WaveSelector = D('osc2-wave-selector');
+const osc2WaveSelector = D('osc2-wave-selector');
 if (osc2WaveSelector) {
     // Set initial waveform
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
     osc2Waveform = waveformMap[parseInt(osc2WaveSelector.value)];
     
-    osc2WaveSelector.addEventListener('change', (e) => {
+    // Change from 'change' to 'input' event for immediate updates
+    osc2WaveSelector.addEventListener('input', (e) => {
         osc2Waveform = waveformMap[parseInt(e.target.value)];
         console.log(`Osc2 waveform changed to: ${osc2Waveform}`);
         
         // Update all active Osc2 notes with new waveform
         const now = audioCtx.currentTime;
         voicePool.forEach(voice => {
-            if (voice.osc2Note && voice.osc2Note.workletNode && voice.osc2Note.state === 'active') {
-                // FIXED: Use waveform default if PWM is 0, otherwise use PWM value
+            if (voice.osc2Note && voice.osc2Note.workletNode) {
                 const pulseWidth = (osc2PWMValue === 0) ? 
                     getJunoWaveformParams(osc2Waveform).pulseWidth : 
                     (osc2PWMValue * 0.95);
@@ -5985,10 +6047,8 @@ if (osc2WaveSelector) {
             }
         });
         
-        updateOsc2PWMKnobState(); // Update PWM knob visibility/state
+        updateOsc2PWMKnobState();
     });
-} else {
-    console.warn("Osc2 wave selector not found in DOM");
 }
 // Fix the OSC2 FM Source Switch (already exists around line 5350 but needs correction)
 const osc2FmSourceSwitchElement = D('osc2-fm-source-switch');
