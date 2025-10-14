@@ -3432,13 +3432,13 @@ function loadPresetSample(filename) {
     // Determine if we're running on GitHub Pages
     const isGitHubPages = window.location.hostname.includes('github.io');
     
-    // Build the URL with the correct path based on environment
-    const basePath = isGitHubPages ? '/faithofspades.github.io/samples/' : '/samples/';
+    // FIX: Don't duplicate the repository name in the path
+    const basePath = isGitHubPages ? '/samples/' : '/samples/';
     const sampleUrl = new URL(basePath + filename, window.location.origin).href;
     
     console.log(`Loading sample from: ${sampleUrl}`);
 
-    // Fetch the sample file
+    // Rest of your function remains the same...
     fetch(sampleUrl)
     .then(response => {
         if (!response.ok) {
