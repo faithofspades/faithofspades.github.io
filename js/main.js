@@ -1,3 +1,72 @@
+window.loadPresetSample = function(filename) {
+    console.log(`Loading preset sample: ${filename}`);
+
+    // Determine if we're running on GitHub Pages
+    const isGitHubPages = window.location.hostname.includes('github.io');
+    
+    // FIX: Don't duplicate the repository name in the path
+    const basePath = isGitHubPages ? '/samples/' : '/samples/';
+    const sampleUrl = new URL(basePath + filename, window.location.origin).href;
+    
+    console.log(`Loading sample from: ${sampleUrl}`);
+
+    // Rest of your function remains the same...
+    fetch(sampleUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
+        }
+        return response.arrayBuffer();
+    })
+    .then(arrayBuffer => {
+        return audioCtx.decodeAudioData(arrayBuffer);
+    })
+    .then(buffer => {
+        audioBuffer = buffer;
+        originalBuffer = buffer.slice();
+        
+        // Apply reverse if needed
+        if (isSampleReversed) {
+            reverseBufferIfNeeded(false);
+        }
+        
+        // Process fades and crossfades
+        updateSampleProcessing();
+        
+        // Create new source node
+        if (sampleSource) {
+            sampleSource.stop();
+        }
+        sampleSource = audioCtx.createBufferSource();
+        sampleSource.buffer = buffer;
+        sampleSource.connect(sampleGainNode);
+        sampleSource.start();
+        
+        // UPDATE LABEL
+        const fileLabel = document.querySelector('label[for="audio-file"]');
+        if (fileLabel) {
+            fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
+        }
+        
+        // Force FM connection update
+        setTimeout(() => {
+            // Update any active sampler notes
+            voicePool.forEach(voice => {
+                if (voice.state !== 'inactive' && voice.samplerNote) {
+                    if (!heldNotes.includes(voice.noteNumber)) {
+                        updateSamplePlaybackParameters(voice.samplerNote);
+                    }
+                }
+            });
+        }, 100);
+
+        console.log(`Sample ${filename} loaded successfully, length: ${buffer.length} samples, duration: ${buffer.duration.toFixed(2)}s`);
+    })
+    .catch(error => {
+        console.error('Error loading preset sample:', error);
+        alert(`Failed to load sample: ${filename}`);
+    });
+};
 import { createiOSStartupOverlay } from './ios.js';
 import { initializeKnob } from './controls.js'; 
 import { fixMicRecording, createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
@@ -5457,21 +5526,21 @@ fixAllKnobs(knobInitializations, knobDefaults); // <-- Add this line, passing de
     }, 500); // 500ms delay to ensure knobs are fully initialized
 // Replace your existing sample auto-loading code with this:
 
-    // Add a listener for user interaction before loading sample
-    const userInteractionHandler = function() {
-        console.log("User interaction detected - loading initial sample");
-        loadPresetSample('Noise.wav');
+    // // Add a listener for user interaction before loading sample
+    // const userInteractionHandler = function() {
+    //     console.log("User interaction detected - loading initial sample");
+    //     loadPresetSample('Noise.wav');
         
-        // Remove these event listeners after first use
-        document.removeEventListener('click', userInteractionHandler);
-        document.removeEventListener('keydown', userInteractionHandler);
-        document.removeEventListener('touchstart', userInteractionHandler);
-    };
+    //     // Remove these event listeners after first use
+    //     document.removeEventListener('click', userInteractionHandler);
+    //     document.removeEventListener('keydown', userInteractionHandler);
+    //     document.removeEventListener('touchstart', userInteractionHandler);
+    // };
     
-    // Add the event listeners for common interaction events
-    document.addEventListener('click', userInteractionHandler, { once: true });
-    document.addEventListener('keydown', userInteractionHandler, { once: true });
-    document.addEventListener('touchstart', userInteractionHandler, { once: true });
+    // // Add the event listeners for common interaction events
+    // document.addEventListener('click', userInteractionHandler, { once: true });
+    // document.addEventListener('keydown', userInteractionHandler, { once: true });
+    // document.addEventListener('touchstart', userInteractionHandler, { once: true });
 
 
     
@@ -5678,25 +5747,25 @@ if (osc1WaveSelector) {
     console.warn("Osc1 wave selector not found in DOM");
 }
 // Replace your existing sample auto-loading code with this:
-document.addEventListener('DOMContentLoaded', function() {
-    // Add a listener for user interaction before loading sample
-    const userInteractionHandler = function() {
-        console.log("User interaction detected - loading initial sample");
-        loadPresetSample('Noise.wav');
+// document.addEventListener('DOMContentLoaded', function() {
+//     // Add a listener for user interaction before loading sample
+//     const userInteractionHandler = function() {
+//         console.log("User interaction detected - loading initial sample");
+//         loadPresetSample('Noise.wav');
         
-        // Remove these event listeners after first use
-        document.removeEventListener('click', userInteractionHandler);
-        document.removeEventListener('keydown', userInteractionHandler);
-        document.removeEventListener('touchstart', userInteractionHandler);
-    };
+//         // Remove these event listeners after first use
+//         document.removeEventListener('click', userInteractionHandler);
+//         document.removeEventListener('keydown', userInteractionHandler);
+//         document.removeEventListener('touchstart', userInteractionHandler);
+//     };
     
-    // Add the event listeners for common interaction events
-    document.addEventListener('click', userInteractionHandler, { once: true });
-    document.addEventListener('keydown', userInteractionHandler, { once: true });
-    document.addEventListener('touchstart', userInteractionHandler, { once: true });
+//     // Add the event listeners for common interaction events
+//     document.addEventListener('click', userInteractionHandler, { once: true });
+//     document.addEventListener('keydown', userInteractionHandler, { once: true });
+//     document.addEventListener('touchstart', userInteractionHandler, { once: true });
     
 
-});
+// });
 
 // --- Modulation Source Button Logic ---
 const modModeSelector = document.querySelector('.mod-mode-selector'); // Get the container

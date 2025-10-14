@@ -99,9 +99,24 @@ export function createiOSStartupOverlay(audioCtx) {
             setTimeout(() => {
                 if (overlay.parentNode === document.body) { // Check if overlay is still in DOM
                     document.body.removeChild(overlay);
+                    
+                    // ADDED: Load the sample after overlay is removed
+                    console.log("Overlay removed, loading initial sample");
+                    
+                    // Make sure audio context is running
+                    if (audioCtx && audioCtx.state === "running") {
+                        // Check if window.loadPresetSample function exists
+                        if (typeof window.loadPresetSample === 'function') {
+                            window.loadPresetSample('noise.wav');
+                        } else {
+                            console.error("loadPresetSample function not available");
+                        }
+                    } else {
+                        console.error("AudioContext not running after unlock");
+                    }
                 }
                 // Keep the silent audio element playing in the background
-            }, 50);
+            }, 200); // Increased from 50ms to 200ms for more reliable context state
 
             // Clean up event listeners
             overlay.removeEventListener('touchstart', unlockAudio);
