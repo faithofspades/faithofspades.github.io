@@ -3429,8 +3429,14 @@ dropdown.classList.remove('show');
 function loadPresetSample(filename) {
     console.log(`Loading preset sample: ${filename}`);
 
-    // Build the URL to the sample file
-    const sampleUrl = `samples/${filename}`;
+    // Determine if we're running on GitHub Pages
+    const isGitHubPages = window.location.hostname.includes('github.io');
+    
+    // Build the URL with the correct path based on environment
+    const basePath = isGitHubPages ? '/faithofspades.github.io/samples/' : '/samples/';
+    const sampleUrl = new URL(basePath + filename, window.location.origin).href;
+    
+    console.log(`Loading sample from: ${sampleUrl}`);
 
     // Fetch the sample file
     fetch(sampleUrl)
@@ -3441,7 +3447,6 @@ function loadPresetSample(filename) {
         return response.arrayBuffer();
     })
     .then(arrayBuffer => {
-        // Decode the audio data
         return audioCtx.decodeAudioData(arrayBuffer);
     })
     .then(buffer => {
@@ -5450,9 +5455,25 @@ fixAllKnobs(knobInitializations, knobDefaults); // <-- Add this line, passing de
             }
         });
     }, 500); // 500ms delay to ensure knobs are fully initialized
+// Replace your existing sample auto-loading code with this:
 
-// Load default sample first
-    loadPresetSample('noise.wav');
+    // Add a listener for user interaction before loading sample
+    const userInteractionHandler = function() {
+        console.log("User interaction detected - loading initial sample");
+        loadPresetSample('noise.wav');
+        
+        // Remove these event listeners after first use
+        document.removeEventListener('click', userInteractionHandler);
+        document.removeEventListener('keydown', userInteractionHandler);
+        document.removeEventListener('touchstart', userInteractionHandler);
+    };
+    
+    // Add the event listeners for common interaction events
+    document.addEventListener('click', userInteractionHandler, { once: true });
+    document.addEventListener('keydown', userInteractionHandler, { once: true });
+    document.addEventListener('touchstart', userInteractionHandler, { once: true });
+
+
     
     // Initialize FM with a slight delay to ensure sample is loaded
     setTimeout(() => {
@@ -5656,19 +5677,26 @@ if (osc1WaveSelector) {
 } else {
     console.warn("Osc1 wave selector not found in DOM");
 }
+// Replace your existing sample auto-loading code with this:
+document.addEventListener('DOMContentLoaded', function() {
+    // Add a listener for user interaction before loading sample
+    const userInteractionHandler = function() {
+        console.log("User interaction detected - loading initial sample");
+        loadPresetSample('noise.wav');
+        
+        // Remove these event listeners after first use
+        document.removeEventListener('click', userInteractionHandler);
+        document.removeEventListener('keydown', userInteractionHandler);
+        document.removeEventListener('touchstart', userInteractionHandler);
+    };
+    
+    // Add the event listeners for common interaction events
+    document.addEventListener('click', userInteractionHandler, { once: true });
+    document.addEventListener('keydown', userInteractionHandler, { once: true });
+    document.addEventListener('touchstart', userInteractionHandler, { once: true });
+    
 
-// Load the noise sample by default after a short delay to ensure audio context is ready
-    setTimeout(() => {
-        loadPresetSample('noise.wav'); // Assuming you have noise.wav in your samples folder
-        
-        // Update the label to show we've loaded the noise sample
-        const fileLabel = document.querySelector('label[for="audio-file"]');
-        if (fileLabel) {
-            fileLabel.textContent = 'Noise (default)';
-        }
-        
-        console.log('Default noise sample loaded at 1% volume');
-    }, 500);
+});
 
 // --- Modulation Source Button Logic ---
 const modModeSelector = document.querySelector('.mod-mode-selector'); // Get the container
