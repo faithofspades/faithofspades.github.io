@@ -151,15 +151,35 @@ export class MoogFilterNode extends AudioWorkletNode {
   }
   
   // Simple note on - just updates note number for keytracking
-  noteOn(midiNote, velocity = 1.0, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0) {
-    this._currentMidiNote = midiNote;
-    this._notePlaying = true;
+  noteOn(midiNote, velocity = 1.0, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0, isLegatoTransition = false) {
+  this._currentMidiNote = midiNote;
+  this._notePlaying = true;
+  
+  // Update the MIDI note parameter for keytracking
+  this.parameters.get('currentMidiNote').value = midiNote;
+  
+  // CRITICAL FIX: Handle legato transitions differently
+  if (isLegatoTransition || !retrigger) {
+    console.log(`Filter legato transition to note ${midiNote} - maintaining current envelope`);
     
-    // Update the MIDI note parameter for keytracking
-    this.parameters.get('currentMidiNote').value = midiNote;
+    // Don't clear the polling interval - just continue tracking the envelope
+    // This ensures smooth legato transitions in mono mode
+    if (!this._adsrPollingInterval) {
+      this._startAdsrPolling(); // Make sure polling is active
+    }
+  } else {
+    // Normal note on - start envelope tracking from beginning
+    // Clear any existing interval first to restart clean
+    if (this._adsrPollingInterval) {
+      clearInterval(this._adsrPollingInterval);
+      this._adsrPollingInterval = null;
+    }
     
-    console.log(`Filter noteOn for note ${midiNote} - will follow amplitude envelope`);
+    // Start fresh polling
+    this._startAdsrPolling();
+    console.log(`Filter noteOn for note ${midiNote} - will follow amplitude envelope from beginning`);
   }
+}
   
   // Simple note off - just marks as not playing
   noteOff() {

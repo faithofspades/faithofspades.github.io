@@ -215,40 +215,37 @@ connectVoiceEnvelope(voiceId, voiceGainNode) {
 }
 
 // Also update the noteOn method to synchronize filter ADSR with voice ADSR
-noteOn(voiceId, noteNumber, velocity = 1, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0) {
+noteOn(voiceId, noteNumber, velocity = 1, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0, isLegatoTransition = false) {
   const filterData = this.voiceFilters.get(voiceId);
   if (filterData) {
     filterData.currentNote = noteNumber;
     
     // Update MIDI note parameter for keytracking
     if (filterData.filterNode instanceof MoogFilterNode) {
-      // Pass envelope state and current value to ensure filter ADSR stays synchronized
-      filterData.filterNode.noteOn(noteNumber, velocity, retrigger, envelopeState, currentEnvelopeValue);
+      // Pass the legato transition flag to prevent retriggering the envelope
+      filterData.filterNode.noteOn(noteNumber, velocity, !isLegatoTransition, envelopeState, currentEnvelopeValue);
     }
     
-    console.log(`Filter noteOn for voice ${voiceId}, note ${noteNumber}, retrigger=${retrigger}, state=${envelopeState}`);
+    console.log(`Filter noteOn for voice ${voiceId}, note ${noteNumber}, retrigger=${!isLegatoTransition}, state=${envelopeState}`);
   }
 }
 
 // Update noteOff to properly handle release phase
-noteOff(voiceId, reset = false) {
+noteOff(voiceId, reset = false, isMonoMode = false, heldNotesRemaining = 0) {
   const filterData = this.voiceFilters.get(voiceId);
-  if (filterData && filterData.filterNode instanceof MoogFilterNode) {
+  if (!filterData || !filterData.filterNode) return;
+
+  // In mono mode, only transition to release if no more held notes
+  if (isMonoMode && heldNotesRemaining > 0) {
+    // Don't trigger filter release when other notes are still held in mono mode
+    console.log(`Filter ${voiceId} ignoring noteOff in mono mode with ${heldNotesRemaining} notes still held`);
+    return;
+  }
+  
+  // Normal behavior for poly mode or last note in mono mode
+  if (filterData.filterNode instanceof MoogFilterNode) {
     filterData.filterNode.noteOff();
     console.log(`Filter noteOff for voice ${voiceId} - resonance will fade with release`);
-  }
-}
-  resetFilterEnvelope(voiceId, targetAdsrValue = null, isVoiceSteal = false) {
-  const filterData = this.voiceFilters.get(voiceId);
-  if (filterData && filterData.filterNode instanceof MoogFilterNode) {
-    // Pass the voice steal flag and target ADSR value
-    filterData.filterNode.reset(targetAdsrValue, isVoiceSteal);
-    
-    if (isVoiceSteal) {
-      console.log(`Smoothly transitioning filter ${voiceId} for voice steal`);
-    } else {
-      console.log(`Reset filter envelope for voice ${voiceId}`);
-    }
   }
 }
 handleVoiceSteal(stolenVoiceId, newGainNode, targetAdsrValue) {

@@ -365,10 +365,7 @@ process(inputs, outputs, parameters) {
       const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
       actualCutoff = Math.exp(logFreq);
       
-      // Add debug logging for direct mapping
-      if (i === 0) {
-        console.log(`Direct ADSR mapping: ADSR=${currentAdsrValue.toFixed(2)}, From=${minFreq.toFixed(1)}Hz To=16000Hz, Current=${actualCutoff.toFixed(1)}Hz`);
-      }
+      
     } else {
       // Original behavior for non-maximum envelope amount
       const scaledEnv = Math.min(0.95, envValue);

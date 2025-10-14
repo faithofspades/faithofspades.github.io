@@ -4376,7 +4376,7 @@ function applySamplerWarble(samplerVoice, now) {
     source.detune.linearRampToValueAtTime(baseDetune, now + settleTime);
 }
 // Also ensure noteOn properly sets up the envelope from zero
-function noteOn(noteNumber) {
+function noteOn(noteNumber, isLegatoMonoTransition = false) {
     if (isModeTransitioning) return;
     
     const now = audioCtx.currentTime;
@@ -4396,7 +4396,8 @@ function noteOn(noteNumber) {
 
     // --- DETERMINE LEGATO STATE ---
     // Check if we're in mono mode with legato enabled and if we're triggering a new note while another is held
-    const isLegatoActive = isMonoMode && isLegatoMode && previousNoteNumber !== null;
+    // Now use BOTH the legato mode setting AND the passed parameter
+    const isLegatoActive = isMonoMode && (isLegatoMode || isLegatoMonoTransition) && previousNoteNumber !== null;
     
     // For true legato, we need at least one previously held note that's not in release stage
     let legatoTransition = false;
@@ -4456,7 +4457,24 @@ function noteOn(noteNumber) {
     
     // Store old note for glide
     const oldNoteNumber = voice.noteNumber;
-
+// When setting up the filter, ensure legatoTransition is respected:
+    if (filterManager && filterManager.isActive) {
+        if (voice.osc1Note) {
+            // Pass legatoTransition=true when in legato mono mode
+            const isFilterLegato = legatoTransition || isLegatoMonoTransition;
+            filterManager.noteOn(`osc-${voice.id}`, noteNumber, 1.0, !isFilterLegato, voice.envelopeState, undefined, isFilterLegato);
+            filterManager.connectVoiceEnvelope(`osc-${voice.id}`, voice.osc1Note.gainNode);
+            console.log(`Filter ${isFilterLegato ? 'continues' : 'starts'} tracking amplitude for voice ${voice.id} (${isMonoMode ? 'mono' : 'poly'})`);
+        }
+        
+        // Do the same for sampler
+        if (samplerVoice && samplerVoice.samplerNote) {
+            const isFilterLegato = legatoTransition || isLegatoMonoTransition;
+            filterManager.noteOn(`sampler-${samplerVoice.id}`, noteNumber, 1.0, !isFilterLegato, samplerVoice.envelopeState, undefined, isFilterLegato);
+            filterManager.connectVoiceEnvelope(`sampler-${samplerVoice.id}`, samplerVoice.samplerNote.gainNode);
+            console.log(`Filter ${isFilterLegato ? 'continues' : 'starts'} tracking amplitude for sampler ${samplerVoice.id} (${isMonoMode ? 'mono' : 'poly'})`);
+        }
+    }
 // Store previous envelope state for sophisticated retriggering
 const previousEnvelopeState = voice.envelopeState;
 const wasInAttack = previousEnvelopeState === 'attack';
@@ -5185,12 +5203,16 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
 
     // --- MONO MODE HANDLING ---
     if (isMonoMode && heldNotes.length > 0) {
-        // Switch to the next held note without releasing
-        const nextNote = heldNotes[heldNotes.length - 1];
-        console.log(`Mono noteOff: Switching from ${noteNumber} to held note ${nextNote}`);
-        noteOn(nextNote);
-        return;
-    }
+    // Switch to the next held note without releasing
+    const nextNote = heldNotes[heldNotes.length - 1];
+    console.log(`Mono noteOff: Switching from ${noteNumber} to held note ${nextNote}`);
+    
+    // CRITICAL FIX: Pass true as second parameter to indicate this is a legato transition
+    noteOn(nextNote, true); // Add true for isLegatoMonoTransition
+    
+    return;
+
+}
 
     // --- SAMPLER NOTE-OFF LOGIC ---
     // Find all sampler voices playing this note
@@ -5215,6 +5237,7 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
         voicesToRelease = [specificVoice];
         console.log(`Releasing specific voice ${specificVoice.id} for note ${noteNumber}`);
     } else {
+        
         // Release all voices for this note
         voicesToRelease = voiceAssignments.get(noteNumber) || [];
     }
@@ -5299,6 +5322,11 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
 //     console.log(`Released filter envelope for sampler voice ${samplerVoice.id}`);
 //   });
 // }
+// Update filter call to include mono mode parameters
+            if (filterManager && voice.osc1Note) {
+  // Pass mono mode flag and remaining held notes count to filter
+  filterManager.noteOff(voice.id, false, isMonoMode, heldNotes.length);
+}
         // Clean up voice assignment after release
         trackVoiceTimer(voice, () => {
             // Only cleanup if this is still the active release for this voice
