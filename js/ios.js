@@ -107,7 +107,7 @@ export function createiOSStartupOverlay(audioCtx) {
                     if (audioCtx && audioCtx.state === "running") {
                         // Check if window.loadPresetSample function exists
                         if (typeof window.loadPresetSample === 'function') {
-                            window.loadPresetSample('noise.wav');
+                            window.loadPresetSample('Noise.wav');
                         } else {
                             console.error("loadPresetSample function not available");
                         }
