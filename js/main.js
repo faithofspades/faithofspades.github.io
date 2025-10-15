@@ -114,7 +114,31 @@ masterGain.connect(audioCtx.destination);
 // Don't connect masterGain yet - we'll do it selectively below
 let isWorkletReady = false;
 let pendingInitialization = true;
-
+// Helper function to create natural decay/release curves
+function applyCurvedEnvelope(gainNode, startValue, endValue, duration, startTime, curveType) {
+  // Cancel any scheduled values first
+  gainNode.cancelScheduledValues(startTime);
+  
+  // Set the starting point
+  gainNode.setValueAtTime(Math.max(0.0001, startValue), startTime);
+  
+  if (curveType === 'decay' || curveType === 'release') {
+    // For decay and release: quick initial drop that gradually flattens out
+    // setTargetAtTime creates exactly this exponential curve with "hang time"
+    // The time constant determines how quickly it approaches the target value
+    const timeConstant = duration * 0.3; // Smaller values = faster initial drop
+    
+    // This creates an exponential decay curve toward the target value
+    gainNode.setTargetAtTime(endValue, startTime, timeConstant);
+    
+    // Schedule an explicit end point to ensure we reach the target 
+    // (setTargetAtTime asymptotically approaches but never reaches the target value)
+    gainNode.setValueAtTime(endValue, startTime + duration);
+  } else {
+    // For attack and other types, keep using linear ramps
+    gainNode.linearRampToValueAtTime(endValue, startTime + duration);
+  }
+}
 // Update worklet initialization to include master clock
 const workletReadyPromise = initializeMasterClock()
     .then(() => audioCtx.audioWorklet.addModule('js/shape-hold-processor.js'))
@@ -294,9 +318,9 @@ function setupNonLinearADSRSliders() {
     
     // Set initial values
     let initialTime;
-    if (id === 'attack') initialTime = 0.01;
-    else if (id === 'decay') initialTime = 0.1;
-    else if (id === 'release') initialTime = 0.05;
+    if (id === 'attack') initialTime = 0.00;
+    else if (id === 'decay') initialTime = 0.0;
+    else if (id === 'release') initialTime = 0.00;
     
     const initialPosition = timeToPosition(initialTime);
     newSlider.value = initialPosition * parseFloat(newSlider.max);
@@ -3030,59 +3054,92 @@ function updateSliderValues() {
 
   updateADSRVisualization();
 }
-// ADSR visualization
+// ADSR visualization with curved decay and release
 function updateADSRVisualization() {
-  const attack = parseFloat(D('attack').value);
-const decay = parseFloat(D('decay').value);
-const sustain = parseFloat(D('sustain').value);
-const release = parseFloat(D('release').value);
+  const attack = parseFloat(D('attack').dataset.mappedTime || D('attack').value);
+  const decay = parseFloat(D('decay').dataset.mappedTime || D('decay').value);
+  const sustain = parseFloat(D('sustain').value);
+  const release = parseFloat(D('release').dataset.mappedTime || D('release').value);
 
-const graph = D('adsr-visualization');
-const totalTime = attack + decay + 2 + release; // 2 seconds for sustain
+  const graph = D('adsr-visualization');
+  const totalTime = attack + decay + 2 + release; // 2 seconds for sustain
 
-// Get actual display dimensions
-const width = graph.offsetWidth;
-const height = graph.offsetHeight;
+  // Get actual display dimensions
+  const width = graph.offsetWidth;
+  const height = graph.offsetHeight;
     
-    // Calculate points for ADSR envelope
-    const attackX = (attack / totalTime) * width;
-    const decayX = attackX + ((decay / totalTime) * width);
-    const releaseStartX = decayX + ((2 / totalTime) * width); // 2 seconds sustain
-    const releaseEndX = width;
-    
-// Create canvas at exact display size
-const canvas = document.createElement('canvas');
-canvas.width = width;
-canvas.height = height;
-const ctx = canvas.getContext('2d');
+  // Calculate points for ADSR envelope
+  const attackX = (attack / totalTime) * width;
+  const decayX = attackX + ((decay / totalTime) * width);
+  const releaseStartX = decayX + ((2 / totalTime) * width); // 2 seconds sustain
+  const releaseEndX = width;
+  
+  // Calculate sustain level Y position
+  const sustainY = height - (sustain * height);
+  
+  // Create canvas at exact display size
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
 
-// Make sure lines are drawn with proper alignment
-ctx.imageSmoothingEnabled = false;
-ctx.translate(0.5, 0.5);
-ctx.strokeStyle = '#f2eed3';
-ctx.lineWidth = 2.5; // Make the line thickness 3px
+  // Make sure lines are drawn with proper alignment
+  ctx.imageSmoothingEnabled = false;
+  ctx.translate(0.5, 0.5);
+  ctx.strokeStyle = '#f2eed3';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  
+  // Clear canvas
+  ctx.clearRect(-1, -1, width + 1, height + 1);
 
-// Set line join style for smoother corners
-ctx.lineJoin = 'round';
-ctx.lineCap = 'round';
-// Clear canvas
-ctx.clearRect(-1, -1, width + 1, height + 1);
+  // Draw ADSR path
+  ctx.beginPath();
+  ctx.moveTo(0, height - 1); // Start at bottom left
+  
+  // Attack (linear ramp - straight line)
+  ctx.lineTo(attackX, 1);
+  
+  // Decay curve (starts steep, then flattens out)
+  // Control points for the decay curve
+  const decayControlX1 = attackX + (decayX - attackX) * 0.3;
+  const decayControlY1 = 1 + (sustainY - 1) * 0.7; // Drop quickly at first
+  
+  const decayControlX2 = attackX + (decayX - attackX) * 0.7;
+  const decayControlY2 = sustainY - (sustainY - 1) * 0.1; // Flatten out near end
+  
+  // Draw the curved decay segment
+  ctx.bezierCurveTo(
+    decayControlX1, decayControlY1,
+    decayControlX2, decayControlY2,
+    decayX, sustainY
+  );
+  
+  // Sustain (straight line)
+  ctx.lineTo(releaseStartX, sustainY);
+  
+  // Release curve (starts steep, then flattens out like decay)
+  // Control points for the release curve
+  const releaseControlX1 = releaseStartX + (releaseEndX - releaseStartX) * 0.3;
+  const releaseControlY1 = sustainY + (height - 1 - sustainY) * 0.7; // Drop quickly at first
+  
+  const releaseControlX2 = releaseStartX + (releaseEndX - releaseStartX) * 0.7;
+  const releaseControlY2 = height - 1 - (height - 1 - sustainY) * 0.1; // Flatten out near end
+  
+  // Draw the curved release segment
+  ctx.bezierCurveTo(
+    releaseControlX1, releaseControlY1,
+    releaseControlX2, releaseControlY2,
+    releaseEndX, height - 1
+  );
+  
+  ctx.stroke();
 
-    
-// Draw ADSR path
-ctx.beginPath();
-ctx.moveTo(0, height - 1); // Start at bottom left
-ctx.lineTo(attackX, 1); // Attack to peak
-ctx.lineTo(decayX, height - (sustain * height)); // Decay to sustain level
-ctx.lineTo(releaseStartX, height - (sustain * height)); // Sustain
-ctx.lineTo(releaseEndX, height - 1); // Release
-ctx.stroke();
-
-// Update visualization
-graph.innerHTML = '';
-graph.appendChild(canvas);
+  // Update visualization
+  graph.innerHTML = '';
+  graph.appendChild(canvas);
 }
-
 // Update the voice monitoring display based on the voicePool
 function updateVoiceDisplay_Pool() {
     const displayEl = D('voice-display');
@@ -3421,44 +3478,78 @@ tooltip.style.opacity = '0';
  * Values are stepped 1 by 1 from 8 to 16000 Hz
  */
 function initializeFilterPrecisionSlider(slider) {
-  // Keep the original min/max attributes
-  const minFreq = parseInt(slider.min); // 8 Hz
-  const maxFreq = parseInt(slider.max); // 16000 Hz
+  // Use a wider range for better precision
+  const sliderMinValue = 0;
+  const sliderMaxValue = 7996; // 7996 with 0.5 steps = 15,993 discrete positions
+  const sliderStep = 0.0001;
+  
+  // Frequency range remains the same
+  const minFreq = 8;  // Hz
+  const maxFreq = 16000; // Hz
+  const midpointFreq = 500; // Hz - value at slider's visual midpoint
   
   // Remove any existing event listeners by cloning
   const newSlider = slider.cloneNode(true);
   slider.parentNode.replaceChild(newSlider, slider);
   
-  // Non-linear mapping functions
+  // Set slider attributes for high precision
+  newSlider.min = sliderMinValue;
+  newSlider.max = sliderMaxValue;
+  newSlider.step = sliderStep;
+  
+  // Non-linear mapping functions (unchanged behavior)
+  function sliderValueToPosition(value) {
+    // Convert raw slider value to normalized position (0-1)
+    return (value - sliderMinValue) / (sliderMaxValue - sliderMinValue);
+  }
+  
   function positionToFrequency(position) {
     position = Math.max(0, Math.min(1, position));
     if (position <= 0.5) {
       // First half maps to 8-500Hz (exponential)
-      return minFreq * Math.pow(500/minFreq, position*2);
+      return Math.round(minFreq * Math.pow(midpointFreq/minFreq, position*2));
     } else {
       // Second half maps to 500-16000Hz (exponential)
-      return 500 * Math.pow(maxFreq/500, (position-0.5)*2);
+      return Math.round(midpointFreq * Math.pow(maxFreq/midpointFreq, (position-0.5)*2));
     }
   }
   
   function frequencyToPosition(freq) {
     freq = Math.max(minFreq, Math.min(maxFreq, freq));
-    if (freq <= 500) {
-      return Math.log(freq/minFreq) / Math.log(500/minFreq) * 0.5;
+    if (freq <= midpointFreq) {
+      return Math.log(freq/minFreq) / Math.log(midpointFreq/minFreq) * 0.5;
     } else {
-      return 0.5 + Math.log(freq/500) / Math.log(maxFreq/500) * 0.5;
+      return 0.5 + Math.log(freq/midpointFreq) / Math.log(maxFreq/midpointFreq) * 0.5;
     }
   }
   
-  // CRITICAL FIX: Set slider min/max to 0-1 range to match our normalized positions
-  newSlider.min = 0;
-  newSlider.max = 1;
-  newSlider.step = 0.000001; // Fine steps for precision
+  function frequencyToSliderValue(freq) {
+    // Convert frequency to normalized position (0-1)
+    const position = frequencyToPosition(freq);
+    // Convert position to slider value
+    return position * (sliderMaxValue - sliderMinValue) + sliderMinValue;
+  }
   
+  // Standard input handler for direct slider interaction
+  newSlider.oninput = function() {
+    // Convert slider value to normalized position (0-1)
+    const position = sliderValueToPosition(parseFloat(this.value));
+    
+    // Map position to frequency using non-linear mapping
+    const frequency = positionToFrequency(position);
+    
+    // Update filter cutoff
+    if (filterManager) {
+      filterManager.setCutoff(frequency);
+    }
+    
+    console.log(`Filter: sliderValue=${this.value}, position=${position.toFixed(4)}, frequency=${frequency}Hz`);
+  };
+  
+  // Mouse down event - start drag operation
   let lastY;
   let isDragging = false;
   
-  // Mouse down event - start drag operation
   newSlider.addEventListener('mousedown', function(e) {
     isDragging = true;
     lastY = e.clientY;
@@ -3474,33 +3565,32 @@ function initializeFilterPrecisionSlider(slider) {
     // Shift key provides finer control (5x slower)
     const sensitivity = e.shiftKey ? 0.2 : 1.0;
     
-    // Calculate vertical movement
+    // Calculate vertical movement as a percentage of the slider range
     const deltaY = lastY - e.clientY;
     lastY = e.clientY;
     
-    // Get current normalized position (0-1)
-    const currentPosition = parseFloat(newSlider.value);
+    // Get current slider value and convert to position
+    const currentValue = parseFloat(newSlider.value);
+    const currentPosition = sliderValueToPosition(currentValue);
     
     // Apply movement with sensitivity factor
     const posChange = (deltaY * 0.005) * sensitivity;
     let newPosition = Math.max(0, Math.min(1, currentPosition + posChange));
     
-    // Convert position to frequency using non-linear mapping
-    let newFreq = positionToFrequency(newPosition);
+    // Convert position to slider value
+    const newSliderValue = newPosition * (sliderMaxValue - sliderMinValue) + sliderMinValue;
     
-    // Always round to nearest integer for whole Hz values
-    newFreq = Math.round(newFreq);
+    // Update slider with new value
+    newSlider.value = newSliderValue;
     
-    // Update filter without changing slider position directly
+    // Convert to frequency and update filter
+    const newFreq = positionToFrequency(newPosition);
+    
     if (filterManager) {
       filterManager.setCutoff(newFreq);
     }
     
-    // CRITICAL FIX: Update slider position to match our 0-1 normalized range
-    newSlider.value = newPosition;
-    
-    console.log(`Filter: position=${newPosition.toFixed(2)}, frequency=${newFreq}Hz, shift=${e.shiftKey ? 'ON' : 'OFF'}`);
-    
+    console.log(`Filter drag: sliderValue=${newSliderValue.toFixed(1)}, pos=${newPosition.toFixed(4)}, freq=${newFreq}Hz, shift=${e.shiftKey ? 'ON' : 'OFF'}`);
     e.preventDefault();
   }
   
@@ -3511,53 +3601,13 @@ function initializeFilterPrecisionSlider(slider) {
     document.removeEventListener('mouseup', handleMouseUp);
   }
   
-  // Standard input handler for direct clicks on the track
-  newSlider.oninput = function() {
-    // Get normalized position directly from slider value (now in 0-1 range)
-    const position = parseFloat(this.value);
-    
-    // Convert to frequency using our non-linear mapping
-    const frequency = positionToFrequency(position);
-    const roundedFreq = Math.round(frequency);
-    
-    // Update filter cutoff
-    if (filterManager) {
-      filterManager.setCutoff(roundedFreq);
-    }
-    
-    console.log(`Filter input: position=${position.toFixed(2)}, freq=${roundedFreq}Hz`);
-  };
-  
   // Initialize with maximum frequency (16000Hz)
-  const initialPosition = 1.0; // Set to rightmost position
-  newSlider.value = initialPosition;
+  const initialSliderValue = frequencyToSliderValue(maxFreq);
+  newSlider.value = initialSliderValue;
   
-  // Manually set cutoff to match
-  if (filterManager) {
-    filterManager.setCutoff(16000);
-  }
-  
-  // For debugging: Add test positions
-  // Uncomment to check specific positions
-  /*
-  setTimeout(() => {
-    console.log("--- Testing slider positions ---");
-    // Test position 0.5 (should be 500Hz)
-    let testPos = 0.5;
-    let testFreq = positionToFrequency(testPos);
-    console.log(`Test: pos=0.5, freq=${testFreq.toFixed(1)}Hz`);
-    
-    // Test position 0.25 (should be around 70Hz)
-    testPos = 0.25;
-    testFreq = positionToFrequency(testPos);
-    console.log(`Test: pos=0.25, freq=${testFreq.toFixed(1)}Hz`);
-    
-    // Test position 0.75 (should be around 2.8kHz)
-    testPos = 0.75;
-    testFreq = positionToFrequency(testPos);
-    console.log(`Test: pos=0.75, freq=${testFreq.toFixed(1)}Hz`);
-  }, 1000);
-  */
+  // Trigger input event to set initial cutoff
+  const event = new Event('input');
+  newSlider.dispatchEvent(event);
   
   return newSlider;
 }
@@ -4208,67 +4258,59 @@ return { start: startSample, end: endSample };
 }
 
 function releaseSamplerNote(note) {
-    if (!note || note.state !== "playing") {
-        console.log(`releaseSamplerNote: Note ${note?.id} not playing, state: ${note?.state}`);
-        return;
-    }
+  if (!note || note.state !== "playing") {
+    console.log(`releaseSamplerNote: Note ${note?.id} not playing, state: ${note?.state}`);
+    return;
+  }
 
-    // Set parent voice state to releasing
-    const voice = note.parentVoice || samplerVoicePool.find(v => v.samplerNote === note);
-    if (voice && voice.state === 'playing') {
-        voice.state = 'releasing';
-    }
+  // Set parent voice state to releasing
+  const voice = note.parentVoice || samplerVoicePool.find(v => v.samplerNote === note);
+  if (voice && voice.state === 'playing') {
+    voice.state = 'releasing';
+  }
 
-    // Set component state and clear existing timers
-    note.state = "releasing";
-    clearScheduledEventsForNote(note);
+  // Set component state and clear existing timers
+  note.state = "releasing";
+  clearScheduledEventsForNote(note);
 
-    // CRITICAL FIX: Don't disable loop for crossfaded buffers during release
-    // Only disable loop for non-crossfaded, non-looping samples
-    if (!note.crossfadeActive && !isSampleLoopOn) {
-        note.source.loop = false;
-        note.looping = false;
-    } else if (note.crossfadeActive && note.source.loop) {
-        // Keep loop enabled for crossfaded buffers during release
-        console.log(`Keeping crossfade loop active during release for ${note.id}`);
-    }
+  // Keep crossfade handling as is
+  if (!note.crossfadeActive && !isSampleLoopOn) {
+    note.source.loop = false;
+    note.looping = false;
+  } else if (note.crossfadeActive && note.source.loop) {
+    console.log(`Keeping crossfade loop active during release for ${note.id}`);
+  }
 
-    // Apply release envelope
-    // CRITICAL FIX: Use the mapped time value from dataset instead of raw slider value
-    const release = Math.max(0.01, parseFloat(D('release').dataset.mappedTime || D('release').value));
+  // Apply release envelope
+  const release = Math.max(0.01, parseFloat(D('release').dataset.mappedTime || D('release').value));
+  const now = audioCtx.currentTime;
+  
+  // Apply curved release envelope with natural decay
+  const currentGain = note.gainNode.gain.value;
+  applyCurvedEnvelope(note.gainNode.gain, currentGain, 0, release, now, 'release');
 
-    const now = audioCtx.currentTime;
-    
-    // Apply proper release envelope
-    note.gainNode.gain.cancelScheduledValues(now);
-    note.gainNode.gain.setValueAtTime(note.gainNode.gain.value, now);
-    note.gainNode.gain.linearRampToValueAtTime(0, now + release);
+  // Apply curved release to sample gain as well
+  const currentSampleGain = note.sampleNode.gain.value;
+  applyCurvedEnvelope(note.sampleNode.gain, currentSampleGain, 0, release, now, 'release');
 
-    // Ensure sample gain also fades
-    note.sampleNode.gain.cancelScheduledValues(now);
-    note.sampleNode.gain.setValueAtTime(note.sampleNode.gain.value, now);
-    note.sampleNode.gain.linearRampToValueAtTime(0, now + release);
+  // Rest of the function remains the same
+  const stopTime = now + release + 0.05;
+  
+  if (!note.looping && !note.crossfadeActive) {
+    try {
+      note.source.stop(stopTime);
+    } catch (e) { /* Ignore errors */ }
+  } else {
+    console.log(`Not scheduling stop for looping/crossfaded sample ${note.id} - will loop during release`);
+  }
 
-    // CRITICAL FIX: For looping samples, don't schedule a stop time
-    // Let them loop until the kill function disconnects them
-    const stopTime = now + release + 0.05;
-    
-    if (!note.looping && !note.crossfadeActive) {
-        // Only stop non-looping samples
-        try {
-            note.source.stop(stopTime);
-        } catch (e) { /* Ignore errors */ }
-    } else {
-        console.log(`Not scheduling stop for looping/crossfaded sample ${note.id} - will loop during release`);
-    }
-
-    // Schedule kill after release with proper timing
-    const killDelay = Math.max(5, (release * 1000) + 0);
-    trackSetTimeout(() => {
-        killSamplerNote(note);
-    }, killDelay, note);
-    
-    console.log(`releaseSamplerNote: Scheduled kill for ${note.id} in ${killDelay}ms (respecting release time), loop=${note.looping}, crossfade=${note.crossfadeActive}`);
+  // Schedule kill after release with proper timing
+  const killDelay = Math.max(5, (release * 1000) + 0);
+  trackSetTimeout(() => {
+    killSamplerNote(note);
+  }, killDelay, note);
+  
+  console.log(`releaseSamplerNote: Scheduled kill for ${note.id} in ${killDelay}ms with curved release envelope`);
 }
 
 function killSamplerNote(note) {
@@ -4969,38 +5011,37 @@ if (isSampleLoopOn) {
 samplerNote.gainNode.gain.cancelScheduledValues(now);
 
 if (legatoTransition && samplerNote.state === 'playing') {
-    // LEGATO MODE: Continue from current position or reset to sustain
-    // CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
-    samplerNote.gainNode.gain.cancelScheduledValues(now);
-    const currentGain = samplerNote.gainNode.gain.value;
+  // LEGATO MODE logic remains
+  if (wasInAttack || wasInDecay) {
+    samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
     
-    if (wasInAttack || wasInDecay) {
-        // Continue from current gain if in attack or decay
-        samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
-        
-        if (wasInAttack) {
-            // Continue attack to completion, then decay
-            const remainingAttackTime = attack * (1.0 - currentGain);
-            samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
-            samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
-            
-            voice.envelopeState = 'attack';
-            voice.attackEndTime = now + remainingAttackTime;
-            voice.decayEndTime = now + remainingAttackTime + decay;
-            
-            console.log(`Legato sampler: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining`);
-        } else {
-            // Continue from decay - don't restart attack, just continue decay
-            const decayProgress = (1.0 - currentGain) / (1.0 - sustain);
-            const remainingDecayTime = decay * (1.0 - decayProgress);
-            samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingDecayTime);
-            
-            voice.envelopeState = 'decay';
-            voice.decayEndTime = now + remainingDecayTime;
-            
-            console.log(`Legato sampler: Continuing decay from ${currentGain.toFixed(3)}, ${remainingDecayTime.toFixed(3)}s remaining`);
-        }
+    if (wasInAttack) {
+      // Continue attack with linear ramp (unchanged)
+      const remainingAttackTime = attack * (1.0 - currentGain);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+      
+      // Apply curved decay
+      applyCurvedEnvelope(samplerNote.gainNode.gain, 1.0, sustain, decay, now + remainingAttackTime, 'decay');
+      
+      voice.envelopeState = 'attack';
+      voice.attackEndTime = now + remainingAttackTime;
+      voice.decayEndTime = now + remainingAttackTime + decay;
+      
+      console.log(`Legato sampler: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining, with curved decay`);
     } else {
+      // Continue from decay with a curved envelope
+      const decayProgress = (1.0 - currentGain) / (1.0 - sustain);
+      const remainingDecayTime = decay * (1.0 - decayProgress);
+      
+      // Apply curved decay from the current point
+      applyCurvedEnvelope(samplerNote.gainNode.gain, currentGain, sustain, remainingDecayTime, now, 'decay');
+      
+      voice.envelopeState = 'decay';
+      voice.decayEndTime = now + remainingDecayTime;
+      
+      console.log(`Legato sampler: Continuing curved decay from ${currentGain.toFixed(3)}, ${remainingDecayTime.toFixed(3)}s remaining`);
+    }
+  } else {
         // Reset to sustain if in sustain or release
         samplerNote.gainNode.gain.setValueAtTime(sustain, now);
         voice.envelopeState = 'sustain';
@@ -5104,22 +5145,16 @@ if (legatoTransition && samplerNote.state === 'playing') {
         samplerVoice.decayEndTime = now + attack + decay;
     }
 } else {
-    // Fresh note - standard envelope
-    const currentGain = samplerNote.gainNode.gain.value || 0;
-    samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
-    samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-    samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
-    
-    voice.envelopeState = 'attack';
-    voice.envelopeStartTime = now;
-    voice.attackEndTime = now + attack;
-    voice.decayEndTime = now + attack + decay;
-    
-    // ADD: Also update the sampler voice
-    samplerVoice.envelopeState = 'attack';
-    samplerVoice.envelopeStartTime = now;
-    samplerVoice.attackEndTime = now + attack;
-    samplerVoice.decayEndTime = now + attack + decay;
+  // For fresh notes, apply linear attack and curved decay
+  samplerNote.gainNode.gain.setValueAtTime(0, now);
+  samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+  
+  // Apply curved decay
+  applyCurvedEnvelope(samplerNote.gainNode.gain, 1.0, sustain, decay, now + attack, 'decay');
+  
+  voice.envelopeState = 'attack';
+  voice.attackEndTime = now + attack;
+  voice.decayEndTime = now + attack + decay;
 }
 
 // Schedule envelope state updates for BOTH voices
@@ -5550,69 +5585,50 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
         
         // Release Osc1
         if (voice.osc1Note && voice.osc1Note.workletNode) {
-            const osc1 = voice.osc1Note;
-            osc1.currentReleaseId = releaseId;
-            
-            // Mark as releasing
-            voice.state = 'releasing';
-            osc1.state = 'releasing';
-            
-            // Start release envelope from current value
-            const currentGain = osc1.gainNode.gain.value;
-            osc1.gainNode.gain.cancelScheduledValues(now);
-            osc1.gainNode.gain.setValueAtTime(currentGain, now);
-            osc1.gainNode.gain.linearRampToValueAtTime(0, now + release);
-            
-            // Schedule gate closure with the specific release ID
-            trackVoiceTimer(voice, () => {
-                // Only close if this is still the active release for this voice
-                if (osc1.currentReleaseId === releaseId && osc1.state === 'releasing') {
-                    osc1.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
-                    osc1.state = 'idle';
-                    osc1.noteNumber = null;
-                    console.log(`Osc1 gate closed for release ${releaseId}`);
-                }
-            }, release * 1000 + 40); // Increased safety buffer to 40ms
-        }
+  const osc1 = voice.osc1Note;
+  osc1.currentReleaseId = releaseId;
+  
+  // Mark as releasing
+  voice.state = 'releasing';
+  osc1.state = 'releasing';
+  
+  // Apply curved release envelope
+  const currentGain = osc1.gainNode.gain.value;
+  applyCurvedEnvelope(osc1.gainNode.gain, currentGain, 0, release, now, 'release');
+  
+  // Schedule gate closure with the specific release ID (unchanged)
+  trackVoiceTimer(voice, () => {
+    // Only close if this is still the active release for this voice
+    if (osc1.currentReleaseId === releaseId && osc1.state === 'releasing') {
+      osc1.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+      osc1.state = 'idle';
+      osc1.noteNumber = null;
+      console.log(`Osc1 gate closed for release ${releaseId}`);
+    }
+  }, release * 1000 + 40);
+}
 
         // Release Osc2 with similar pattern
         if (voice.osc2Note && voice.osc2Note.workletNode) {
-            const osc2 = voice.osc2Note;
-            osc2.currentReleaseId = releaseId;
-            
-            osc2.state = 'releasing';
-            
-            const currentGain = osc2.gainNode.gain.value;
-            osc2.gainNode.gain.cancelScheduledValues(now);
-            osc2.gainNode.gain.setValueAtTime(currentGain, now);
-            osc2.gainNode.gain.linearRampToValueAtTime(0, now + release);
-            
-            trackVoiceTimer(voice, () => {
-                if (osc2.currentReleaseId === releaseId && osc2.state === 'releasing') {
-                    osc2.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
-                    osc2.state = 'idle';
-                    osc2.noteNumber = null;
-                    console.log(`Osc2 gate closed for release ${releaseId}`);
-                }
-            }, release * 1000 + 40);
-        }
-        // --- FILTER CLEANUP ---
-// // Clean up filters when voices are released
-// if (filterManager) {
-//   for (const voice of voicesToRelease) {
-//     const voiceId = `osc-${voice.id}`;
-//     filterManager.noteOff(voiceId);
-//     console.log(`Released filter envelope for osc voice ${voice.id}`);
-//   }
-// }
+  const osc2 = voice.osc2Note;
+  osc2.currentReleaseId = releaseId;
+  
+  osc2.state = 'releasing';
+  
+  // Apply curved release envelope
+  const currentGain = osc2.gainNode.gain.value;
+  applyCurvedEnvelope(osc2.gainNode.gain, currentGain, 0, release, now, 'release');
+  
+  trackVoiceTimer(voice, () => {
+    if (osc2.currentReleaseId === releaseId && osc2.state === 'releasing') {
+      osc2.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+      osc2.state = 'idle';
+      osc2.noteNumber = null;
+      console.log(`Osc2 gate closed for release ${releaseId}`);
+    }
+  }, release * 1000 + 40);
+}
 
-// if (filterManager && samplerVoicesToRelease && samplerVoicesToRelease.length > 0) {
-//   samplerVoicesToRelease.forEach(samplerVoice => {
-//     const samplerVoiceId = `sampler-${samplerVoice.id}`;
-//     filterManager.noteOff(samplerVoiceId);
-//     console.log(`Released filter envelope for sampler voice ${samplerVoice.id}`);
-//   });
-// }
 // Update filter call to include mono mode parameters
             if (filterManager && voice.osc1Note) {
   // Pass mono mode flag and remaining held notes count to filter
