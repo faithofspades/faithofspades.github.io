@@ -3623,6 +3623,7 @@ function initializeADSRPrecisionSlider(slider) {
   
   // Non-linear mapping functions
   function positionToTime(position) {
+    position = Math.max(0, Math.min(1, position));
     if (position <= 0.5) {
       // First half maps to 0-5s (linear)
       return position * 10; // 0-0.5 → 0-5s
@@ -3633,6 +3634,7 @@ function initializeADSRPrecisionSlider(slider) {
   }
   
   function timeToPosition(time) {
+    time = Math.max(0, Math.min(maxTime, time));
     if (time <= 5) {
       return time / 10; // 0-5s → 0-0.5
     } else {
@@ -3640,17 +3642,39 @@ function initializeADSRPrecisionSlider(slider) {
     }
   }
   
+  // Detect Safari
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const isMacOS = navigator.platform.toLowerCase().indexOf('mac') >= 0;
+  const isSafariMac = isSafari && isMacOS;
+  
+  console.log(`Browser detection: Safari=${isSafari}, macOS=${isMacOS}, SafariMac=${isSafariMac}`);
+  
   let lastY;
   let isDragging = false;
+  let sliderRect;
   
   // Mouse down event - start drag operation
   newSlider.addEventListener('mousedown', function(e) {
     isDragging = true;
     lastY = e.clientY;
+    // Store the slider dimensions at the start of the drag for Safari
+    sliderRect = newSlider.getBoundingClientRect();
+    
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     e.preventDefault();
   });
+  
+  // Touch start event for mobile devices
+  newSlider.addEventListener('touchstart', function(e) {
+    isDragging = true;
+    lastY = e.touches[0].clientY;
+    sliderRect = newSlider.getBoundingClientRect();
+    
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd);
+    e.preventDefault();
+  }, { passive: false });
   
   // Mouse move handler - only active during drag
   function handleMouseMove(e) {
@@ -3659,9 +3683,22 @@ function initializeADSRPrecisionSlider(slider) {
     // Shift key provides finer control (5x precision)
     const sensitivity = e.shiftKey ? 0.2 : 1.0;
     
-    // Calculate vertical movement
-    const deltaY = lastY - e.clientY;
-    lastY = e.clientY;
+    // Calculate movement differently for Safari on Mac
+    let deltaY;
+    
+    if (isSafariMac) {
+      // For Safari on Mac: calculate movement relative to slider center
+      const centerY = sliderRect.top + sliderRect.height / 2;
+      const movementDirection = lastY > e.clientY ? 1 : -1; // 1 for up, -1 for down
+      const movementAmount = Math.abs(lastY - e.clientY) * 0.5; // Reduced movement amount
+      
+      deltaY = movementDirection * movementAmount;
+      lastY = e.clientY;
+    } else {
+      // Standard calculation for other browsers
+      deltaY = lastY - e.clientY;
+      lastY = e.clientY;
+    }
     
     // Get current normalized position (0-1)
     const currentValue = parseFloat(newSlider.value);
@@ -3705,6 +3742,53 @@ function initializeADSRPrecisionSlider(slider) {
     e.preventDefault();
   }
   
+  // Touch move handler for mobile
+  function handleTouchMove(e) {
+    if (!isDragging) return;
+    
+    // Get touch position
+    const touch = e.touches[0];
+    
+    // Calculate movement
+    const deltaY = lastY - touch.clientY;
+    lastY = touch.clientY;
+    
+    // Get current normalized position (0-1)
+    const currentValue = parseFloat(newSlider.value);
+    const currentPosition = (currentValue - minTime) / (maxTime - minTime);
+    
+    // Apply movement with standard sensitivity for touch
+    const posChange = deltaY * 0.005;
+    let newPosition = Math.max(0, Math.min(1, currentPosition + posChange));
+    
+    // Map position to time
+    const timeValue = positionToTime(newPosition);
+    
+    // Update slider
+    const rawValue = newPosition * (maxTime - minTime) + minTime;
+    newSlider.value = rawValue;
+    newSlider.dataset.mappedTime = timeValue.toFixed(3);
+    
+    // Update UI
+    const valueDisplay = document.getElementById(`${slider.id}-value`);
+    if (valueDisplay) {
+      valueDisplay.textContent = timeValue.toFixed(3);
+    }
+    
+    updateADSRVisualization();
+    
+    if (filterManager && filterManager.isActive) {
+      filterManager.setADSR(
+        parseFloat(D('attack').dataset.mappedTime || D('attack').value),
+        parseFloat(D('decay').dataset.mappedTime || D('decay').value),
+        parseFloat(D('sustain').value),
+        parseFloat(D('release').dataset.mappedTime || D('release').value)
+      );
+    }
+    
+    e.preventDefault();
+  }
+  
   // Mouse up handler - end drag operation
   function handleMouseUp() {
     isDragging = false;
@@ -3712,11 +3796,47 @@ function initializeADSRPrecisionSlider(slider) {
     document.removeEventListener('mouseup', handleMouseUp);
   }
   
+  // Touch end handler
+  function handleTouchEnd() {
+    isDragging = false;
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleTouchEnd);
+  }
+  
+  // Standard input event handler (for clicking directly on the slider)
+  newSlider.addEventListener('input', function(e) {
+    // Get the normalized position from slider value
+    const position = (parseFloat(this.value) - minTime) / (maxTime - minTime);
+    
+    // Map to time and store
+    const timeValue = positionToTime(position);
+    this.dataset.mappedTime = timeValue.toFixed(3);
+    
+    // Update displayed value
+    const valueDisplay = document.getElementById(`${slider.id}-value`);
+    if (valueDisplay) {
+      valueDisplay.textContent = timeValue.toFixed(3);
+    }
+    
+    // Update ADSR visualization
+    updateADSRVisualization();
+    
+    // Update filter ADSR
+    if (filterManager && filterManager.isActive) {
+      filterManager.setADSR(
+        parseFloat(D('attack').dataset.mappedTime || D('attack').value),
+        parseFloat(D('decay').dataset.mappedTime || D('decay').value),
+        parseFloat(D('sustain').value),
+        parseFloat(D('release').dataset.mappedTime || D('release').value)
+      );
+    }
+  });
+  
   // Set initial values
-  let initialTime;
+  let initialTime = 0;
   if (slider.id === 'attack') initialTime = 0.00;
-  else if (slider.id === 'decay') initialTime = 0.0;
-  else if (slider.id === 'release') initialTime = 0.00;
+  else if (slider.id === 'decay') initialTime = 0.5;
+  else if (slider.id === 'release') initialTime = 0.5;
   
   const initialPosition = timeToPosition(initialTime);
   newSlider.value = initialPosition * (maxTime - minTime) + minTime;
