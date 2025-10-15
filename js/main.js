@@ -160,7 +160,157 @@ function setMasterClockRate(clockNumber, noteNumber, detune = 0) {
         console.log(`Set master clock ${clockNumber} to ${frequency.toFixed(2)} Hz (note ${noteNumber})`);
     }
 }
+function setupNonLinearFilterSlider() {
+  const slider = document.querySelector('.freq-slider-range');
+  if (!slider) return;
+  
+  // Keep the original min/max attributes
+  slider.min = 8;
+  slider.max = 16000;
+  
+  // Store the original input handler from filterInitialization
+  const originalHandler = slider.oninput;
+  
+  // Remove any existing event listeners
+  const newSlider = slider.cloneNode(true);
+  slider.parentNode.replaceChild(newSlider, slider);
+  
+  // Function to convert visual position (0-1) to frequency
+  function positionToFrequency(position) {
+    // logarithmic mapping with 500Hz at midpoint
+    if (position <= 0.5) {
+      return 8 * Math.pow(500/8, position*2); // 0-0.5 maps to 8-500Hz
+    } else {
+      return 500 * Math.pow(16000/500, (position-0.5)*2); // 0.5-1 maps to 500-16000Hz
+    }
+  }
+  
+  // Function to convert frequency to visual position
+  function frequencyToPosition(freq) {
+    if (freq <= 500) {
+      return Math.log(freq/8) / Math.log(500/8) * 0.5;
+    } else {
+      return 0.5 + (Math.log(freq/500) / Math.log(16000/500) * 0.5);
+    }
+  }
+  
+  // Update filter cutoff when slider is moved
+  newSlider.oninput = function(e) {
+    // Calculate visual position based on slider physical position
+    const visualPosition = parseInt(this.value) / (parseInt(this.max) - parseInt(this.min));
+    
+    // Convert to frequency using our mapping
+    const frequency = positionToFrequency(visualPosition);
+    
+    // Update filter
+    if (filterManager) {
+      filterManager.setCutoff(frequency);
+    }
+    
+    console.log(`Filter slider: position=${visualPosition.toFixed(2)}, frequency=${frequency.toFixed(1)}Hz`);
+  };
+  
+  // Initialize with correct frequency (500Hz at midpoint)
+  const initialFreq = 500; // Hz
+  const position = frequencyToPosition(initialFreq);
+  const rawValue = Math.round(position * (slider.max - slider.min) + parseInt(slider.min));
+  
+  // Set the slider value
+  newSlider.value = rawValue;
+  
+  // Trigger the event to set initial cutoff
+  const event = new Event('input');
+  newSlider.dispatchEvent(event);
+  
+  console.log("Fixed non-linear filter cutoff slider setup complete");
+}
 
+// Function to properly map ADSR sliders
+function setupNonLinearADSRSliders() {
+  ['attack', 'decay', 'release'].forEach(id => {
+    const slider = document.getElementById(id);
+    if (!slider) return;
+    
+    // Keep original min/max
+    slider.min = 0;
+    slider.max = 30;
+    
+    // Remove any existing event handlers
+    const newSlider = slider.cloneNode(true);
+    slider.parentNode.replaceChild(newSlider, slider);
+    
+    // Function to convert visual position (0-1) to time
+    function positionToTime(position) {
+      if (position <= 0.5) {
+        return position * 10; // First half: 0-0.5 maps to 0-5s
+      } else {
+        return 5 + (position - 0.5) * 50; // Second half: 0.5-1 maps to 5-30s
+      }
+    }
+    
+    // Function to convert time to visual position
+    function timeToPosition(time) {
+      if (time <= 5) {
+        return time / 10; // 0-5s maps to 0-0.5
+      } else {
+        return 0.5 + (time - 5) / 50; // 5-30s maps to 0.5-1
+      }
+    }
+    
+    // Update when slider changes
+    newSlider.oninput = function(e) {
+      // Get physical position as 0-1
+      const rawValue = parseFloat(this.value);
+      const maxValue = parseFloat(this.max);
+      const visualPosition = rawValue / maxValue;
+      
+      // Convert to mapped time value
+      const timeValue = positionToTime(visualPosition);
+      
+      // CRITICAL FIX: Store the mapped time value as a data attribute
+      this.dataset.mappedTime = timeValue.toFixed(3);
+      
+      // Update displayed value
+      const valueDisplay = document.getElementById(`${id}-value`);
+      if (valueDisplay) {
+        valueDisplay.textContent = timeValue.toFixed(3);
+      }
+      
+      // Update ADSR visualization
+      updateADSRVisualization();
+      
+      // Update filter ADSR if applicable - USING THE MAPPED TIME VALUES
+      if (filterManager && filterManager.isActive) {
+        filterManager.setADSR(
+          parseFloat(D('attack').dataset.mappedTime || D('attack').value),
+          parseFloat(D('decay').dataset.mappedTime || D('decay').value),
+          parseFloat(D('sustain').value),
+          parseFloat(D('release').dataset.mappedTime || D('release').value)
+        );
+      }
+      
+      console.log(`${id.toUpperCase()}: Position ${visualPosition.toFixed(2)}, Time ${timeValue.toFixed(3)}s`);
+    };
+    
+    // Set initial values
+    let initialTime;
+    if (id === 'attack') initialTime = 0.01;
+    else if (id === 'decay') initialTime = 0.1;
+    else if (id === 'release') initialTime = 0.05;
+    
+    const initialPosition = timeToPosition(initialTime);
+    newSlider.value = initialPosition * parseFloat(newSlider.max);
+    
+    // CRITICAL FIX: Store the mapped time value for initial value
+    newSlider.dataset.mappedTime = initialTime.toFixed(3);
+    
+    // Trigger the event
+    const event = new Event('input');
+    newSlider.dispatchEvent(event);
+  });
+  
+  console.log("Fixed non-linear ADSR sliders setup complete");
+}
 function initializeFilterControls() {
   // Filter Type Selector - SET TO LP24 BY DEFAULT
   const filterTypeSelector = document.querySelector('.filter-type-range');
@@ -1533,78 +1683,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Specialized precision slider function for filter parameters (0-1 range)
-function initializeFilterPrecisionSlider(slider) {
-  let lastY;
-  let isDragging = false;
-  
-  // Get actual range values for frequency slider
-  const minFreq = parseFloat(slider.min); // 8 Hz
-  const maxFreq = parseFloat(slider.max); // 16000 Hz
-  
-  // Define transition point
-  const transitionFreq = 600; // Hz where precision begins to level out
 
-  function handleMouseMove(e) {
-    if (!isDragging) return;
-
-    // Calculate vertical movement
-    const deltaY = lastY - e.clientY;
-    lastY = e.clientY;
-
-    // Get current frequency
-    const currentFreq = parseFloat(slider.value);
-    
-    // Base sensitivity factors - shift key provides additional precision
-    const shiftFactor = e.shiftKey ? 0.2 : 1.0;
-    
-    // Calculate new frequency based on current range
-    let newFreq;
-    
-    if (currentFreq < transitionFreq) {
-      // Below 600Hz: Reduced sensitivity that scales with frequency
-      // Start at 0.4x sensitivity at lowest frequencies (8Hz)
-      // Gradually increase to 1.0x sensitivity as it approaches 600Hz
-      
-      // Calculate scaling factor from 0.4 to 1.0 based on where we are in the range
-      const normalizedPosition = (currentFreq - minFreq) / (transitionFreq - minFreq);
-      const sensitivityScale = 0.4 + (normalizedPosition * 0.6); // 0.4 at min, 1.0 at transitionFreq
-      
-      // Apply scaled Hz-per-pixel approach for more consistent control
-      // Use 15Hz per pixel as base value, adjusted by the sensitivity scale
-      newFreq = currentFreq + (deltaY * shiftFactor * 15 * sensitivityScale);
-    } else {
-      // Above 600Hz: Normal 1:1 control with linear response
-      // Use a direct Hz-per-pixel approach for more predictable control
-      newFreq = currentFreq + (deltaY * shiftFactor * 40);
-    }
-    
-    // Clamp to valid range
-    newFreq = Math.max(minFreq, Math.min(maxFreq, newFreq));
-    
-    // Round to nearest integer Hz and update slider
-    slider.value = Math.round(newFreq);
-
-    // Trigger input event to update filter
-    slider.dispatchEvent(new Event('input'));
-
-    e.preventDefault();
-  }
-
-  function handleMouseUp() {
-    isDragging = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-  }
-
-  slider.addEventListener('mousedown', (e) => {
-    isDragging = true;
-    lastY = e.clientY;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    e.preventDefault();
-  });
-}
 // Initialize for all mobile devices to be safe
 if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
 // Use DOMContentLoaded for more reliable initialization
@@ -2933,23 +3012,24 @@ function findAvailableSamplerVoice(noteNumber) {
 }
 // Add interface updating functions
 function updateSliderValues() {
-// Always format to 2 decimal places for consistent width
-D('attack-value').textContent = parseFloat(D('attack').value).toFixed(3);
-D('decay-value').textContent = parseFloat(D('decay').value).toFixed(2);
-D('sustain-value').textContent = parseFloat(D('sustain').value).toFixed(2);
-D('release-value').textContent = parseFloat(D('release').value).toFixed(3);
-if (filterManager && filterManager.isActive) {
+  // Use the stored mapped time values from data attributes
+  D('attack-value').textContent = D('attack').dataset.mappedTime || parseFloat(D('attack').value).toFixed(3);
+  D('decay-value').textContent = D('decay').dataset.mappedTime || parseFloat(D('decay').value).toFixed(2);
+  D('sustain-value').textContent = parseFloat(D('sustain').value).toFixed(2);
+  D('release-value').textContent = D('release').dataset.mappedTime || parseFloat(D('release').value).toFixed(3);
+  
+  // Send mapped time values to filter ADSR
+  if (filterManager && filterManager.isActive) {
     filterManager.setADSR(
-      parseFloat(D('attack').value),
-      parseFloat(D('decay').value),
+      parseFloat(D('attack').dataset.mappedTime || D('attack').value),
+      parseFloat(D('decay').dataset.mappedTime || D('decay').value),
       parseFloat(D('sustain').value),
-      parseFloat(D('release').value)
+      parseFloat(D('release').dataset.mappedTime || D('release').value)
     );
   }
 
-updateADSRVisualization();
+  updateADSRVisualization();
 }
-
 // ADSR visualization
 function updateADSRVisualization() {
   const attack = parseFloat(D('attack').value);
@@ -3335,65 +3415,271 @@ tooltip.style.opacity = '0';
 });
 });
 
-function initializePrecisionSlider(slider) {
-let lastY;
-let isDragging = false;
-const range = parseFloat(slider.max) - parseFloat(slider.min);
-const totalHeight = 230; // Height of slider in pixels
-
-function handleMouseMove(e) {
-if (!isDragging) return;
-
-// Calculate sensitivity based on shift key
-const sensitivity = e.shiftKey ? 0.03 : 1.0;
-const deltaY = (lastY - e.clientY) * sensitivity;
-lastY = e.clientY;
-
-// Calculate value change
-const valueChange = (deltaY / totalHeight) * range;
-const currentValue = parseFloat(slider.value);
-let newValue = currentValue + valueChange;
-
-// Clamp to min/max
-newValue = Math.min(Math.max(newValue, slider.min), slider.max);
-
-// Update slider value
-slider.value = newValue;
-
-// Trigger input event for ADSR visualization
-slider.dispatchEvent(new Event('input'));
-
-e.preventDefault();
+/**
+ * Filter cutoff slider with non-linear mapping and precision control
+ * 500Hz is exactly at the 50% mark
+ * Values are stepped 1 by 1 from 8 to 16000 Hz
+ */
+function initializeFilterPrecisionSlider(slider) {
+  // Keep the original min/max attributes
+  const minFreq = parseInt(slider.min); // 8 Hz
+  const maxFreq = parseInt(slider.max); // 16000 Hz
+  
+  // Remove any existing event listeners by cloning
+  const newSlider = slider.cloneNode(true);
+  slider.parentNode.replaceChild(newSlider, slider);
+  
+  // Non-linear mapping functions
+  function positionToFrequency(position) {
+    position = Math.max(0, Math.min(1, position));
+    if (position <= 0.5) {
+      // First half maps to 8-500Hz (exponential)
+      return minFreq * Math.pow(500/minFreq, position*2);
+    } else {
+      // Second half maps to 500-16000Hz (exponential)
+      return 500 * Math.pow(maxFreq/500, (position-0.5)*2);
+    }
+  }
+  
+  function frequencyToPosition(freq) {
+    freq = Math.max(minFreq, Math.min(maxFreq, freq));
+    if (freq <= 500) {
+      return Math.log(freq/minFreq) / Math.log(500/minFreq) * 0.5;
+    } else {
+      return 0.5 + Math.log(freq/500) / Math.log(maxFreq/500) * 0.5;
+    }
+  }
+  
+  // CRITICAL FIX: Set slider min/max to 0-1 range to match our normalized positions
+  newSlider.min = 0;
+  newSlider.max = 1;
+  newSlider.step = 0.000001; // Fine steps for precision
+  
+  let lastY;
+  let isDragging = false;
+  
+  // Mouse down event - start drag operation
+  newSlider.addEventListener('mousedown', function(e) {
+    isDragging = true;
+    lastY = e.clientY;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    e.preventDefault();
+  });
+  
+  // Mouse move handler with precision shift key control
+  function handleMouseMove(e) {
+    if (!isDragging) return;
+    
+    // Shift key provides finer control (5x slower)
+    const sensitivity = e.shiftKey ? 0.2 : 1.0;
+    
+    // Calculate vertical movement
+    const deltaY = lastY - e.clientY;
+    lastY = e.clientY;
+    
+    // Get current normalized position (0-1)
+    const currentPosition = parseFloat(newSlider.value);
+    
+    // Apply movement with sensitivity factor
+    const posChange = (deltaY * 0.005) * sensitivity;
+    let newPosition = Math.max(0, Math.min(1, currentPosition + posChange));
+    
+    // Convert position to frequency using non-linear mapping
+    let newFreq = positionToFrequency(newPosition);
+    
+    // Always round to nearest integer for whole Hz values
+    newFreq = Math.round(newFreq);
+    
+    // Update filter without changing slider position directly
+    if (filterManager) {
+      filterManager.setCutoff(newFreq);
+    }
+    
+    // CRITICAL FIX: Update slider position to match our 0-1 normalized range
+    newSlider.value = newPosition;
+    
+    console.log(`Filter: position=${newPosition.toFixed(2)}, frequency=${newFreq}Hz, shift=${e.shiftKey ? 'ON' : 'OFF'}`);
+    
+    e.preventDefault();
+  }
+  
+  // Mouse up handler - end drag operation
+  function handleMouseUp() {
+    isDragging = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  }
+  
+  // Standard input handler for direct clicks on the track
+  newSlider.oninput = function() {
+    // Get normalized position directly from slider value (now in 0-1 range)
+    const position = parseFloat(this.value);
+    
+    // Convert to frequency using our non-linear mapping
+    const frequency = positionToFrequency(position);
+    const roundedFreq = Math.round(frequency);
+    
+    // Update filter cutoff
+    if (filterManager) {
+      filterManager.setCutoff(roundedFreq);
+    }
+    
+    console.log(`Filter input: position=${position.toFixed(2)}, freq=${roundedFreq}Hz`);
+  };
+  
+  // Initialize with maximum frequency (16000Hz)
+  const initialPosition = 1.0; // Set to rightmost position
+  newSlider.value = initialPosition;
+  
+  // Manually set cutoff to match
+  if (filterManager) {
+    filterManager.setCutoff(16000);
+  }
+  
+  // For debugging: Add test positions
+  // Uncomment to check specific positions
+  /*
+  setTimeout(() => {
+    console.log("--- Testing slider positions ---");
+    // Test position 0.5 (should be 500Hz)
+    let testPos = 0.5;
+    let testFreq = positionToFrequency(testPos);
+    console.log(`Test: pos=0.5, freq=${testFreq.toFixed(1)}Hz`);
+    
+    // Test position 0.25 (should be around 70Hz)
+    testPos = 0.25;
+    testFreq = positionToFrequency(testPos);
+    console.log(`Test: pos=0.25, freq=${testFreq.toFixed(1)}Hz`);
+    
+    // Test position 0.75 (should be around 2.8kHz)
+    testPos = 0.75;
+    testFreq = positionToFrequency(testPos);
+    console.log(`Test: pos=0.75, freq=${testFreq.toFixed(1)}Hz`);
+  }, 1000);
+  */
+  
+  return newSlider;
 }
 
-function handleMouseUp() {
-isDragging = false;
-document.removeEventListener('mousemove', handleMouseMove);
-document.removeEventListener('mouseup', handleMouseUp);
+function initializeADSRPrecisionSlider(slider) {
+  // Keep original min/max
+  const minTime = parseFloat(slider.min); // 0s
+  const maxTime = parseFloat(slider.max); // 30s
+  
+  // Remove any existing event handlers by cloning
+  const newSlider = slider.cloneNode(true);
+  slider.parentNode.replaceChild(newSlider, slider);
+  
+  // Non-linear mapping functions
+  function positionToTime(position) {
+    if (position <= 0.5) {
+      // First half maps to 0-5s (linear)
+      return position * 10; // 0-0.5 → 0-5s
+    } else {
+      // Second half maps to 5-30s (linear)
+      return 5 + (position - 0.5) * 50; // 0.5-1.0 → 5-30s
+    }
+  }
+  
+  function timeToPosition(time) {
+    if (time <= 5) {
+      return time / 10; // 0-5s → 0-0.5
+    } else {
+      return 0.5 + (time - 5) / 50; // 5-30s → 0.5-1.0
+    }
+  }
+  
+  let lastY;
+  let isDragging = false;
+  
+  // Mouse down event - start drag operation
+  newSlider.addEventListener('mousedown', function(e) {
+    isDragging = true;
+    lastY = e.clientY;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    e.preventDefault();
+  });
+  
+  // Mouse move handler - only active during drag
+  function handleMouseMove(e) {
+    if (!isDragging) return;
+    
+    // Shift key provides finer control (5x precision)
+    const sensitivity = e.shiftKey ? 0.2 : 1.0;
+    
+    // Calculate vertical movement
+    const deltaY = lastY - e.clientY;
+    lastY = e.clientY;
+    
+    // Get current normalized position (0-1)
+    const currentValue = parseFloat(newSlider.value);
+    const currentPosition = (currentValue - minTime) / (maxTime - minTime);
+    
+    // Apply movement with sensitivity factor
+    const posChange = (deltaY * 0.005) * sensitivity;
+    let newPosition = Math.max(0, Math.min(1, currentPosition + posChange));
+    
+    // Map position to time using non-linear mapping
+    const timeValue = positionToTime(newPosition);
+    
+    // Calculate raw slider value and update
+    const rawValue = newPosition * (maxTime - minTime) + minTime;
+    newSlider.value = rawValue;
+    
+    // Store the mapped time value for other functions
+    newSlider.dataset.mappedTime = timeValue.toFixed(3);
+    
+    // Update displayed value
+    const valueDisplay = document.getElementById(`${slider.id}-value`);
+    if (valueDisplay) {
+      valueDisplay.textContent = timeValue.toFixed(3);
+    }
+    
+    // Update ADSR visualization
+    updateADSRVisualization();
+    
+    // Update filter ADSR
+    if (filterManager && filterManager.isActive) {
+      filterManager.setADSR(
+        parseFloat(D('attack').dataset.mappedTime || D('attack').value),
+        parseFloat(D('decay').dataset.mappedTime || D('decay').value),
+        parseFloat(D('sustain').value),
+        parseFloat(D('release').dataset.mappedTime || D('release').value)
+      );
+    }
+    
+    console.log(`${slider.id}: pos=${newPosition.toFixed(2)}, time=${timeValue.toFixed(3)}s, shift=${e.shiftKey ? 'ON' : 'OFF'}`);
+    
+    e.preventDefault();
+  }
+  
+  // Mouse up handler - end drag operation
+  function handleMouseUp() {
+    isDragging = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  }
+  
+  // Set initial values
+  let initialTime;
+  if (slider.id === 'attack') initialTime = 0.00;
+  else if (slider.id === 'decay') initialTime = 0.0;
+  else if (slider.id === 'release') initialTime = 0.00;
+  
+  const initialPosition = timeToPosition(initialTime);
+  newSlider.value = initialPosition * (maxTime - minTime) + minTime;
+  
+  // CRITICAL FIX: Store the initial mapped time
+  newSlider.dataset.mappedTime = initialTime.toFixed(3);
+  
+  // Trigger input event
+  const event = new Event('input');
+  newSlider.dispatchEvent(event);
+  
+  return newSlider;
 }
-
-slider.addEventListener('mousedown', (e) => {
-isDragging = true;
-lastY = e.clientY;
-document.addEventListener('mousemove', handleMouseMove);
-document.addEventListener('mouseup', handleMouseUp);
-e.preventDefault();
-});
-}
-
-// Initialize precision control for ADSR sliders
-document.addEventListener('DOMContentLoaded', () => {
-['attack', 'decay', 'sustain', 'release'].forEach(id => {
-const slider = D(id);
-if (slider) {
-    initializePrecisionSlider(slider);
-}
-});
-});
-
-
-
-
 // Add to initializeSwitch function
 function initializeSwitch(switchEl, options = { onText: 'ON', offText: 'OFF' }) {
     let isDragging = false;
@@ -3470,6 +3756,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Initialize switches on DOM load
 document.addEventListener('DOMContentLoaded', () => {
+    setupNonLinearFilterSlider();
+  setupNonLinearADSRSliders();
 //initializeSwitches();
 });
 function initializeSampleLoopSwitch() {
@@ -3946,7 +4234,9 @@ function releaseSamplerNote(note) {
     }
 
     // Apply release envelope
-    const release = Math.max(0.01, parseFloat(D('release').value));
+    // CRITICAL FIX: Use the mapped time value from dataset instead of raw slider value
+    const release = Math.max(0.01, parseFloat(D('release').dataset.mappedTime || D('release').value));
+
     const now = audioCtx.currentTime;
     
     // Apply proper release envelope
@@ -4387,8 +4677,9 @@ function noteOn(noteNumber, isLegatoMonoTransition = false) {
         heldNotes.sort((a, b) => a - b);
     }
     
-    const attack = Math.max(0.003, parseFloat(D('attack').value));
-    const decay = parseFloat(D('decay').value);
+    // CRITICAL FIX: Use the mapped time values from dataset for attack and decay too
+    const attack = Math.max(0.003, parseFloat(D('attack').dataset.mappedTime || D('attack').value));
+    const decay = parseFloat(D('decay').dataset.mappedTime || D('decay').value);
     const sustain = parseFloat(D('sustain').value);
 
     // Store the previous played note before getting a new voice
@@ -5246,8 +5537,8 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
         console.log(`noteOff: No oscillator voices to release for note ${noteNumber}`);
         return;
     }
-
-    const release = Math.max(0.01, parseFloat(D('release').value));
+// CRITICAL FIX: Use the mapped time value from dataset instead of raw slider value
+    const release = Math.max(0.01, parseFloat(D('release').dataset.mappedTime || D('release').value));
 
     // Release the specified voices
     for (const voice of voicesToRelease) {
@@ -6495,3 +6786,20 @@ function startRecording(mode) {
         }
     }
 }
+document.addEventListener('DOMContentLoaded', () => {
+  // Initialize filter cutoff slider with custom mapping
+  const freqSlider = document.querySelector('.freq-slider-range');
+  if (freqSlider) {
+    initializeFilterPrecisionSlider(freqSlider);
+    console.log('Custom mapping applied to frequency slider');
+  }
+  
+  // Initialize ADSR sliders with custom mapping
+  ['attack', 'decay', 'release'].forEach(id => {
+    const slider = document.getElementById(id);
+    if (slider) {
+      initializeADSRPrecisionSlider(slider);
+      console.log(`Custom mapping applied to ${id} slider`);
+    }
+  });
+});
