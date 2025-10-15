@@ -18,7 +18,7 @@ export function createiOSStartupOverlay(audioCtx) {
     overlay.style.textAlign = 'center';
 
     const heading = document.createElement('h2');
-    heading.textContent = 'THULE Sampler';
+    heading.textContent = 'POLYHYMN';
     heading.style.color = '#8b4513';
     heading.style.marginBottom = '20px';
 

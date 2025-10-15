@@ -1723,7 +1723,7 @@ overlay.innerHTML = `
 <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
  background: rgba(245, 245, 220, 0.95); z-index: 99999; display: flex; 
  flex-direction: column; justify-content: center; align-items: center; text-align: center;">
-<h2 style="color: #8b4513;">THULE Sampler</h2>
+<h2 style="color: #8b4513;">POLYHYMN</h2>
 <p style="margin: 20px 0;">Tap the button below to enable audio</p>
 <button id="ios-chrome-audio-unlock" style="padding: 16px 32px; font-size: 18px; 
       background: #e6e6e6; border: 1px solid #35100B; border-radius: 8px; 
