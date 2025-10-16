@@ -3680,25 +3680,14 @@ function initializeADSRPrecisionSlider(slider) {
   function handleMouseMove(e) {
     if (!isDragging) return;
     
-    // Shift key provides finer control (5x precision)
+    // Calculate movement for Safari compatibility
+    // When using writing-mode: vertical-lr with direction: rtl
+    // Up means lower value, down means higher value
+    const deltaY = -(e.clientY - lastY); // Note the negative sign
+    lastY = e.clientY;
+    
+    // Shift key provides finer control
     const sensitivity = e.shiftKey ? 0.2 : 1.0;
-    
-    // Calculate movement differently for Safari on Mac
-    let deltaY;
-    
-    if (isSafariMac) {
-      // For Safari on Mac: calculate movement relative to slider center
-      const centerY = sliderRect.top + sliderRect.height / 2;
-      const movementDirection = lastY > e.clientY ? 1 : -1; // 1 for up, -1 for down
-      const movementAmount = Math.abs(lastY - e.clientY) * 0.5; // Reduced movement amount
-      
-      deltaY = movementDirection * movementAmount;
-      lastY = e.clientY;
-    } else {
-      // Standard calculation for other browsers
-      deltaY = lastY - e.clientY;
-      lastY = e.clientY;
-    }
     
     // Get current normalized position (0-1)
     const currentValue = parseFloat(newSlider.value);
