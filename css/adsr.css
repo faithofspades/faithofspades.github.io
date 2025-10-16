@@ -45,7 +45,30 @@
   
   
   
-
+  .slider-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #35100B;
+    width: 18px;
+    height: 26px;
+    cursor: pointer;
+    bottom: 10px;
+    border-radius: 5px;
+    /* Add indicator line like LFO sliders */
+    background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+    background-size: 2px 100% ;
+    background-repeat: no-repeat;
+    background-position: center;
+  margin-top: -10.6px;
+  }
+  
+  /* ADSR slider tracks */
+  .slider-group input[type="range"]::-webkit-slider-runnable-track {
+    background: #35100B;
+    border-radius: 5px;
+    height: 5px;
+    border: none;
+  }
   
   /* Labels row */
   .slider-labels {
@@ -84,70 +107,42 @@
     flex-direction: column;
     align-items: center;
     width: 22%;
-    height: 241px;
-}
-
-/* Common slider styles - USE DELAY'S WORKING APPROACH */
-.slider-group input[type="range"] {
+  }
+  
+  /* Common slider styles */
+  .slider-group input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
-    width: 33px;
-    height: 241px;
+    width: 241px;
+    height: 5px; /* Thinner track like LFO */
     background: transparent;
-    writing-mode: vertical-lr;
-    direction: rtl;
-    position: relative;
-    margin: 0;
-    padding: 0;
-}
-
-/* ADSR slider tracks */
-.slider-group input[type="range"]::-webkit-slider-runnable-track {
-    background: #35100B;
-    border-radius: 5px;
-    width: 5px;
-    height: 100%;
-    border: none;
-    margin: 0 auto;
-}
-
-.slider-group input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    background: #35100B;
-    width: 18px;
-    height: 26px;
-    cursor: pointer;
-    border-radius: 5px;
-    background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
-    background-size: 100% 2px;
-    background-repeat: no-repeat;
-    background-position: center;
-    margin-left: -10.6px;
-}
-
-/* Values above sliders */
-#attack-value, #decay-value, #sustain-value, #release-value {
+    transform: rotate(270deg);
+    position: absolute;
+    top: 135px;
+  }
+  
+  /* Values above sliders */
+  #attack-value, #decay-value, #sustain-value, #release-value {
     font-family: "Nunito", sans-serif;
     font-size: 10px;
     font-weight: 750;
     font-variant-caps: all-small-caps;
     color: #35100B;
-    width: 25px;
+    width: 25px; /* Fixed width */
     text-align: center;
     display: block;
     margin: 0 auto 5px auto;
-    height: 12px;
-}
-
-/* Labels below sliders */
-.slider-labels {
+    height: 12px; /* Fixed height */
+    overflow: hidden; /* Prevent overflow */
+  }
+  
+  /* Labels below sliders */
+  .slider-labels {
     display: flex;
     justify-content: space-between;
     width: 90%;
-    margin-top: 10px;
-    position: relative;
-}
+    margin-top: 244px;
+  }
   
   .slider-labels label {
     font-family: "Nunito", sans-serif;
