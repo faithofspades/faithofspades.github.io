@@ -377,7 +377,7 @@ function initializeFilterControls() {
     }
   }
   
-  // Resonance Slider - DEFAULT TO 0%
+  // Resonance Slider - DEFAULT TO 0%%
   const resSlider = document.querySelector('.res-slider-range');
   if (resSlider) {
     resSlider.value = 0.0; // Set to 0%

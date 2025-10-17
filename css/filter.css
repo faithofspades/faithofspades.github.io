@@ -72,38 +72,7 @@
     margin-left: 4%;
     margin-right: 15px;
   }
-  .filter-slider-track, .filter-type-track {
-  position: absolute;
-  top: 0;
-  height: 200px;
-  width: 5px;
-  background-color: #35100B;
-  border-radius: 2.5px;
-  z-index: 0;
-  left: 50%; /* Center in container */
-  transform: translateX(-50%);
-}
-  /* Vertical sliders: Freq and Res */
-  .freq-slider-range,
-  .res-slider-range {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 5px;
-    height: 100%;
-    background: transparent;
-    writing-mode: vertical-lr;
-    direction: rtl;
-    z-index: 1;
-  position: relative;
-  }
-  /* Make slider tracks transparent since we use separate tracks */
-.freq-slider-range::-webkit-slider-runnable-track,
-.res-slider-range::-webkit-slider-runnable-track {
-  background: transparent; /* Use separate track element instead */
-  width: 100%;
-  height: 100%;
-  border: none;
-}
+  
   /* Filter type container */
   .filter-type-container {
     display: flex;
@@ -144,30 +113,44 @@
     pointer-events: none;
   }
   
-  /* Shared slider track styling */
-  .freq-slider-range::-webkit-slider-runnable-track,
-  .res-slider-range::-webkit-slider-runnable-track {
-    background: #35100B;
-    border-radius: 5px;
-    width: 5px;
-    border: none;
-  }
-  
-  /* Shared slider thumb styling */
-  .freq-slider-range::-webkit-slider-thumb,
-  .res-slider-range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    background: #35100B;
-    width: 26px;
-    height: 18px;
-    cursor: pointer;
-    margin-left: -10.6px;
-    border-radius: 5px;
-    background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
-    background-size: 100% 2px;
-    background-repeat: no-repeat;
-    background-position: center;
-  }
+  .freq-slider-range,
+.res-slider-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 200px; /* This becomes the height when rotated */
+  height: 5px;
+  background: transparent;
+  transform: rotate(270deg);
+  transform-origin: left top;
+  position: absolute;
+  left: 3.1px; /* Adjust as needed */
+  top: 200px; /* Adjust as needed */
+}
+
+/* Make slider tracks consistent */
+.freq-slider-range::-webkit-slider-runnable-track,
+.res-slider-range::-webkit-slider-runnable-track {
+  background: #35100B;
+  border-radius: 5px;
+  height: 5px;
+  border: none;
+}
+
+/* Shared slider thumb styling - keep your existing design */
+.freq-slider-range::-webkit-slider-thumb,
+.res-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: #35100B;
+  width: 18px;
+  height: 26px;
+  cursor: pointer;
+  margin-top: -10px; /* Center thumb on track */
+  border-radius: 5px;
+  background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
   
   /* Filter type thumb styling */
   .filter-type-range::-webkit-slider-thumb {
