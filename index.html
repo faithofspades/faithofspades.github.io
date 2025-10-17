@@ -737,8 +737,40 @@
     </div>
   </div>
               <!-- ADSR Module -->
-<div class="module" style="grid-column: span 2;">
-  <div class="module-title adsr">ADSR Envelope</div>
+              <div class="module" style="grid-column: span 2;">
+                <div class="module-title adsr">ADSR Envelope</div>
+                
+                <div class="adsr-graph" id="adsr-visualization">
+                  <div class="adsr-line"></div>
+                </div>
+              
+                <div class="slider-group">
+                  <div class="slider-attack">
+  <span id="attack-value">0</span>
+  <input type="range" id="attack" min="0" max="30" step="0.001" value="0">
+</div>
+<div class="slider-decay">
+  <span id="decay-value">0.0</span>
+  <input type="range" id="decay" min="0" max="30" step="0.001" value="0.1">
+</div>
+<div class="slider-sustain">
+  <span id="sustain-value">1</span>
+  <input type="range" id="sustain" min="0" max="1" step="0.001" value="1">
+</div>
+<div class="slider-release">
+  <span id="release-value">0.00</span>
+  <input type="range" id="release" min="0" max="30" step="0.001" value="0.001">
+</div>
+                </div>
+                
+                <div class="slider-labels">
+                  <label>A</label>
+                  <label>D</label>
+                  <label>S</label>
+                  <label>R</label>
+                </div>
+              </div>
+              
   
   <div class="adsr-graph" id="adsr-visualization">
     <div class="adsr-line"></div>
