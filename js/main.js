@@ -6005,6 +6005,7 @@ document.addEventListener('DOMContentLoaded', function() {
 updateSliderValues();
 updateVoiceDisplay_Pool();
 updateADSRVisualization();
+
 // Initialize Keyboard Module
 initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool);
 initializeFilterControls();
