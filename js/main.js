@@ -1698,15 +1698,6 @@ function noteToFrequency(noteNumber, octaveOffset = 0, detuneCents = 0) {
     // return frequency * Math.pow(2, detuneCents / 1200);
     return frequency;
 }
-document.addEventListener('DOMContentLoaded', () => {
-  // Add precision control to frequency cutoff slider
-  const freqSlider = document.querySelector('.freq-slider-range');
-  if (freqSlider) {
-    initializeFilterPrecisionSlider(freqSlider);
-    console.log('Precision control added to frequency slider');
-  }
-});
-
 
 // Initialize for all mobile devices to be safe
 if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
@@ -3926,8 +3917,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Initialize switches on DOM load
 document.addEventListener('DOMContentLoaded', () => {
-    setupNonLinearFilterSlider();
-  setupNonLinearADSRSliders();
+
 //initializeSwitches();
 });
 function initializeSampleLoopSwitch() {
@@ -6922,20 +6912,3 @@ function startRecording(mode) {
         }
     }
 }
-document.addEventListener('DOMContentLoaded', () => {
-  // Initialize filter cutoff slider with custom mapping
-  const freqSlider = document.querySelector('.freq-slider-range');
-  if (freqSlider) {
-    initializeFilterPrecisionSlider(freqSlider);
-    console.log('Custom mapping applied to frequency slider');
-  }
-  
-  // Initialize ADSR sliders with custom mapping
-  ['attack', 'decay', 'release'].forEach(id => {
-    const slider = document.getElementById(id);
-    if (slider) {
-      initializeADSRPrecisionSlider(slider);
-      console.log(`Custom mapping applied to ${id} slider`);
-    }
-  });
-});
