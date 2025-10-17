@@ -3194,7 +3194,7 @@ document.addEventListener('DOMContentLoaded', () => {
 //nitializeSwitches();
 // Add this:
 
-  setupNonLinearADSRSliders();
+
 });
 
 
@@ -6903,3 +6903,14 @@ function startRecording(mode) {
         }
     }
 }
+document.addEventListener('DOMContentLoaded', () => {
+
+  // Initialize ADSR sliders with custom mapping
+  ['attack', 'decay', 'release'].forEach(id => {
+    const slider = document.getElementById(id);
+    if (slider) {
+      initializeADSRPrecisionSlider(slider);
+      console.log(`Custom mapping applied to ${id} slider`);
+    }
+  });
+});
