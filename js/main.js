@@ -3613,6 +3613,11 @@ function initializeADSRPrecisionSlider(slider) {
   const newSlider = slider.cloneNode(true);
   slider.parentNode.replaceChild(newSlider, slider);
   
+  // Ensure the orient attribute is set (critical for Safari)
+  if (!newSlider.hasAttribute('orient')) {
+    newSlider.setAttribute('orient', 'vertical');
+  }
+  
   // Non-linear mapping functions
   function positionToTime(position) {
     position = Math.max(0, Math.min(1, position));
@@ -3634,163 +3639,15 @@ function initializeADSRPrecisionSlider(slider) {
     }
   }
   
-  // Detect Safari
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-  const isMacOS = navigator.platform.toLowerCase().indexOf('mac') >= 0;
-  const isSafariMac = isSafari && isMacOS;
-  
-  console.log(`Browser detection: Safari=${isSafari}, macOS=${isMacOS}, SafariMac=${isSafariMac}`);
-  
-  let lastY;
-  let isDragging = false;
-  let sliderRect;
-  
-  // Mouse down event - start drag operation
-  newSlider.addEventListener('mousedown', function(e) {
-    isDragging = true;
-    lastY = e.clientY;
-    // Store the slider dimensions at the start of the drag for Safari
-    sliderRect = newSlider.getBoundingClientRect();
-    
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    e.preventDefault();
-  });
-  
-  // Touch start event for mobile devices
-  newSlider.addEventListener('touchstart', function(e) {
-    isDragging = true;
-    lastY = e.touches[0].clientY;
-    sliderRect = newSlider.getBoundingClientRect();
-    
-    document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    document.addEventListener('touchend', handleTouchEnd);
-    e.preventDefault();
-  }, { passive: false });
-  
-  // Mouse move handler - only active during drag
-  function handleMouseMove(e) {
-    if (!isDragging) return;
-    
-    // Calculate movement for Safari compatibility
-    // When using writing-mode: vertical-lr with direction: rtl
-    // Up means lower value, down means higher value
-    const deltaY = -(e.clientY - lastY); // Note the negative sign
-    lastY = e.clientY;
-    
-    // Shift key provides finer control
-    const sensitivity = e.shiftKey ? 0.2 : 1.0;
-    
-    // Get current normalized position (0-1)
-    const currentValue = parseFloat(newSlider.value);
-    const currentPosition = (currentValue - minTime) / (maxTime - minTime);
-    
-    // Apply movement with sensitivity factor
-    const posChange = (deltaY * 0.005) * sensitivity;
-    let newPosition = Math.max(0, Math.min(1, currentPosition + posChange));
-    
-    // Map position to time using non-linear mapping
-    const timeValue = positionToTime(newPosition);
-    
-    // Calculate raw slider value and update
-    const rawValue = newPosition * (maxTime - minTime) + minTime;
-    newSlider.value = rawValue;
-    
-    // Store the mapped time value for other functions
-    newSlider.dataset.mappedTime = timeValue.toFixed(3);
-    
-    // Update displayed value
-    const valueDisplay = document.getElementById(`${slider.id}-value`);
-    if (valueDisplay) {
-      valueDisplay.textContent = timeValue.toFixed(3);
-    }
-    
-    // Update ADSR visualization
-    updateADSRVisualization();
-    
-    // Update filter ADSR
-    if (filterManager && filterManager.isActive) {
-      filterManager.setADSR(
-        parseFloat(D('attack').dataset.mappedTime || D('attack').value),
-        parseFloat(D('decay').dataset.mappedTime || D('decay').value),
-        parseFloat(D('sustain').value),
-        parseFloat(D('release').dataset.mappedTime || D('release').value)
-      );
-    }
-    
-    console.log(`${slider.id}: pos=${newPosition.toFixed(2)}, time=${timeValue.toFixed(3)}s, shift=${e.shiftKey ? 'ON' : 'OFF'}`);
-    
-    e.preventDefault();
-  }
-  
-  // Touch move handler for mobile
-  function handleTouchMove(e) {
-    if (!isDragging) return;
-    
-    // Get touch position
-    const touch = e.touches[0];
-    
-    // Calculate movement
-    const deltaY = lastY - touch.clientY;
-    lastY = touch.clientY;
-    
-    // Get current normalized position (0-1)
-    const currentValue = parseFloat(newSlider.value);
-    const currentPosition = (currentValue - minTime) / (maxTime - minTime);
-    
-    // Apply movement with standard sensitivity for touch
-    const posChange = deltaY * 0.005;
-    let newPosition = Math.max(0, Math.min(1, currentPosition + posChange));
-    
-    // Map position to time
-    const timeValue = positionToTime(newPosition);
-    
-    // Update slider
-    const rawValue = newPosition * (maxTime - minTime) + minTime;
-    newSlider.value = rawValue;
-    newSlider.dataset.mappedTime = timeValue.toFixed(3);
-    
-    // Update UI
-    const valueDisplay = document.getElementById(`${slider.id}-value`);
-    if (valueDisplay) {
-      valueDisplay.textContent = timeValue.toFixed(3);
-    }
-    
-    updateADSRVisualization();
-    
-    if (filterManager && filterManager.isActive) {
-      filterManager.setADSR(
-        parseFloat(D('attack').dataset.mappedTime || D('attack').value),
-        parseFloat(D('decay').dataset.mappedTime || D('decay').value),
-        parseFloat(D('sustain').value),
-        parseFloat(D('release').dataset.mappedTime || D('release').value)
-      );
-    }
-    
-    e.preventDefault();
-  }
-  
-  // Mouse up handler - end drag operation
-  function handleMouseUp() {
-    isDragging = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-  }
-  
-  // Touch end handler
-  function handleTouchEnd() {
-    isDragging = false;
-    document.removeEventListener('touchmove', handleTouchMove);
-    document.removeEventListener('touchend', handleTouchEnd);
-  }
-  
-  // Standard input event handler (for clicking directly on the slider)
+  // Standard input handler - use native slider behavior
   newSlider.addEventListener('input', function(e) {
-    // Get the normalized position from slider value
+    // Get position from slider value
     const position = (parseFloat(this.value) - minTime) / (maxTime - minTime);
     
-    // Map to time and store
+    // Map to time using non-linear mapping
     const timeValue = positionToTime(position);
+    
+    // Store the mapped time value in dataset
     this.dataset.mappedTime = timeValue.toFixed(3);
     
     // Update displayed value
@@ -3802,7 +3659,7 @@ function initializeADSRPrecisionSlider(slider) {
     // Update ADSR visualization
     updateADSRVisualization();
     
-    // Update filter ADSR
+    // Update filter ADSR if needed
     if (filterManager && filterManager.isActive) {
       filterManager.setADSR(
         parseFloat(D('attack').dataset.mappedTime || D('attack').value),
@@ -3811,21 +3668,23 @@ function initializeADSRPrecisionSlider(slider) {
         parseFloat(D('release').dataset.mappedTime || D('release').value)
       );
     }
+    
+    console.log(`${slider.id}: pos=${position.toFixed(2)}, time=${timeValue.toFixed(3)}s`);
   });
   
   // Set initial values
   let initialTime = 0;
   if (slider.id === 'attack') initialTime = 0.00;
-  else if (slider.id === 'decay') initialTime = 0.0;
-  else if (slider.id === 'release') initialTime = 0.0;
+  else if (slider.id === 'decay') initialTime = 0.5;
+  else if (slider.id === 'release') initialTime = 0.5;
   
   const initialPosition = timeToPosition(initialTime);
   newSlider.value = initialPosition * (maxTime - minTime) + minTime;
   
-  // CRITICAL FIX: Store the initial mapped time
+  // Store the initial mapped time
   newSlider.dataset.mappedTime = initialTime.toFixed(3);
   
-  // Trigger input event
+  // Trigger input event to update everything
   const event = new Event('input');
   newSlider.dispatchEvent(event);
   
@@ -6903,3 +6762,14 @@ function startRecording(mode) {
         }
     }
 }
+document.addEventListener('DOMContentLoaded', () => {
+  // Other initialization code...
+  
+  // Initialize ADSR sliders with the fixed function
+  ['attack', 'decay', 'release'].forEach(id => {
+    const slider = document.getElementById(id);
+    if (slider) {
+      initializeADSRPrecisionSlider(slider);
+    }
+  });
+});
