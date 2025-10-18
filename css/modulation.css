@@ -8,33 +8,58 @@
     top: 30px;
   }
   /* Vertical destination range slider */
-.lfo-destination-range {
+.lfo-destination-range,
+.mod-destination-range {
     -webkit-appearance: none;
     appearance: none;
-    width: 20px; /* Make the slider wider than standard */
-    height: 100%;
+    width: 196.79px; /* Make the slider wider than standard */
+    height: 10px;
     background: transparent;
-    writing-mode: vertical-lr;
-    direction: rtl; /* Bottom to top orientation */
-    margin-left: 5px;
+    transform: rotate(270deg);
+    transform-origin: left top;
+    position: absolute;
+    margin-left: 7px;
     margin-right: 15px;
+    margin-top: 209px;
   }
   
   /* Custom track styling */
-  .lfo-destination-range::-webkit-slider-runnable-track {
-    width: 10px; /* Keep the width */
-    height: 100%; /* Use full height without the calculation */
+  .lfo-destination-range::-webkit-slider-runnable-track,
+.mod-destination-range::-webkit-slider-runnable-track {
+    height: 10px; /* Use full height without the calculation */
     background: #35100B;
     border-radius: 8px;
+    border: none;
   }
-  
+    .lfo-destination-range::-webkit-slider-thumb,
+.mod-destination-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: #35100B;
+    width: 24px; /* Make it wider than the track */
+    height: 26px; /* Make it taller */
+    cursor: pointer;
+    border-radius: 5px; /* Rectangular shape with rounded corners */
+    
+    /* Center it on the track */
+    margin-top: -8px; /* Center on track */
+  border-radius: 5px;
+    /* Add a subtle shadow for depth */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    
+    /* Optional: Add a small indicator line */
+    background-image: linear-gradient(to top, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  }
   /* Ticks container positioned to the right of the slider */
   .lfo-destination-ticks {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     height: 65%;
-    margin-left: -11px;
+    margin-left: 30px;
     margin-bottom: 56px;
     pointer-events: none; /* Don't block interaction */
   }
@@ -65,43 +90,8 @@
     margin-bottom: 1.6px;
     color: #35100B;
   }
-  .lfo-destination-range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    background: #35100B;
-    width: 24px; /* Make it wider than the track */
-    height: 26px; /* Make it taller */
-    cursor: pointer;
-    border-radius: 5px; /* Rectangular shape with rounded corners */
-    
-    /* Center it on the track */
-    margin-left: -6.8px; 
-    
-    /* Add a subtle shadow for depth */
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-    
-    /* Optional: Add a small indicator line */
-    background-image: linear-gradient(to right, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
-    background-size: 100% 2px;
-    background-repeat: no-repeat;
-    background-position: center;
-  }
+
   
-  /* Firefox version */
-  .lfo-destination-range::-moz-range-thumb {
-    appearance: none;
-    background: #f2eed3;
-    border: 2px solid #35100B;
-    width: 24px;
-    height: 26px;
-    cursor: pointer;
-    border-radius: 5px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-    background-image: linear-gradient(to right, #35100B 30%, transparent 30%, transparent 70%, #35100B 70%);
-    background-size: 100% 2px;
-    background-repeat: no-repeat;
-    background-position: center;
-  }
   .slider-label {
     font-family: "Nunito", sans-serif;
     font-size: 10px;
@@ -478,48 +468,6 @@
     position: relative;
   }
   
-  /* Vertical destination range slider */
-  .mod-destination-range {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 20px; /* Make the slider wider than standard */
-    height: 100%;
-    background: transparent;
-    writing-mode: vertical-lr;
-    direction: rtl; /* Bottom to top orientation */
-    margin: 15px;
-  }
-  
-  /* Custom track styling */
-  .mod-destination-range::-webkit-slider-runnable-track {
-    width: 10px;
-    height: 100%;
-    background: #35100B;
-    border-radius: 8px;
-  }
-  
-  /* Custom thumb styling */
-  .mod-destination-range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    background: #35100B;
-    width: 24px; /* Make it wider than the track */
-    height: 26px; /* Make it taller */
-    cursor: pointer;
-    border-radius: 5px; /* Rectangular shape with rounded corners */
-    
-    /* Center it on the track */
-    margin-left: -6.8px; 
-    
-    /* Add a subtle shadow for depth */
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-    
-    /* Optional: Add a small indicator line */
-    background-image: linear-gradient(to right, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
-    background-size: 100% 2px;
-    background-repeat: no-repeat;
-    background-position: center;
-  }
   
   /* Ticks container positioned to the right of the slider */
   .mod-destination-ticks {
