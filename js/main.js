@@ -3484,6 +3484,11 @@ function initializeFilterPrecisionSlider(slider) {
   const newSlider = slider.cloneNode(true);
   slider.parentNode.replaceChild(newSlider, slider);
   
+  // CRITICAL FIX: Ensure orient attribute is set for Safari
+  if (!newSlider.hasAttribute('orient')) {
+    newSlider.setAttribute('orient', 'vertical');
+  }
+  
   // Set slider attributes for high precision
   newSlider.min = sliderMinValue;
   newSlider.max = sliderMaxValue;
@@ -3522,8 +3527,8 @@ function initializeFilterPrecisionSlider(slider) {
     return position * (sliderMaxValue - sliderMinValue) + sliderMinValue;
   }
   
-  // Standard input handler for direct slider interaction
-  newSlider.oninput = function() {
+  // Standard input handler for direct slider interaction - SIMPLIFIED
+  newSlider.addEventListener('input', function() {
     // Convert slider value to normalized position (0-1)
     const position = sliderValueToPosition(parseFloat(this.value));
     
@@ -3536,62 +3541,7 @@ function initializeFilterPrecisionSlider(slider) {
     }
     
     console.log(`Filter: sliderValue=${this.value}, position=${position.toFixed(4)}, frequency=${frequency}Hz`);
-  };
-  
-  // Mouse down event - start drag operation
-  let lastY;
-  let isDragging = false;
-  
-  newSlider.addEventListener('mousedown', function(e) {
-    isDragging = true;
-    lastY = e.clientY;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    e.preventDefault();
   });
-  
-  // Mouse move handler with precision shift key control
-  function handleMouseMove(e) {
-    if (!isDragging) return;
-    
-    // Shift key provides finer control (5x slower)
-    const sensitivity = e.shiftKey ? 0.2 : 1.0;
-    
-    // Calculate vertical movement as a percentage of the slider range
-    const deltaY = lastY - e.clientY;
-    lastY = e.clientY;
-    
-    // Get current slider value and convert to position
-    const currentValue = parseFloat(newSlider.value);
-    const currentPosition = sliderValueToPosition(currentValue);
-    
-    // Apply movement with sensitivity factor
-    const posChange = (deltaY * 0.005) * sensitivity;
-    let newPosition = Math.max(0, Math.min(1, currentPosition + posChange));
-    
-    // Convert position to slider value
-    const newSliderValue = newPosition * (sliderMaxValue - sliderMinValue) + sliderMinValue;
-    
-    // Update slider with new value
-    newSlider.value = newSliderValue;
-    
-    // Convert to frequency and update filter
-    const newFreq = positionToFrequency(newPosition);
-    
-    if (filterManager) {
-      filterManager.setCutoff(newFreq);
-    }
-    
-    console.log(`Filter drag: sliderValue=${newSliderValue.toFixed(1)}, pos=${newPosition.toFixed(4)}, freq=${newFreq}Hz, shift=${e.shiftKey ? 'ON' : 'OFF'}`);
-    e.preventDefault();
-  }
-  
-  // Mouse up handler - end drag operation
-  function handleMouseUp() {
-    isDragging = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-  }
   
   // Initialize with maximum frequency (16000Hz)
   const initialSliderValue = frequencyToSliderValue(maxFreq);
@@ -3603,7 +3553,6 @@ function initializeFilterPrecisionSlider(slider) {
   
   return newSlider;
 }
-
 function initializeADSRPrecisionSlider(slider) {
   // Keep original min/max
   const minTime = parseFloat(slider.min); // 0s
@@ -6764,7 +6713,11 @@ function startRecording(mode) {
 }
 document.addEventListener('DOMContentLoaded', () => {
   // Other initialization code...
-  
+  // Initialize Filter slider
+  const freqSlider = document.querySelector('.freq-slider-range');
+  if (freqSlider) {
+    initializeFilterPrecisionSlider(freqSlider);
+  }
   // Initialize ADSR sliders with the fixed function
   ['attack', 'decay', 'release'].forEach(id => {
     const slider = document.getElementById(id);
