@@ -48,23 +48,24 @@
   .lfo-sliders-container {
     position: relative;
     display: flex;
-    gap: 25px; /* Reduced from 25px to make space for tick marks */
+    gap: 34px; /* Reduced from 25px to make space for tick marks */
     height: 85%;
     margin-left: 20px; /* Reduced from 10% */
     margin-right: 15px; /* Add right margin to prevent overlap */
     top: 10px;
+    right: 5px;
   }
-  /* Vertical sliders: Rate and Delay */
+  /* Vertical sliders: Rate and Delay 
 .rate-slider-range,
 .delay-slider-range {
   -webkit-appearance: none;
   appearance: none;
-  width: 5px; /* Thin track (matches the horizontal slider track height) */
+  width: 5px; /* Thin track (matches the horizontal slider track height) 
   height: 100%;
   background: transparent;
-  writing-mode: vertical-lr; /* Modern vertical orientation */
-  direction: rtl; /* Bottom to top orientation */
-}
+  writing-mode: vertical-lr; /* Modern vertical orientation 
+  direction: rtl; /* Bottom to top orientation 
+}*/
 .lfo-selector-container {
     width: 100%;
     display: flex;
@@ -72,14 +73,15 @@
     align-items: center;
     margin-top: 7px;
   }
-  /* Shared slider track styling - make tracks thinner */
+  /* Shared slider track styling - make tracks thinner 
 .rate-slider-range::-webkit-slider-runnable-track,
 .delay-slider-range::-webkit-slider-runnable-track {
   background: #35100B;
   border-radius: 5px;
-  width: 5px; /* For vertical sliders (needed for proper appearance) */
+  width: 5px; /* For vertical sliders (needed for proper appearance) 
   border: none;
-}
+}*/
+/*
 .rate-slider-range::-webkit-slider-thumb,
 .delay-slider-range::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -88,11 +90,49 @@
   width: 26px;
   height: 18px;
   cursor: pointer;
-  margin-left: -10.6px; /* For vertical sliders */
-  border-radius: 5px; /* Remove circular shape to make rectangular */
-    /* Optional: Add a small indicator line */
+  margin-left: -10.6px; /* For vertical sliders 
+  border-radius: 5px; /* Remove circular shape to make rectangular 
+    /* Optional: Add a small indicator line 
     background-image: linear-gradient(to right, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
   background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center;
+}*/
+/* Vertical sliders: Rate and Delay - Updated for cross-platform compatibility */
+.rate-slider-range,
+.delay-slider-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 162.34px; /* This becomes the height when rotated */
+  height: 5px;
+  background: transparent;
+  transform: rotate(270deg);
+  transform-origin: left top;
+  position: absolute;
+  top: 162.34px; /* Adjust as needed */
+}
+
+/* Track styling */
+.rate-slider-range::-webkit-slider-runnable-track,
+.delay-slider-range::-webkit-slider-runnable-track {
+  background: #35100B;
+  border-radius: 5px;
+  height: 5px;
+  border: none;
+}
+
+/* Thumb styling */
+.rate-slider-range::-webkit-slider-thumb,
+.delay-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: #35100B;
+  width: 18px;
+  height: 26px;
+  cursor: pointer;
+  margin-top: -10.5px; /* Center thumb on track */
+  border-radius: 5px;
+  background-image: linear-gradient(to top, #f2eed3 35%, transparent 35%, transparent 65%, #f2eed3 65%);
+  background-size: 2px 100%;
   background-repeat: no-repeat;
   background-position: center;
 }
@@ -553,3 +593,4 @@
     left: 1px;
     z-index: 2;
   }
+  

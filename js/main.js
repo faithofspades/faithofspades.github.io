@@ -3675,8 +3675,8 @@ function initializeADSRPrecisionSlider(slider) {
   // Set initial values
   let initialTime = 0;
   if (slider.id === 'attack') initialTime = 0.00;
-  else if (slider.id === 'decay') initialTime = 0.5;
-  else if (slider.id === 'release') initialTime = 0.5;
+  else if (slider.id === 'decay') initialTime = 0.0;
+  else if (slider.id === 'release') initialTime = 0.0;
   
   const initialPosition = timeToPosition(initialTime);
   newSlider.value = initialPosition * (maxTime - minTime) + minTime;
