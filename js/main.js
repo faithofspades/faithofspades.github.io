@@ -139,6 +139,33 @@ function applyCurvedEnvelope(gainNode, startValue, endValue, duration, startTime
     gainNode.linearRampToValueAtTime(endValue, startTime + duration);
   }
 }
+// Function to play a test tone
+function playTestTone(filterType) {
+  // Only play if we have an audio context
+  if (!audioCtx) return;
+  
+  // Create a test oscillator
+  const testOsc = audioCtx.createOscillator();
+  const testGain = audioCtx.createGain();
+  
+  // Configure oscillator
+  testOsc.type = 'sawtooth'; // Rich harmonic content to highlight filter
+  testOsc.frequency.value = 220; // Low A
+  
+  // Very short test
+  testGain.gain.setValueAtTime(0, audioCtx.currentTime);
+  testGain.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.01);
+  testGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+  
+  // Connect and play
+  testOsc.connect(testGain);
+  testGain.connect(audioCtx.destination);
+  
+  testOsc.start();
+  testOsc.stop(audioCtx.currentTime + 0.6);
+  
+  console.log(`Playing test tone with ${filterType} filter`);
+}
 // Update worklet initialization to include master clock
 const workletReadyPromise = initializeMasterClock()
     .then(() => audioCtx.audioWorklet.addModule('js/shape-hold-processor.js'))
@@ -336,7 +363,7 @@ function setupNonLinearADSRSliders() {
   console.log("Fixed non-linear ADSR sliders setup complete");
 }
 function initializeFilterControls() {
-  // Filter Type Selector - SET TO LP24 BY DEFAULT
+  // Filter Type Selector
   const filterTypeSelector = document.querySelector('.filter-type-range');
   if (filterTypeSelector) {
     filterTypeSelector.value = 3; // Set to LP24 (index 1)
@@ -355,8 +382,9 @@ function initializeFilterControls() {
       
       if (filterManager) {
         filterManager.setFilterType(filterType);
-        console.log(`Filter type set to: ${filterType}`);
       }
+      
+      console.log(`Filter type set to: ${filterType}`);
     });
   }
   
@@ -943,6 +971,33 @@ function refreshFMSources() {
         }
     });
 }
+function verifyFilterType() {
+  if (!filterManager) return;
+  
+  const currentType = filterManager.currentFilterType;
+  console.log(`VERIFICATION: Current filter type is ${currentType}`);
+  
+  // Force a parameter change to trigger logging in the processor
+  if (currentType === 'lp12') {
+    // Apply a small resonance change to trigger LP-12 processor logs
+    const currentRes = filterManager.resonance;
+    filterManager.setResonance(Math.min(1, currentRes + 0.01));
+    filterManager.setResonance(currentRes);
+    
+    // Apply a small cutoff change to trigger LP-12 processor logs
+    const currentCutoff = filterManager.cutoff;
+    filterManager.setCutoff(Math.min(16000, currentCutoff + 10));
+    
+    console.log(`VERIFICATION: LP-12 filter should be logging now`);
+  } else {
+    // Same for LP-24
+    const currentRes = filterManager.resonance;
+    filterManager.setResonance(Math.min(1, currentRes + 0.01));
+    filterManager.setResonance(currentRes);
+    
+    console.log(`VERIFICATION: LP-24 filter should be logging now`);
+  }
+}
 /**
  * Creates and initializes all audio nodes for a single permanent voice.
  * Uses Juno voice processors that read from master clock.
@@ -1171,44 +1226,52 @@ function createVoice(ctx, index) {
   }
 
   // --- Create Persistent Filter for This Voice ---
-  if (filterManager && voice.osc1Note && voice.osc2Note) {
-    filterManager.createPersistentFilter(`osc-${voice.id}`).then(filterNode => {
-        // CRITICAL: Connect amplitude gain node to filter for real-time tracking
-    filterManager.setAmplitudeGainNode(`osc-${voice.id}`, voice.osc1Note.gainNode);
+if (filterManager && voice.osc1Note && voice.osc2Note) {
+  filterManager.createPersistentFilter(`osc-${voice.id}`).then(filterInput => {
+    // Get filter input/output nodes
+    const filterOutput = filterManager.getFilterOutput(`osc-${voice.id}`);
+    
+    if (filterInput && filterOutput) {
+      // CRITICAL: Connect amplitude gain node to filter for real-time tracking
+      filterManager.setAmplitudeGainNode(`osc-${voice.id}`, voice.osc1Note.gainNode);
 
-      if (filterNode) {
-        // Connect both oscillator panners to the filter input
-        if (voice.osc1Note && voice.osc1Note.panner) {
-          voice.osc1Note.panner.connect(filterNode);
-          console.log(`Connected OSC1 panner for voice ${voice.id} to filter`);
-        }
-        if (voice.osc2Note && voice.osc2Note.panner) {
-          voice.osc2Note.panner.connect(filterNode);
-          console.log(`Connected OSC2 panner for voice ${voice.id} to filter`);
-        }
-        
-        filterNode.connect(oscillatorMasterGain);
-        voice.filterNode = filterNode;
-        voice.hasFilter = true;
-        
-        console.log(`Created and connected persistent filter for voice ${voice.id}`);
-      } else {
-        console.warn(`Filter creation failed for voice ${voice.id}, connecting directly`);
-        if (voice.osc1Note && voice.osc1Note.panner) voice.osc1Note.panner.connect(oscillatorMasterGain);
-        if (voice.osc2Note && voice.osc2Note.panner) voice.osc2Note.panner.connect(oscillatorMasterGain);
-        voice.hasFilter = false;
+      // Connect both oscillator panners to the filter INPUT node
+      if (voice.osc1Note && voice.osc1Note.panner) {
+        voice.osc1Note.panner.connect(filterInput);
+        console.log(`Connected OSC1 panner for voice ${voice.id} to filter input`);
       }
-    }).catch(err => {
-      console.error(`Failed to create filter for voice ${voice.id}:`, err);
+      if (voice.osc2Note && voice.osc2Note.panner) {
+        voice.osc2Note.panner.connect(filterInput);
+        console.log(`Connected OSC2 panner for voice ${voice.id} to filter input`);
+      }
+      
+      // Connect filter OUTPUT node to master gain
+      filterOutput.connect(oscillatorMasterGain);
+      
+      // Store references (not needed but helps with debugging)
+      voice.filterInput = filterInput;
+      voice.filterOutput = filterOutput;
+      voice.hasFilter = true;
+      
+      console.log(`Created and connected dual filter for voice ${voice.id}`);
+    } else {
+      // Fallback: Direct connection if filter failed
+      console.warn(`Filter creation failed for voice ${voice.id}, connecting directly`);
       if (voice.osc1Note && voice.osc1Note.panner) voice.osc1Note.panner.connect(oscillatorMasterGain);
       if (voice.osc2Note && voice.osc2Note.panner) voice.osc2Note.panner.connect(oscillatorMasterGain);
       voice.hasFilter = false;
-    });
-  } else {
+    }
+  }).catch(err => {
+    console.error(`Failed to create filter for voice ${voice.id}:`, err);
     if (voice.osc1Note && voice.osc1Note.panner) voice.osc1Note.panner.connect(oscillatorMasterGain);
     if (voice.osc2Note && voice.osc2Note.panner) voice.osc2Note.panner.connect(oscillatorMasterGain);
     voice.hasFilter = false;
-  }
+  });
+} else {
+  if (voice.osc1Note && voice.osc1Note.panner) voice.osc1Note.panner.connect(oscillatorMasterGain);
+  if (voice.osc2Note && voice.osc2Note.panner) voice.osc2Note.panner.connect(oscillatorMasterGain);
+  voice.hasFilter = false;
+}
   
   // Connect sampler panner directly to sampler master gain
   samplerPanner.connect(samplerMasterGain);
@@ -2948,43 +3011,46 @@ function createSamplerVoice(ctx, index) {
   };
   
   // CRITICAL FIX: Create filter and ensure ONLY ONE connection path
-  if (filterManager) {
-  filterManager.createPersistentFilter(`sampler-${voice.id}`).then(filterNode => {
+if (filterManager) {
+  filterManager.createPersistentFilter(`sampler-${voice.id}`).then(filterInput => {
+    const filterOutput = filterManager.getFilterOutput(`sampler-${voice.id}`);
+    
     // CRITICAL: Connect amplitude gain node to filter for real-time tracking
     filterManager.setAmplitudeGainNode(`sampler-${voice.id}`, samplerGainNode);
 
-      if (filterNode) {
-        // ONLY connection: panner → filter → samplerMasterGain
-        samplerPanner.connect(filterNode);
-        filterNode.connect(samplerMasterGain);
-        
-        voice.filterNode = filterNode;
-        voice.hasFilter = true;
-        voice.samplerNote.hasFilter = true; // Mark the note too
-        
-        console.log(`✓ Sampler voice ${voice.id} ONLY path: panner → filter → samplerMasterGain`);
-      } else {
-        // Fallback: Direct connection ONLY if filter failed
-        samplerPanner.connect(samplerMasterGain);
-        voice.hasFilter = false;
-        voice.samplerNote.hasFilter = false;
-        
-        console.log(`✗ Sampler voice ${voice.id} direct: panner → samplerMasterGain (filter failed)`);
-      }
-    }).catch(err => {
-      console.error(`Failed to create filter for sampler voice ${voice.id}:`, err);
-      // Fallback on error
+    if (filterInput && filterOutput) {
+      // ONLY connection: panner → filter input → filter output → samplerMasterGain
+      samplerPanner.connect(filterInput);
+      filterOutput.connect(samplerMasterGain);
+      
+      voice.filterInput = filterInput;
+      voice.filterOutput = filterOutput;
+      voice.hasFilter = true;
+      voice.samplerNote.hasFilter = true; // Mark the note too
+      
+      console.log(`✓ Sampler voice ${voice.id} ONLY path: panner → filter → samplerMasterGain`);
+    } else {
+      // Fallback: Direct connection ONLY if filter failed
       samplerPanner.connect(samplerMasterGain);
       voice.hasFilter = false;
       voice.samplerNote.hasFilter = false;
-    });
-  } else {
-    // No filter manager - direct connection
+      
+      console.log(`✗ Sampler voice ${voice.id} direct: panner → samplerMasterGain (filter failed)`);
+    }
+  }).catch(err => {
+    console.error(`Failed to create filter for sampler voice ${voice.id}:`, err);
+    // Fallback on error
     samplerPanner.connect(samplerMasterGain);
     voice.hasFilter = false;
     voice.samplerNote.hasFilter = false;
-    console.log(`No filter manager for sampler voice ${voice.id}`);
-  }
+  });
+} else {
+  // No filter manager - direct connection
+  samplerPanner.connect(samplerMasterGain);
+  voice.hasFilter = false;
+  voice.samplerNote.hasFilter = false;
+  console.log(`No filter manager for sampler voice ${voice.id}`);
+}
 
   console.log(`Created sampler voice ${index} with pan: ${(voice.panOffset * 100).toFixed(1)}%, warble: ${voice.warbleOffset.toFixed(1)} cents`);
   return voice;
@@ -4918,13 +4984,16 @@ if (isSampleLoopOn) {
         // SOPHISTICATED SAMPLER ENVELOPE
 samplerNote.gainNode.gain.cancelScheduledValues(now);
 
+// FIX: Define currentGain outside any conditional blocks to ensure it exists
+const currentGain = wasActive ? samplerNote.gainNode.gain.value : 0;
+
 if (legatoTransition && samplerNote.state === 'playing') {
   // LEGATO MODE logic remains
   if (wasInAttack || wasInDecay) {
     samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
     
     if (wasInAttack) {
-      // Continue attack with linear ramp (unchanged)
+      // Continue attack
       const remainingAttackTime = attack * (1.0 - currentGain);
       samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
       
@@ -5202,10 +5271,11 @@ if (samplerVoice && filterManager) {
     // Ensure gate is open
         osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
         
-        // SOPHISTICATED OSC1 ENVELOPE
 // SOPHISTICATED OSC1 ENVELOPE
 // CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
 osc1.gainNode.gain.cancelScheduledValues(now);
+
+// FIX: Define currentGain outside any conditional blocks to ensure it exists
 const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
 
 if (legatoTransition && osc1.state === 'playing') {
@@ -5333,6 +5403,8 @@ if (voice.osc2Note && voice.osc2Note.workletNode) {
 // SOPHISTICATED OSC2 ENVELOPE
 // CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
 osc2.gainNode.gain.cancelScheduledValues(now);
+
+// FIX: Define currentGain outside any conditional blocks to ensure it exists
 const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
 
 if (legatoTransition && osc2.state === 'playing') {
@@ -5437,15 +5509,24 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
 
     // --- MONO MODE HANDLING ---
     if (isMonoMode && heldNotes.length > 0) {
-    // Switch to the next held note without releasing
-    const nextNote = heldNotes[heldNotes.length - 1];
-    console.log(`Mono noteOff: Switching from ${noteNumber} to held note ${nextNote}`);
-    
-    // CRITICAL FIX: Pass true as second parameter to indicate this is a legato transition
-    noteOn(nextNote, true); // Add true for isLegatoMonoTransition
-    
-    return;
-
+  // Get the next held note
+  const nextNote = heldNotes[heldNotes.length - 1];
+  
+  // Check if the released note is actually the currently playing note
+  const isReleasingCurrentNote = currentMonoVoice && 
+                               currentMonoVoice.noteNumber === noteNumber;
+  
+  console.log(`Mono noteOff: ${noteNumber} → ${nextNote} (${isReleasingCurrentNote ? 'releasing active' : 'releasing held'})`);
+  
+  if (isReleasingCurrentNote) {
+    // Only retrigger when releasing the currently playing note
+    noteOn(nextNote, isLegatoMode);
+  } else {
+    // Don't do anything when releasing non-active held notes
+    console.log(`Mono noteOff: Ignoring release of non-active note ${noteNumber}`);
+  }
+  
+  return;
 }
 
     // --- SAMPLER NOTE-OFF LOGIC ---
