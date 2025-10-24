@@ -7,7 +7,7 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
       { name: 'saturation', defaultValue: 1.0, minValue: 0.1, maxValue: 10.0, automationRate: 'k-rate' },
       { name: 'envelopeAmount', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'a-rate' },
       { name: 'keytrackAmount', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'k-rate' },
-      { name: 'bassCompensation', defaultValue: 0.5, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
+      { name: 'bassCompensation', defaultValue: 0.5, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }, // Repurposed as "Harshness"
       { name: 'currentMidiNote', defaultValue: 69, minValue: 0, maxValue: 127, automationRate: 'k-rate' },
       { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
       { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' }
@@ -18,104 +18,49 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     super();
     this.MOOG_PI = Math.PI;
     this.sampleRate = sampleRate;
-    this.cutoff = 1000;
-    this.resonance = 0.0;
-    this.saturation = 1.0;
-    this.K = 0.0;
-    this.alpha0 = 1.0;
-    this.gamma = 1.0;
-    this.oberheimCoefs = [0.0, 0.0, 0.0, 0.0, 1.0];
-    this.channelFilters = [];
     
-    this.lastResonanceValue = 0;
+    // Huovilainen specific constants
+    this.thermal = 1.0; // Normalized thermal scaling (originally 0.000025V but normalized for digital domain)
+    
+    this.channelFilters = [];
     this.resonanceSmoothed = 0;
     
     this.port.onmessage = this.handleMessage.bind(this);
-    console.log(`LP-12 Moog filter initialized at ${this.sampleRate}Hz`);
+    console.log(`LP-12 Huovilainen Moog filter initialized at ${this.sampleRate}Hz`);
     this.port.postMessage({ type: 'initialized', sampleRate: this.sampleRate });
     
-    this.envelopeFollower = 0.0;
-    const attackTime = 0.001;
-    const releaseTime = 0.001;
-    this.attackCoef = Math.exp(-1.0 / (attackTime * sampleRate));
-    this.releaseCoef = Math.exp(-1.0 / (releaseTime * sampleRate));
-  }
-  
-  createOnePole() {
-    return {
-      alpha: 1.0,
-      beta: 0.0,
-      gamma: 1.0,
-      delta: 0.0,
-      epsilon: 0.0,
-      a0: 1.0,
-      feedback: 0.0,
-      z1: 0.0,
-      
-      reset() {
-        this.alpha = 1.0;
-        this.beta = 0.0;
-        this.gamma = 1.0;
-        this.delta = 0.0;
-        this.epsilon = 0.0;
-        this.a0 = 1.0;
-        this.feedback = 0.0;
-        this.z1 = 0.0;
-      },
-      
-      tick(input) {
-        const scaledInput = input * this.gamma + this.feedback + 
-                           this.epsilon * this.getFeedbackOutput();
-        
-        const vn = (this.a0 * scaledInput - this.z1) * this.alpha;
-        const output = vn + this.z1;
-        this.z1 = vn + output;
-        
-        return output;
-      },
-      
-      setFeedback(fb) {
-        this.feedback = fb;
-      },
-      
-      getFeedbackOutput() {
-        return this.beta * (this.z1 + this.feedback * this.delta);
-      },
-      
-      setAlpha(a) {
-        this.alpha = a;
-      },
-      
-      setBeta(b) {
-        this.beta = b;
-      }
-    };
+    // Calculate decay coefficient for 5ms decay time
+    const decayTime = 0.005;
+    this.resonanceDecayCoef = Math.exp(-1.0 / (decayTime * sampleRate));
   }
   
   createChannelFilter() {
     return {
-      stage1: this.createOnePole(),
-      stage2: this.createOnePole(),
-      stage3: this.createOnePole(),
-      stage4: this.createOnePole(),
+      // Huovilainen uses specific arrays
+      stage: new Float64Array(4),      // Current stage values
+      stageTanh: new Float64Array(3),  // Cached tanh values for stages 0-2
+      delay: new Float64Array(6),      // Delay line (includes phase compensation)
       
-      lastOutput: 0,
-      resonanceFeedback: 0,
+      // Filter parameters
+      tune: 0.0,
+      acr: 0.0,
+      resQuad: 0.0,
+      
+      activeResonance: 0.0,
       
       reset() {
-        this.stage1.reset();
-        this.stage2.reset();
-        this.stage3.reset();
-        this.stage4.reset();
-        this.lastOutput = 0;
-        this.resonanceFeedback = 0;
+        this.stage.fill(0);
+        this.stageTanh.fill(0);
+        this.delay.fill(0);
+        this.activeResonance = 0.0;
       }
     };
   }
   
   ensureChannelFilters(numChannels) {
     while (this.channelFilters.length < numChannels) {
-      this.channelFilters.push(this.createChannelFilter());
+      const filter = this.createChannelFilter();
+      this.channelFilters.push(filter);
     }
   }
   
@@ -133,101 +78,113 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     }
   }
   
-  // Simple post-filter diode processing - only controlled by resonance amount
-  applyDiodeProcessing(input, resonanceAmount) {
-    // No processing if resonance is zero
-    if (resonanceAmount <= 0.0) return input;
+  // NO diode processing - Huovilainen model has its own nonlinearities
+  
+  // Set cutoff using Huovilainen's method
+  setFilterCutoff(filter, cutoffHz, resonance) {
+    const cutoff = Math.max(10, Math.min(this.sampleRate * 0.45, cutoffHz));
     
-    // First diode: reduce to 17%, apply sinusoidal transfer, boost by 2x
-    let signal = input * 0.17;
+    const fc = cutoff / this.sampleRate;
+    const f = fc * 0.5; // Oversampled (2x)
+    const fc2 = fc * fc;
+    const fc3 = fc2 * fc;
     
-    // Drive amount increases with resonance
-    const drive = 1.0 + resonanceAmount * 4.0;
+    // Huovilainen's frequency and resonance compensation
+    const fcr = 1.8730 * fc3 + 0.4955 * fc2 - 0.6490 * fc + 0.9988;
+    // Use full acr value for proper filter response and bass retention
+    filter.acr = -3.9364 * fc2 + 1.8409 * fc + 0.9968;
     
-    // Apply sine waveshaping
-    signal = Math.sin(signal * drive * Math.PI);
+    // Calculate tune parameter - scale appropriately for digital domain (0-1 range)
+    const tuneBase = (1.0 - Math.exp(-(2 * this.MOOG_PI * f * fcr)));
+    filter.tune = tuneBase / (1.0 + tuneBase); // Normalize to prevent instability
     
-    // Hard clip with threshold that decreases as resonance increases
-    const clipThreshold1 = 1.0 / (1.0 + resonanceAmount * 2.0);
-    signal = Math.max(-clipThreshold1, Math.min(clipThreshold1, signal));
-    
-    // Normalize and boost by 2x (3dB)
-
-    
-    // Second diode: reduce to 36%, apply more extreme processing
-    signal = signal * 0.36;
-    
-    // More extreme drive for second stage
-    const drive2 = 1.0 + resonanceAmount * 4.0;
-    
-    // Apply sine waveshaping again
-    signal = Math.sin(signal * drive2 * Math.PI);
-    
-    // Even harder clipping - approaches brick wall at high resonance
-    const clipThreshold2 = 1.0 / (1.0 + resonanceAmount * 4.0);
-    signal = Math.max(-clipThreshold2, Math.min(clipThreshold2, signal));
-    
-    // Normalize
-    signal = signal / clipThreshold2;
-    
-    // Blend between clean and processed based on resonance
-    // At 0 resonance: 100% clean
-    // At full resonance: 100% processed
-    return input * (1.0 - resonanceAmount) + signal * resonanceAmount;
+    // Update resonance with new acr
+    this.setFilterResonance(filter, resonance);
   }
   
-  setCutoff(cutoffHz) {
-    this.cutoff = Math.max(8, Math.min(16000, cutoffHz));
+  // Set resonance using Huovilainen's method with proper scaling
+  setFilterResonance(filter, res) {
+    // Apply exponential curve to make 0.94 feel like max
+    // This maps user 0-1 range to actual 0-0.94 range with more control at high end
+    const scaledRes = res * res * 0.94; // Quadratic scaling caps at 0.94
+    const resonance = Math.max(0, Math.min(0.94, scaledRes));
+    // Standard resonance feedback strength
+    filter.resQuad = 8.0 * resonance * filter.acr;
+  }
+  
+  // Process one sample through Huovilainen filter with 2x oversampling
+  // MODIFIED: Taps output after 2 poles (stage[1]) for 12dB/octave response
+  processHuovilainenFilter(filter, input) {
+    const { stage, stageTanh, delay, tune, resQuad } = filter;
     
-    const wd = 2.0 * this.MOOG_PI * this.cutoff;
-    const T = 1.0 / this.sampleRate;
-    const wa = (2.0 / T) * Math.tan(wd * T / 2.0);
-    const g = wa * T / 2.0;
-    
-    const G = g / (1.0 + g);
-    
-    for (const filter of this.channelFilters) {
-      filter.stage1.setAlpha(G);
-      filter.stage2.setAlpha(G);
-      filter.stage3.setAlpha(G);
-      filter.stage4.setAlpha(G);
+    // 2x oversampling
+    for (let j = 0; j < 2; j++) {
+      // Standard 4-pole feedback from output (still from stage 3 for proper resonance)
+      const inputSample = input - resQuad * delay[5];
       
-      filter.stage1.setBeta(G * G * G / (1.0 + g));
-      filter.stage2.setBeta(G * G / (1.0 + g));
-      filter.stage3.setBeta(G / (1.0 + g));
-      filter.stage4.setBeta(1.0 / (1.0 + g));
+      // First stage with tanh - proper scaling for transistor nonlinearity
+      delay[0] = stage[0] = delay[0] + tune * (Math.tanh(inputSample) - stageTanh[0]);
+      
+      // Process stages 1-3 (indices k = 1, 2, 3)
+      for (let k = 1; k < 4; k++) {
+        const stageInput = stage[k - 1];
+        
+        // Calculate and cache tanh for this input
+        stageTanh[k - 1] = Math.tanh(stageInput);
+        
+        if (k !== 3) {
+          // For stages 1-2, use cached tanh from stageTanh array
+          stage[k] = delay[k] + tune * (stageTanh[k - 1] - stageTanh[k]);
+        } else {
+          // For stage 3 (last stage), calculate tanh of delay[k] directly
+          stage[k] = delay[k] + tune * (stageTanh[k - 1] - Math.tanh(delay[k]));
+        }
+        
+        delay[k] = stage[k];
+      }
+      
+      // Half-sample delay for phase compensation (still from stage 3)
+      delay[5] = (stage[3] + delay[4]) * 0.5;
+      delay[4] = stage[3];
     }
     
-    this.gamma = G * G * G * G;
-    this.alpha0 = 1.0 / (1.0 + this.K * this.gamma);
-    
-    this.oberheimCoefs = [0.0, 0.0, 0.0, 0.0, 1.0];
+    // OUTPUT FROM STAGE 1 (2 poles = 12dB/octave) instead of delay[5] (4 poles = 24dB/octave)
+    // This keeps all the resonance feedback math intact while giving 12dB/oct slope
+    return stage[1];
   }
   
-  setResonance(res) {
-    const normalizedRes = Math.max(0, Math.min(1, res));
-    const safeRes = Math.min(0.99, normalizedRes);
+  // Exponential diode clipping (smooth, natural)
+  diodeClippingExponential(input, threshold) {
+    const normalized = input / threshold;
+    let output;
     
-    this.resonanceSmoothed = this.resonanceSmoothed * 0.95 + safeRes * 0.05;
-    const effectiveRes = this.resonanceSmoothed;
-    
-    this.resonance = effectiveRes;
-    
-    if (effectiveRes < 0.2) {
-      this.K = effectiveRes * 2.0;
-    } else if (effectiveRes < 0.6) {
-      const t = (effectiveRes - 0.2) / 0.4;
-      this.K = 0.4 + t * t * 1.6;
+    if (normalized < 0) {
+      output = -1.0 + Math.exp(normalized);
+    } else if (normalized > 0) {
+      output = 1.0 - Math.exp(-normalized);
     } else {
-      const t = (effectiveRes - 0.6) / 0.4;
-      this.K = 2.0 + t * t * 1.95;
+      output = 0;
     }
     
-    this.alpha0 = 1.0 / (1.0 + this.K * this.gamma);
+    return output * threshold;
   }
   
-  setDrive(driveAmount) {
-    this.drive = Math.max(0.1, Math.min(5.0, driveAmount));
+  // Step-function diode clipping (harder, more character)
+  diodeClippingStep(input, threshold) {
+    const sign = input >= 0 ? 1 : -1;
+    const absInput = Math.abs(input);
+    const normalized = absInput / threshold;
+    let output;
+    
+    if (normalized <= (1.0 / 3.0)) {
+      output = 2.0 * normalized;
+    } else if (normalized <= (2.0 / 3.0)) {
+      output = (-3.0 * normalized * normalized) + (4.0 * normalized) - (1.0 / 3.0);
+    } else {
+      output = 1.0;
+    }
+    
+    return sign * output * threshold;
   }
   
   process(inputs, outputs, parameters) {
@@ -244,14 +201,10 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     const saturation = parameters.saturation[0]; 
     const envelopeAmount = parameters.envelopeAmount;
     const keytrackAmount = parameters.keytrackAmount[0];
-    const bassCompensation = parameters.bassCompensation[0];
+    const harshness = parameters.bassCompensation[0]; // Repurposed: 0=gentle, 1=aggressive
     const currentMidiNote = parameters.currentMidiNote[0];
     const adsrValue = parameters.adsrValue;
     const inputGain = parameters.inputGain[0];
-    
-    const effectiveDrive = drive * (1.0 + saturation * 0.5);
-    this.setDrive(effectiveDrive);
-    this.saturation = saturation;
     
     for (let channel = 0; channel < input.length; channel++) {
       const inputChannel = input[channel];
@@ -275,7 +228,24 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
           }
         }
         
-        let inputSample = inputChannel[i] * effectiveInputGain;
+        // Scale input with proper gain for filter
+        let inputSample = inputChannel[i] * effectiveInputGain * drive * 2.0;
+        
+        // Apply saturation as additional pre-gain
+        inputSample *= (1.0 + (saturation - 1.0) * 0.3);
+        
+        // Detect if input is present
+        const inputPresent = Math.abs(inputSample) > 0.0001;
+        
+        // Get target resonance value
+        const res = resonance.length > 1 ? resonance[i] : resonance[0];
+        
+        // Resonance decay when no input
+        if (inputPresent) {
+          filter.activeResonance = res;
+        } else {
+          filter.activeResonance *= this.resonanceDecayCoef;
+        }
         
         let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
         
@@ -317,40 +287,61 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
           }
         }
         
-        this.setCutoff(actualCutoff);
-        const res = resonance.length > 1 ? resonance[i] : resonance[0];
-        this.setResonance(res);
+        // Update filter coefficients
+        this.setFilterCutoff(filter, actualCutoff, filter.activeResonance);
         
-        const bassFactor = bassCompensation * 0.7 + 0.3;
-        const effectiveK = this.K * bassFactor;
+        // Input gain compensation for passband loss due to negative feedback
+        // As resonance increases, negative feedback reduces passband gain significantly
+        // Compensate by boosting input proportionally: ~16dB = 6x linear gain
+        const inputCompensation = 1.0 + (filter.activeResonance * 5.0);
+        const compensatedInput = inputSample * inputCompensation;
         
-        const sigma = 
-          filter.stage1.getFeedbackOutput() +
-          filter.stage2.getFeedbackOutput() +
-          filter.stage3.getFeedbackOutput() +
-          filter.stage4.getFeedbackOutput();
+        // Process through Huovilainen filter with 2x oversampling
+        let filterOutput = this.processHuovilainenFilter(filter, compensatedInput);
         
-        // Standard Moog filter processing - NO diode processing here
-        inputSample *= 1.0 + effectiveK * 0.7;
-        let u = (inputSample - effectiveK * sigma) * this.alpha0;
+        // Apply makeup gain to compensate for filter topology loss
+        filterOutput *= 5.0;
         
-        const stage1Out = filter.stage1.tick(u);
-        const stage2Out = filter.stage2.tick(stage1Out);
-        const stage3Out = filter.stage3.tick(stage2Out);
-        const stage4Out = filter.stage4.tick(stage3Out);
+        // VARIANT-CONTROLLED POST-PROCESSING CHAIN
+        // Harshness ranges from 0 (gentle) to 1 (aggressive)
         
-        let filterOutput = 
-          this.oberheimCoefs[0] * u +
-          this.oberheimCoefs[1] * stage1Out +
-          this.oberheimCoefs[2] * stage2Out +
-          this.oberheimCoefs[3] * stage3Out +
-          this.oberheimCoefs[4] * stage4Out;
+        // Soft clipper threshold and drive based on harshness
+        // At harshness=0: threshold=1.5 (rarely clips), drive=0.95 (gentle)
+        // At harshness=0.5: threshold=1.0, drive=0.85 (balanced)
+        // At harshness=1.0: threshold=0.6, drive=0.5 (aggressive)
+        const softClipThreshold = 1.5 - (harshness * 1.0);
+        const softClipDrive = 0.95 - (harshness * 1.0);
         
-        filter.lastOutput = filterOutput;
+        if (Math.abs(filterOutput) > softClipThreshold) {
+          filterOutput = Math.tanh(filterOutput * softClipDrive) / softClipDrive * softClipThreshold;
+        }
         
-        // ONLY DIODE PROCESSING: Apply after all filter processing is complete
-        // Controlled purely by resonance amount (0 to 1)
-        filterOutput = this.applyDiodeProcessing(filterOutput, res);
+        // Two-stage diode clipping with harshness control
+        // First diode: exponential clipping with harshness-controlled parameters
+        // Threshold: 0.95 (gentle) -> 0.8 (balanced) -> 0.6 (aggressive)
+        // Mix: 0.05 (gentle) -> 0.15 (balanced) -> 0.35 (aggressive)
+        const diode1Threshold = 0.95 - (harshness * 0.65);
+        const diode1Mix = 0.05 + (harshness * 0.30);
+        let diode1Out = this.diodeClippingExponential(filterOutput, diode1Threshold);
+        filterOutput = filterOutput * (1.0 - diode1Mix) + diode1Out * diode1Mix;
+        
+        // Second diode: step-function clipping with harshness control
+        // Threshold: 0.85 (gentle) -> 0.7 (balanced) -> 0.5 (aggressive)
+        // Mix: 0.15 (gentle) -> 0.35 (balanced) -> 0.65 (aggressive)
+        const diode2Threshold = 0.85 - (harshness * 0.35);
+        const diode2Mix = 0.15 + (harshness * 0.50);
+        let diode2Out = this.diodeClippingStep(filterOutput, diode2Threshold);
+        filterOutput = filterOutput * (1.0 - diode2Mix) + diode2Out * diode2Mix;
+        
+        // Final brick-wall limiter to prevent stereo phase issues
+        // Hard limit at ±1.0 with a tiny soft knee to avoid harsh artifacts
+        const limiterThreshold = 0.95;
+        if (Math.abs(filterOutput) > limiterThreshold) {
+          const sign = filterOutput >= 0 ? 1 : -1;
+          const excess = Math.abs(filterOutput) - limiterThreshold;
+          // Soft knee: remaining 0.05 headroom compressed to exponential curve
+          filterOutput = sign * (limiterThreshold + (0.05 * (1.0 - Math.exp(-excess * 20.0))));
+        }
         
         outputChannel[i] = filterOutput;
       }
