@@ -40,14 +40,14 @@ class FilterManager {
       if (!this._processorLoaded) {
         try {
           await this.audioCtx.audioWorklet.addModule('./js/moog-filter-processor.js');
-          await this.audioCtx.audioWorklet.addModule('./js/lp-12-filter-processor.js');
+          await this.audioCtx.audioWorklet.addModule('./js/LP-12-filter-processor.js');
           console.log("Successfully loaded filter processors");
           this._processorLoaded = true;
         } catch (loadError) {
           console.error('Failed to load with ./js/ path, trying relative path...');
           try {
             await this.audioCtx.audioWorklet.addModule('moog-filter-processor.js');
-            await this.audioCtx.audioWorklet.addModule('lp-12-filter-processor.js');
+            await this.audioCtx.audioWorklet.addModule('LP-12-filter-processor.js');
             console.log("Successfully loaded using direct path");
             this._processorLoaded = true;
           } catch (secondError) {
