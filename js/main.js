@@ -81,6 +81,10 @@ const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
 const VOICE_STEAL_SAFETY_BUFFER = 0.000; // 2ms safety buffer for voice stealing
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 Tone.setContext(audioCtx);
+
+// Dual ADSR system state variables
+let adsrMode = 'adsr'; // 'adsr' or 'filter'
+let classicModeEnabled = false; // Only active when adsrMode === 'filter'
 function initializeFilterSystem() {
   // Create filter manager instance
   filterManager = new FilterManager(audioCtx);
@@ -190,6 +194,17 @@ workletReadyPromise.then(() => {
   console.log("AudioWorklets loaded, initializing filter system...");
   filterManager = initializeFilterSystem();
   
+  // Initialize filter ADSR with default values from filter envelope sliders
+  if (filterManager && filterManager.isActive) {
+    const filterAttack = parseFloat(D('filter-attack')?.dataset.mappedTime || 0);
+    const filterDecay = parseFloat(D('filter-decay')?.dataset.mappedTime || 0);
+    const filterSustain = parseFloat(D('filter-sustain')?.value || 1.0);
+    const filterRelease = parseFloat(D('filter-release')?.dataset.mappedTime || 0);
+    
+    filterManager.setADSR(filterAttack, filterDecay, filterSustain, filterRelease, false);
+    console.log(`Filter ADSR initialized: A:${filterAttack}s D:${filterDecay}s S:${filterSustain} R:${filterRelease}s`);
+  }
+  
   console.log("Initializing oscillator and sampler voice pools...");
   initializeVoicePool();
   initializeSamplerVoicePool();
@@ -278,89 +293,265 @@ function setupNonLinearFilterSlider() {
 
 // Function to properly map ADSR sliders
 function setupNonLinearADSRSliders() {
+  // Function to convert visual position (0-1) to time
+  function positionToTime(position) {
+    if (position <= 0.5) {
+      return position * 10; // First half: 0-0.5 maps to 0-5s
+    } else {
+      return 5 + (position - 0.5) * 50; // Second half: 0.5-1 maps to 5-30s
+    }
+  }
+  
+  // Function to convert time to visual position
+  function timeToPosition(time) {
+    if (time <= 5) {
+      return time / 10; // 0-5s maps to 0-0.5
+    } else {
+      return 0.5 + (time - 5) / 50; // 5-30s maps to 0.5-1
+    }
+  }
+  
+  // === AMPLITUDE ADSR SLIDERS ===
   ['attack', 'decay', 'release'].forEach(id => {
     const slider = document.getElementById(id);
     if (!slider) return;
     
-    // Keep original min/max
-    slider.min = 0;
-    slider.max = 30;
-    
-    // Remove any existing event handlers
-    const newSlider = slider.cloneNode(true);
-    slider.parentNode.replaceChild(newSlider, slider);
-    
-    // Function to convert visual position (0-1) to time
-    function positionToTime(position) {
-      if (position <= 0.5) {
-        return position * 10; // First half: 0-0.5 maps to 0-5s
-      } else {
-        return 5 + (position - 0.5) * 50; // Second half: 0.5-1 maps to 5-30s
-      }
-    }
-    
-    // Function to convert time to visual position
-    function timeToPosition(time) {
-      if (time <= 5) {
-        return time / 10; // 0-5s maps to 0-0.5
-      } else {
-        return 0.5 + (time - 5) / 50; // 5-30s maps to 0.5-1
-      }
-    }
-    
-    // Update when slider changes
-    newSlider.oninput = function(e) {
-      // Get physical position as 0-1
+    slider.oninput = function(e) {
       const rawValue = parseFloat(this.value);
       const maxValue = parseFloat(this.max);
       const visualPosition = rawValue / maxValue;
-      
-      // Convert to mapped time value
       const timeValue = positionToTime(visualPosition);
       
-      // CRITICAL FIX: Store the mapped time value as a data attribute
       this.dataset.mappedTime = timeValue.toFixed(3);
       
-      // Update displayed value
       const valueDisplay = document.getElementById(`${id}-value`);
       if (valueDisplay) {
         valueDisplay.textContent = timeValue.toFixed(3);
       }
       
-      // Update ADSR visualization
       updateADSRVisualization();
       
-      // Update filter ADSR if applicable - USING THE MAPPED TIME VALUES
-      if (filterManager && filterManager.isActive) {
-        filterManager.setADSR(
-          parseFloat(D('attack').dataset.mappedTime || D('attack').value),
-          parseFloat(D('decay').dataset.mappedTime || D('decay').value),
-          parseFloat(D('sustain').value),
-          parseFloat(D('release').dataset.mappedTime || D('release').value)
-        );
-      }
-      
-      console.log(`${id.toUpperCase()}: Position ${visualPosition.toFixed(2)}, Time ${timeValue.toFixed(3)}s`);
+      console.log(`Amplitude ${id.toUpperCase()}: ${timeValue.toFixed(3)}s`);
     };
     
     // Set initial values
-    let initialTime;
-    if (id === 'attack') initialTime = 0.00;
-    else if (id === 'decay') initialTime = 0.0;
-    else if (id === 'release') initialTime = 0.00;
-    
+    let initialTime = 0.00;
     const initialPosition = timeToPosition(initialTime);
-    newSlider.value = initialPosition * parseFloat(newSlider.max);
-    
-    // CRITICAL FIX: Store the mapped time value for initial value
-    newSlider.dataset.mappedTime = initialTime.toFixed(3);
-    
-    // Trigger the event
-    const event = new Event('input');
-    newSlider.dispatchEvent(event);
+    slider.value = initialPosition * parseFloat(slider.max);
+    slider.dataset.mappedTime = initialTime.toFixed(3);
+    slider.dispatchEvent(new Event('input'));
   });
   
-  console.log("Fixed non-linear ADSR sliders setup complete");
+  // Amplitude sustain slider (0-1, no mapping)
+  const sustainSlider = document.getElementById('sustain');
+  if (sustainSlider) {
+    sustainSlider.oninput = function(e) {
+      const sustainValue = parseFloat(this.value);
+      
+      const valueDisplay = document.getElementById('sustain-value');
+      if (valueDisplay) {
+        valueDisplay.textContent = sustainValue.toFixed(2);
+      }
+      
+      updateADSRVisualization();
+      
+      console.log(`Amplitude SUSTAIN: ${sustainValue.toFixed(2)}`);
+    };
+    
+    sustainSlider.value = 1.0;
+    sustainSlider.dispatchEvent(new Event('input'));
+  }
+  
+  // === FILTER ENVELOPE SLIDERS ===
+  ['filter-attack', 'filter-decay', 'filter-release'].forEach(id => {
+    const slider = document.getElementById(id);
+    if (!slider) return;
+    
+    slider.oninput = function(e) {
+      const rawValue = parseFloat(this.value);
+      const maxValue = parseFloat(this.max);
+      const visualPosition = rawValue / maxValue;
+      const timeValue = positionToTime(visualPosition);
+      
+      this.dataset.mappedTime = timeValue.toFixed(3);
+      
+      const valueDisplay = document.getElementById(`${id}-value`);
+      if (valueDisplay) {
+        valueDisplay.textContent = timeValue.toFixed(3);
+      }
+      
+      // Update filter with all current filter envelope values
+      if (filterManager && filterManager.isActive) {
+        const filterAttack = parseFloat(D('filter-attack').dataset.mappedTime || D('filter-attack').value);
+        const filterDecay = parseFloat(D('filter-decay').dataset.mappedTime || D('filter-decay').value);
+        const filterSustain = parseFloat(D('filter-sustain').value);
+        const filterRelease = parseFloat(D('filter-release').dataset.mappedTime || D('filter-release').value);
+        
+        filterManager.setADSR(filterAttack, filterDecay, filterSustain, filterRelease, classicModeEnabled);
+      }
+      
+      // Update visualization if in filter mode
+      if (adsrMode === 'filter') {
+        updateADSRVisualization();
+      }
+      
+      console.log(`Filter ${id.toUpperCase()}: ${timeValue.toFixed(3)}s`);
+    };
+    
+    // Set initial values
+    let initialTime = 0.00;
+    const initialPosition = timeToPosition(initialTime);
+    slider.value = initialPosition * parseFloat(slider.max);
+    slider.dataset.mappedTime = initialTime.toFixed(3);
+    slider.dispatchEvent(new Event('input'));
+  });
+  
+  // Filter sustain slider (0-1, no mapping)
+  const filterSustainSlider = document.getElementById('filter-sustain');
+  if (filterSustainSlider) {
+    filterSustainSlider.oninput = function(e) {
+      const sustainValue = parseFloat(this.value);
+      
+      const valueDisplay = document.getElementById('filter-sustain-value');
+      if (valueDisplay) {
+        valueDisplay.textContent = sustainValue.toFixed(2);
+      }
+      
+      // Update filter with all current filter envelope values
+      if (filterManager && filterManager.isActive) {
+        const filterAttack = parseFloat(D('filter-attack').dataset.mappedTime || D('filter-attack').value);
+        const filterDecay = parseFloat(D('filter-decay').dataset.mappedTime || D('filter-decay').value);
+        const filterSustain = parseFloat(D('filter-sustain').value);
+        const filterRelease = parseFloat(D('filter-release').dataset.mappedTime || D('filter-release').value);
+        
+        filterManager.setADSR(filterAttack, filterDecay, filterSustain, filterRelease, classicModeEnabled);
+      }
+      
+      // Update visualization if in filter mode
+      if (adsrMode === 'filter') {
+        updateADSRVisualization();
+      }
+      
+      console.log(`Filter SUSTAIN: ${sustainValue.toFixed(2)}`);
+    };
+    
+    filterSustainSlider.value = 1.0;
+    filterSustainSlider.dispatchEvent(new Event('input'));
+  }
+  
+  console.log("Dual ADSR slider sets initialized independently");
+}
+
+// Initialize ADSR mode buttons
+function initializeADSRModeButtons() {
+  const adsrButton = document.getElementById('adsr-mode-button');
+  const filterButton = document.getElementById('filter-mode-button');
+  const classicButton = document.getElementById('classic-mode-button');
+  
+  const amplitudeSliders = document.getElementById('amplitude-adsr-sliders');
+  const filterSliders = document.getElementById('filter-envelope-sliders');
+  
+  if (!adsrButton || !filterButton || !classicButton) {
+    console.error("ADSR mode buttons not found in DOM");
+    return;
+  }
+  
+  if (!amplitudeSliders || !filterSliders) {
+    console.error("ADSR slider sets not found in DOM");
+    return;
+  }
+  
+  // Function to update button visual states
+  function updateButtonStates() {
+    // Update ADSR/FILTER mutual exclusivity
+    if (adsrMode === 'adsr') {
+      adsrButton.classList.add('active');
+      filterButton.classList.remove('active');
+      amplitudeSliders.classList.remove('hidden');
+      amplitudeSliders.classList.add('visible');
+      filterSliders.classList.remove('visible');
+      filterSliders.classList.add('hidden');
+    } else {
+      adsrButton.classList.remove('active');
+      filterButton.classList.add('active');
+      amplitudeSliders.classList.remove('visible');
+      amplitudeSliders.classList.add('hidden');
+      filterSliders.classList.remove('hidden');
+      filterSliders.classList.add('visible');
+    }
+    
+    // Update CLASSIC button state
+    if (classicModeEnabled) {
+      classicButton.classList.add('active');
+    } else {
+      classicButton.classList.remove('active');
+    }
+    
+    // Grey out CLASSIC when in ADSR mode (visual indicator only)
+    if (adsrMode === 'filter') {
+      classicButton.classList.remove('disabled');
+    } else {
+      classicButton.classList.add('disabled');
+    }
+  }
+  
+  // ADSR button click handler - show amplitude sliders
+  adsrButton.addEventListener('click', () => {
+    if (adsrMode === 'adsr') return; // Already in ADSR mode
+    
+    // Switch to ADSR mode
+    adsrMode = 'adsr';
+    
+    // Update visibility
+    updateButtonStates();
+    
+    // Update visualization to show amplitude envelope
+    updateADSRVisualization();
+    
+    console.log("Switched to ADSR mode (amplitude envelope sliders visible)");
+  });
+  
+  // FILTER button click handler - show filter sliders
+  filterButton.addEventListener('click', () => {
+    if (adsrMode === 'filter') return; // Already in FILTER mode
+    
+    // Switch to FILTER mode
+    adsrMode = 'filter';
+    
+    // Update visibility
+    updateButtonStates();
+    
+    // Update visualization to show filter envelope
+    updateADSRVisualization();
+    
+    console.log("Switched to FILTER mode (filter envelope sliders visible)");
+  });
+  
+  // CLASSIC button click handler
+  classicButton.addEventListener('click', () => {
+    // Toggle classic mode
+    classicModeEnabled = !classicModeEnabled;
+    
+    // Update button visual states
+    updateButtonStates();
+    
+    // Update filter with classic mode flag using currently visible filter sliders
+    if (filterManager && filterManager.isActive) {
+      const filterAttack = parseFloat(D('filter-attack').dataset.mappedTime || D('filter-attack').value);
+      const filterDecay = parseFloat(D('filter-decay').dataset.mappedTime || D('filter-decay').value);
+      const filterSustain = parseFloat(D('filter-sustain').value);
+      const filterRelease = parseFloat(D('filter-release').dataset.mappedTime || D('filter-release').value);
+      
+      filterManager.setADSR(filterAttack, filterDecay, filterSustain, filterRelease, classicModeEnabled);
+    }
+    
+    console.log(`Classic mode ${classicModeEnabled ? 'enabled' : 'disabled'} (affects filter envelope only)`);
+  });
+  
+  // Initialize button states
+  updateButtonStates();
+  
+  console.log("ADSR mode buttons initialized with dual slider sets");
 }
 function initializeFilterControls() {
   // Filter Type Selector
@@ -2931,7 +3122,11 @@ const control = initializeKnob(knob, callback, knobDefaults);
 }
 });
 
+// Initialize ADSR mode buttons
+initializeADSRModeButtons();
 
+// Initialize ADSR slider sets with independent handlers
+setupNonLinearADSRSliders();
 
 // Initialize any remaining parameters
 updateSampleProcessing();
@@ -3092,31 +3287,24 @@ function findAvailableSamplerVoice(noteNumber) {
     return candidate;
 }
 // Add interface updating functions
-function updateSliderValues() {
-  // Use the stored mapped time values from data attributes
-  D('attack-value').textContent = D('attack').dataset.mappedTime || parseFloat(D('attack').value).toFixed(3);
-  D('decay-value').textContent = D('decay').dataset.mappedTime || parseFloat(D('decay').value).toFixed(2);
-  D('sustain-value').textContent = parseFloat(D('sustain').value).toFixed(2);
-  D('release-value').textContent = D('release').dataset.mappedTime || parseFloat(D('release').value).toFixed(3);
-  
-  // Send mapped time values to filter ADSR
-  if (filterManager && filterManager.isActive) {
-    filterManager.setADSR(
-      parseFloat(D('attack').dataset.mappedTime || D('attack').value),
-      parseFloat(D('decay').dataset.mappedTime || D('decay').value),
-      parseFloat(D('sustain').value),
-      parseFloat(D('release').dataset.mappedTime || D('release').value)
-    );
-  }
-
-  updateADSRVisualization();
-}
 // ADSR visualization with curved decay and release
 function updateADSRVisualization() {
-  const attack = parseFloat(D('attack').dataset.mappedTime || D('attack').value);
-  const decay = parseFloat(D('decay').dataset.mappedTime || D('decay').value);
-  const sustain = parseFloat(D('sustain').value);
-  const release = parseFloat(D('release').dataset.mappedTime || D('release').value);
+  // Read from the correct slider set based on mode
+  let attack, decay, sustain, release;
+  
+  if (adsrMode === 'filter') {
+    // Read from filter envelope sliders
+    attack = parseFloat(D('filter-attack').dataset.mappedTime || D('filter-attack').value);
+    decay = parseFloat(D('filter-decay').dataset.mappedTime || D('filter-decay').value);
+    sustain = parseFloat(D('filter-sustain').value);
+    release = parseFloat(D('filter-release').dataset.mappedTime || D('filter-release').value);
+  } else {
+    // Read from amplitude ADSR sliders
+    attack = parseFloat(D('attack').dataset.mappedTime || D('attack').value);
+    decay = parseFloat(D('decay').dataset.mappedTime || D('decay').value);
+    sustain = parseFloat(D('sustain').value);
+    release = parseFloat(D('release').dataset.mappedTime || D('release').value);
+  }
 
   const graph = D('adsr-visualization');
   const totalTime = attack + decay + 2 + release; // 2 seconds for sustain
@@ -3245,11 +3433,7 @@ function updateVoiceDisplay_Pool() {
 }
 
 // you're the best <3 and you should put french fries in my car so that my car smells like fries forever :) - from Asher to Faith
-// Add event listeners for sliders
-D('attack').addEventListener('input', updateSliderValues);
-D('decay').addEventListener('input', updateSliderValues);
-D('sustain').addEventListener('input', updateSliderValues);
-D('release').addEventListener('input', updateSliderValues);
+// Event listeners for sliders are now set in setupNonLinearADSRSliders()
 
 
 
@@ -3497,7 +3681,7 @@ document.addEventListener('visibilitychange', () => {
 
 // Initialize interface
 
-updateSliderValues();
+// updateSliderValues() removed - sliders now initialize themselves in setupNonLinearADSRSliders()
 updateVoiceDisplay_Pool();
 updateADSRVisualization();
 // Initialize Keyboard Module
@@ -3674,13 +3858,14 @@ function initializeADSRPrecisionSlider(slider) {
     // Update ADSR visualization
     updateADSRVisualization();
     
-    // Update filter ADSR if needed
-    if (filterManager && filterManager.isActive) {
+    // Update filter ADSR ONLY if this is a filter envelope slider
+    if (filterManager && filterManager.isActive && slider.id.startsWith('filter-')) {
       filterManager.setADSR(
-        parseFloat(D('attack').dataset.mappedTime || D('attack').value),
-        parseFloat(D('decay').dataset.mappedTime || D('decay').value),
-        parseFloat(D('sustain').value),
-        parseFloat(D('release').dataset.mappedTime || D('release').value)
+        parseFloat(D('filter-attack').dataset.mappedTime || D('filter-attack').value),
+        parseFloat(D('filter-decay').dataset.mappedTime || D('filter-decay').value),
+        parseFloat(D('filter-sustain').value),
+        parseFloat(D('filter-release').dataset.mappedTime || D('filter-release').value),
+        classicModeEnabled
       );
     }
     
@@ -5892,7 +6077,7 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', function() {
 // Core functionality
 
-updateSliderValues();
+// updateSliderValues() removed - sliders now initialize themselves in setupNonLinearADSRSliders()
 updateVoiceDisplay_Pool();
 updateADSRVisualization();
 
@@ -5909,12 +6094,13 @@ initializeFilterControls();
     filterManager.setEnvelopeAmount(0.5); // Center position (no envelope)
     filterManager.setKeytrackAmount(0.5); // Center position (no keytracking)
     
-    // Set filter ADSR to match main ADSR
+    // Set filter ADSR from filter envelope sliders (not VCA sliders)
     filterManager.setADSR(
-      parseFloat(D('attack').value),
-      parseFloat(D('decay').value),
-      parseFloat(D('sustain').value),
-      parseFloat(D('release').value)
+      parseFloat(D('filter-attack').dataset.mappedTime || D('filter-attack').value || 0),
+      parseFloat(D('filter-decay').dataset.mappedTime || D('filter-decay').value || 0),
+      parseFloat(D('filter-sustain').value || 1.0),
+      parseFloat(D('filter-release').dataset.mappedTime || D('filter-release').value || 0),
+      classicModeEnabled
     );
   }
 // Initialize controls

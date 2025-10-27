@@ -1,7 +1,6 @@
 .adsr-graph {
     width: 100%;
-    height: 100px;
-    min-height: 100px;
+    height: 55px;
     background-color: #f2eed3;
     margin: 10px 0;
 
@@ -11,7 +10,7 @@
 
 .adsr-graph {
     width: 90%;
-    height: 70px;
+    height: 55px;
     background-color: #35100B;
     margin: 15px 0 15px 0;
     position: relative;
@@ -41,6 +40,23 @@
     width: 90%;
     margin: 0;
     gap: 8px;
+  }
+
+  /* Show/hide slider sets based on mode */
+  .adsr-sliders {
+    display: flex;
+  }
+  
+  .filter-sliders {
+    display: none;
+  }
+  
+  .adsr-sliders.hidden {
+    display: none;
+  }
+  
+  .filter-sliders.visible {
+    display: flex;
   }
   
   
@@ -122,7 +138,8 @@
   }
   
   /* Values above sliders */
-  #attack-value, #decay-value, #sustain-value, #release-value {
+  #attack-value, #decay-value, #sustain-value, #release-value,
+  #filter-attack-value, #filter-decay-value, #filter-sustain-value, #filter-release-value {
     font-family: "Nunito", sans-serif;
     font-size: 10px;
     font-weight: 750;
@@ -153,3 +170,89 @@
     text-align: center;
     width: 22%;
   }
+
+/* ADSR Mode Buttons Container */
+.adsr-mode-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  margin: 15px 0 -10px 0;
+  width: 100%;
+}
+
+/* Individual button wrapper */
+.adsr-mode-button-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Mode button styling - matches porta button */
+.adsr-mode-button {
+  position: relative;
+  width: 41px;
+  height: 21px;
+  background-color: #CF814D;
+  border: 2.5px solid #35100B;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s, opacity 0.2s;
+}
+
+.adsr-mode-button:hover:not(.disabled) {
+  background-color: #d69061;
+}
+
+.adsr-mode-button.active {
+  background-color: #dc8953;
+  box-shadow: 0 0 8px #dc8953;
+  transform: scale(0.98);
+}
+
+/* Disabled state for CLASSIC button when ADSR mode is active */
+.adsr-mode-button.disabled {
+  background-color: #f2eed5;
+  opacity: 1;
+  cursor: not-allowed;
+  border-color: #636262;
+}
+
+/* Icon styling */
+.adsr-mode-button .icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* Icon color changes with button state */
+.adsr-mode-button .icon {
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.adsr-mode-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+
+.adsr-mode-button.disabled .icon {
+  filter: invert(50%) sepia(0%) saturate(0%);
+  opacity: 1;
+}
+
+/* Button labels */
+.adsr-mode-button-wrapper label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}

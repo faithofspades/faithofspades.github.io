@@ -29,17 +29,17 @@ export class LP12FilterNode extends AudioWorkletNode {
     this._notePlaying = false;
     this._amplitudeGainNode = null;
     
-    // Add ADSR polling interval
+    // Initialize independent filter envelope system
+    this._setupEnvelope();
+    
+    // Add ADSR polling interval - NOT USED, we use independent envelope
     this._adsrPollingInterval = null;
   }
   
-  // Set the amplitude gain node to follow
+  // Set the amplitude gain node to follow - NO LONGER USED
   setAmplitudeGainNode(gainNode) {
-    this._amplitudeGainNode = gainNode;
-    console.log(`Filter ${this._currentMidiNote} now tracking amplitude gain node`);
-    
-    // Start ADSR polling when gain node is set
-    this._startAdsrPolling();
+    // No longer polling amplitude - filter has independent envelope
+    console.log(`Filter ${this._currentMidiNote} using independent envelope (not following amplitude)`);
   }
   _setupEnvelope() {
     // ADSR parameters for filter envelope
@@ -52,6 +52,7 @@ export class LP12FilterNode extends AudioWorkletNode {
     this.envelopeStage = 'idle';
     this.envelopeValue = 0;
     this.envelopeStartTime = 0;
+    this.decayStartTime = 0;
     this.envelopeReleaseTime = 0;
     
     // Setup envelope update interval
@@ -66,125 +67,85 @@ export class LP12FilterNode extends AudioWorkletNode {
   }
   
   _updateEnvelope() {
-    if (this.envelopeStage === 'idle' && !this._notePlaying) return;
-    
-    const now = this.context.currentTime;
-    let value = 0;
-    
-    switch (this.envelopeStage) {
-      case 'attack':
-        const attackProgress = (now - this.envelopeStartTime) / this.attackTime;
-        if (attackProgress >= 1.0) {
-          this.envelopeStage = 'decay';
-          value = 1.0;
-        } else {
-          // CRITICAL FIX: Start from 0, not from previous value
-          // Linear attack for now (can be changed to exponential if desired)
-          value = attackProgress;
-        }
-        break;
-        
-      case 'decay':
-        const decayProgress = (now - this.envelopeStartTime - this.attackTime) / this.decayTime;
-        if (decayProgress >= 1.0) {
-          this.envelopeStage = 'sustain';
-          value = this.sustainLevel;
-        } else {
-          // Exponential decay curve
-          value = this.sustainLevel + (1.0 - this.sustainLevel) * Math.exp(-decayProgress * 5);
-        }
-        break;
-        
-      case 'sustain':
-        value = this.sustainLevel;
-        break;
-        
-      case 'release':
-        const releaseProgress = (now - this.envelopeReleaseTime) / this.releaseTime;
-        if (releaseProgress >= 1.0) {
-          this.envelopeStage = 'idle';
-          value = 0;
-        } else {
-          // CRITICAL FIX: Release from the sustain level that was active
-          value = this.sustainLevel * Math.exp(-releaseProgress * 5);
-        }
-        break;
-        
-      case 'idle':
-      default:
-        value = 0;
-        break;
-    }
-    
-    // Update the envelope value and apply to filter
-    this.envelopeValue = value;
-    this.parameters.get('envelopeAmount').value = this._envelopeAmount * value;
+    // Envelope is now handled by Web Audio automation (linearRampToValueAtTime)
+    // This polling function is no longer needed but kept for potential future use
+    // The envelope stage tracking is maintained for state awareness only
   }
   
-  // Start polling the amplitude gain node to update the ADSR value
+  // NO LONGER USED - Filter has independent envelope
   _startAdsrPolling() {
-    // Clear any existing interval
-    if (this._adsrPollingInterval) {
-      clearInterval(this._adsrPollingInterval);
-    }
-    
-    // Poll every 5ms for smooth ADSR following
-    this._adsrPollingInterval = setInterval(() => {
-      this.updateFromAmplitude();
-    }, 5);
+    // Do nothing - no longer polling amplitude
   }
   
-  // Update filter parameters from amplitude envelope
+  // NO LONGER USED - Filter has independent envelope
   updateFromAmplitude() {
-    if (!this._amplitudeGainNode) return;
-    
-    try {
-      // Get current gain value (the ADSR envelope value)
-      const amplitudeValue = this._amplitudeGainNode.gain.value;
-      
-      // MODIFIED: Update adsrValue parameter instead of envelopeAmount
-      // This directly controls resonance following in the processor
-      this.parameters.get('adsrValue').value = amplitudeValue;
-    } catch (e) {
-      console.error('Error updating filter from amplitude:', e);
-    }
+    // Do nothing - no longer following amplitude
   }
   
-  // Simple note on - just updates note number for keytracking
+  // Trigger filter envelope on note
   noteOn(midiNote, velocity = 1.0, retrigger = true, envelopeState = 'idle', currentEnvelopeValue = 0, isLegatoTransition = false) {
-  this._currentMidiNote = midiNote;
-  this._notePlaying = true;
-  
-  // Update the MIDI note parameter for keytracking
-  this.parameters.get('currentMidiNote').value = midiNote;
-  
-  // CRITICAL FIX: Handle legato transitions differently
-  if (isLegatoTransition || !retrigger) {
-    console.log(`Filter legato transition to note ${midiNote} - maintaining current envelope`);
+    this._currentMidiNote = midiNote;
+    this._notePlaying = true;
     
-    // Don't clear the polling interval - just continue tracking the envelope
-    // This ensures smooth legato transitions in mono mode
-    if (!this._adsrPollingInterval) {
-      this._startAdsrPolling(); // Make sure polling is active
-    }
-  } else {
-    // Normal note on - start envelope tracking from beginning
-    // Clear any existing interval first to restart clean
-    if (this._adsrPollingInterval) {
-      clearInterval(this._adsrPollingInterval);
-      this._adsrPollingInterval = null;
-    }
+    // Update the MIDI note parameter for keytracking
+    this.parameters.get('currentMidiNote').value = midiNote;
     
-    // Start fresh polling
-    this._startAdsrPolling();
-    console.log(`Filter noteOn for note ${midiNote} - will follow amplitude envelope from beginning`);
+    // Trigger independent filter envelope using SCHEDULED AUTOMATION (like VCA)
+    if (isLegatoTransition || !retrigger) {
+      console.log(`Filter legato transition to note ${midiNote} - maintaining current envelope`);
+      // Don't retrigger envelope in legato mode
+    } else {
+      const now = this.context.currentTime;
+      const adsrParam = this.parameters.get('adsrValue');
+      
+      // Cancel any scheduled values on adsrValue (the envelope)
+      adsrParam.cancelScheduledValues(now);
+      
+      // Schedule the complete ADSR envelope using Web Audio automation
+      // Attack: 0 → 1.0
+      adsrParam.setValueAtTime(0, now);
+      adsrParam.linearRampToValueAtTime(1.0, now + this.attackTime);
+      
+      // Decay: 1.0 → sustain
+      adsrParam.linearRampToValueAtTime(this.sustainLevel, now + this.attackTime + this.decayTime);
+      
+      // Sustain: hold at sustain level (until noteOff is called)
+      // This happens automatically after the decay ramp completes
+      
+      // NOTE: envelopeAmount is NOT scheduled - it's a constant multiplier set by the ADSR knob
+      // It should remain at whatever value was set by setEnvelopeAmount()
+      
+      this.envelopeStage = 'attack';
+      this.envelopeStartTime = now;
+      this.envelopeValue = 0;
+      
+      console.log(`Filter envelope triggered for note ${midiNote} - Attack: ${this.attackTime.toFixed(3)}s, Decay: ${this.decayTime.toFixed(3)}s, Sustain: ${this.sustainLevel.toFixed(2)}`);
+    }
   }
-}
   
-  // Simple note off - just marks as not playing
+  // Trigger release phase of filter envelope
   noteOff() {
     this._notePlaying = false;
-    console.log(`Filter noteOff - will continue following amplitude until it reaches 0`);
+    const now = this.context.currentTime;
+    
+    // Get current envelope value from the AudioParam
+    const currentValue = this.parameters.get('adsrValue').value;
+    const adsrParam = this.parameters.get('adsrValue');
+    
+    // Cancel any scheduled values and schedule release
+    adsrParam.cancelScheduledValues(now);
+    
+    // Set current value explicitly and ramp to 0
+    adsrParam.setValueAtTime(currentValue, now);
+    adsrParam.linearRampToValueAtTime(0, now + this.releaseTime);
+    
+    // NOTE: envelopeAmount is NOT scheduled - it remains constant
+    // It's a multiplier set by the ADSR knob, not part of the envelope
+    
+    this.envelopeStage = 'release';
+    this.envelopeReleaseTime = now;
+    
+    console.log(`Filter envelope released - Release time: ${this.releaseTime.toFixed(3)}s`);
   }
   reset(targetValue = null, isVoiceSteal = false) {
   // For normal resets (not voice stealing), reset the filter processor state
@@ -282,10 +243,17 @@ setResonance(value) {
   
   setSustainLevel(value) {
     this.sustainLevel = Math.max(0.0, Math.min(1.0, value));
+    this.parameters.get('sustainLevel').value = this.sustainLevel;
   }
   
   setReleaseTime(value) {
     this.releaseTime = Math.max(0.001, value); // Minimum 1ms
+  }
+  
+  setClassicMode(enabled) {
+    this.classicMode = enabled;
+    this.parameters.get('classicMode').value = enabled ? 1.0 : 0.0;
+    console.log(`LP-12 Filter: Classic mode ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   // Cleanup
@@ -509,5 +477,10 @@ async _loadWorkletProcessor() {
   setReleaseTime(value) {
     this.releaseTime = value;
     this.filters.forEach(data => data.filter.setReleaseTime(value));
+  }
+  
+  setClassicMode(enabled) {
+    this.classicMode = enabled;
+    this.filters.forEach(data => data.filter.setClassicMode(enabled));
   }
 }

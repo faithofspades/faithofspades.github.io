@@ -10,7 +10,9 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
       { name: 'bassCompensation', defaultValue: 0.5, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }, // Repurposed as "Harshness"
       { name: 'currentMidiNote', defaultValue: 69, minValue: 0, maxValue: 127, automationRate: 'k-rate' },
       { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
-      { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' }
+      { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' },
+      { name: 'classicMode', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
+      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }
     ];
   }
 
@@ -205,6 +207,8 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     const currentMidiNote = parameters.currentMidiNote[0];
     const adsrValue = parameters.adsrValue;
     const inputGain = parameters.inputGain[0];
+    const classicMode = parameters.classicMode[0];
+    const sustainLevel = parameters.sustainLevel[0];
     
     for (let channel = 0; channel < input.length; channel++) {
       const inputChannel = input[channel];
@@ -215,18 +219,9 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
         const currentAdsrValue = adsrValue.length > 1 ? adsrValue[i] : adsrValue[0];
         const envValue = envelopeAmount.length > 1 ? envelopeAmount[i] : envelopeAmount[0];
         
-        let effectiveInputGain = inputGain;
-        if (envValue !== 0) {
-          const normalizedEnvAmount = (envValue + 1) * 0.5;
-          
-          if (normalizedEnvAmount > 0.5) {
-            const envEffect = (normalizedEnvAmount - 0.5) * 2;
-            effectiveInputGain = inputGain * (1 + envEffect * currentAdsrValue * 3);
-          } else if (normalizedEnvAmount < 0.5) {
-            const envEffect = (0.5 - normalizedEnvAmount) * 2;
-            effectiveInputGain = inputGain * (1 - envEffect * currentAdsrValue);
-          }
-        }
+        // FIXED: envelopeAmount should ONLY affect filter cutoff, NOT gain
+        // The gain should remain constant regardless of envelope settings
+        const effectiveInputGain = inputGain;
         
         // Scale input with proper gain for filter
         let inputSample = inputChannel[i] * effectiveInputGain * drive * 2.0;
@@ -259,7 +254,20 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
             if (envValue >= 0.95) {
               const baseSliderCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
               const minFreq = baseSliderCutoff;
-              const maxFreq = 16000;
+              let maxFreq = 16000;
+              
+              // CLASSIC MODE: Sustain level controls attack target frequency
+              // sustain=1.0: attack goes to baseSliderCutoff (no ramp)
+              // sustain=0.5: attack goes to halfway between baseSliderCutoff and 16kHz
+              // sustain=0.0: attack goes to 16kHz (full ramp)
+              if (classicMode > 0.5) {
+                // In classic mode, calculate max frequency based on sustain level
+                // Use logarithmic interpolation for musical response
+                const logMinFreq = Math.log(baseSliderCutoff);
+                const logMaxFreq = Math.log(16000);
+                const logTargetFreq = logMinFreq + ((1.0 - sustainLevel) * (logMaxFreq - logMinFreq));
+                maxFreq = Math.exp(logTargetFreq);
+              }
               
               const logMinFreq = Math.log(minFreq);
               const logMaxFreq = Math.log(maxFreq);

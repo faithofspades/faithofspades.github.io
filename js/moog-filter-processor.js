@@ -11,7 +11,9 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
       { name: 'currentMidiNote', defaultValue: 69, minValue: 0, maxValue: 127, automationRate: 'k-rate' },
       { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
       // CORRECTED: Default to 1.0 (instead of 0.5) to match original filter behavior
-      { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' }
+      { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' },
+      { name: 'classicMode', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
+      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }
     ];
   }
 
@@ -299,6 +301,8 @@ process(inputs, outputs, parameters) {
   const currentMidiNote = parameters.currentMidiNote[0];
   const adsrValue = parameters.adsrValue;
   const inputGain = parameters.inputGain[0];
+  const classicMode = parameters.classicMode[0];
+  const sustainLevel = parameters.sustainLevel[0];
   
   // Update drive parameter as before
   this.setDrive(drive * (1.0 + saturation * 0.5));
@@ -317,24 +321,11 @@ process(inputs, outputs, parameters) {
       // Get envelope modulation amount
       const envValue = envelopeAmount.length > 1 ? envelopeAmount[i] : envelopeAmount[0];
       
-      // NEW: Calculate ADSR-modulated input gain (FIXED: This was missing)
-      let effectiveInputGain = inputGain;
-      if (envValue !== 0) {
-        // Convert envelope amount from bipolar [-1,1] to unipolar [0,1] for input gain modulation
-        const normalizedEnvAmount = (envValue + 1) * 0.5; // 0 = no effect, 1 = max effect
-        
-        if (normalizedEnvAmount > 0.5) { // Positive envelope effect
-          // Scale input gain up with ADSR, more effect as normalizedEnvAmount approaches 1
-          const envEffect = (normalizedEnvAmount - 0.5) * 2; // 0 to 1
-          effectiveInputGain = inputGain * (1 + envEffect * currentAdsrValue * 3);
-        } else if (normalizedEnvAmount < 0.5) { // Negative envelope effect
-          // Scale input gain down with ADSR, more effect as normalizedEnvAmount approaches 0
-          const envEffect = (0.5 - normalizedEnvAmount) * 2; // 0 to 1
-          effectiveInputGain = inputGain * (1 - envEffect * currentAdsrValue);
-        }
-      }
+      // FIXED: envelopeAmount should ONLY affect filter cutoff, NOT gain
+      // The gain should remain constant regardless of envelope settings
+      const effectiveInputGain = inputGain;
       
-      // Apply modulated input gain
+      // Apply input gain
       let inputSample = inputChannel[i] * effectiveInputGain;
       
       // Calculate the actual cutoff frequency
@@ -355,7 +346,20 @@ process(inputs, outputs, parameters) {
       // Get base cutoff (from slider, before any keytracking)
       const baseSliderCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
       const minFreq = baseSliderCutoff; // Use slider value as minimum 
-      const maxFreq = 16000;
+      let maxFreq = 16000;
+      
+      // CLASSIC MODE: Sustain level controls attack target frequency
+      // sustain=1.0: attack goes to baseSliderCutoff (no ramp)
+      // sustain=0.5: attack goes to halfway between baseSliderCutoff and 16kHz
+      // sustain=0.0: attack goes to 16kHz (full ramp)
+      if (classicMode > 0.5) {
+        // In classic mode, calculate max frequency based on sustain level
+        // Use logarithmic interpolation for musical response
+        const logMinFreq = Math.log(baseSliderCutoff);
+        const logMaxFreq = Math.log(16000);
+        const logTargetFreq = logMinFreq + ((1.0 - sustainLevel) * (logMaxFreq - logMinFreq));
+        maxFreq = Math.exp(logTargetFreq);
+      }
       
       // Use logarithmic mapping for musical cutoff sweeps
       const logMinFreq = Math.log(minFreq);

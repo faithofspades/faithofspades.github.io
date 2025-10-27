@@ -398,11 +398,12 @@ class FilterManager {
     console.log(`Filter keytrack amount set to ${normalizedValue.toFixed(2)}`);
   }
   
-  setADSR(attack, decay, sustain, release) {
+  setADSR(attack, decay, sustain, release, classicMode = false) {
     this.attackTime = attack;
     this.decayTime = decay;
     this.sustainLevel = sustain;
     this.releaseTime = release;
+    this.classicMode = classicMode; // Store classic mode state
     
     this.voiceFilters.forEach((filterData) => {
       if (filterData.lp24Filter) {
@@ -410,16 +411,18 @@ class FilterManager {
         filterData.lp24Filter.setDecayTime(decay);
         filterData.lp24Filter.setSustainLevel(sustain);
         filterData.lp24Filter.setReleaseTime(release);
+        filterData.lp24Filter.setClassicMode(classicMode);
       }
       if (filterData.lp12Filter) {
         filterData.lp12Filter.setAttackTime(attack);
         filterData.lp12Filter.setDecayTime(decay);
         filterData.lp12Filter.setSustainLevel(sustain);
         filterData.lp12Filter.setReleaseTime(release);
+        filterData.lp12Filter.setClassicMode(classicMode);
       }
     });
     
-    console.log(`Filter ADSR set to A:${attack}s D:${decay}s S:${sustain} R:${release}s`);
+    console.log(`Filter ADSR set to A:${attack}s D:${decay}s S:${sustain} R:${release}s${classicMode ? ' [CLASSIC MODE]' : ''}`);
   }
   
   setInputGain(normalizedValue) {

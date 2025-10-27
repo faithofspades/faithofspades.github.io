@@ -741,27 +741,72 @@
               <div class="module" style="grid-column: span 2;">
                 <div class="module-title adsr">ADSR Envelope</div>
                 
+                <!-- Mode Selection Buttons -->
+                <div class="adsr-mode-buttons">
+                  <div class="adsr-mode-button-wrapper">
+                    <div class="adsr-mode-button active" id="adsr-mode-button">
+                      <img src="control icons/vca.svg" alt="ADSR" class="icon">
+                    </div>
+                    <label for="adsr-mode-button">ADSR</label>
+                  </div>
+                  
+                  <div class="adsr-mode-button-wrapper">
+                    <div class="adsr-mode-button" id="filter-mode-button">
+                      <img src="control icons/vcf.svg" alt="Filter" class="icon">
+                    </div>
+                    <label for="filter-mode-button">FILTER</label>
+                  </div>
+                  
+                  <div class="adsr-mode-button-wrapper">
+                    <div class="adsr-mode-button" id="classic-mode-button">
+                      <img src="control icons/adsr.svg" alt="Classic" class="icon">
+                    </div>
+                    <label for="classic-mode-button">CLASSIC</label>
+                  </div>
+                </div>
+                
                 <div class="adsr-graph" id="adsr-visualization">
                   <div class="adsr-line"></div>
                 </div>
               
-                <div class="slider-group">
+                <!-- Amplitude ADSR sliders (shown when ADSR mode active) -->
+                <div class="slider-group adsr-sliders" id="amplitude-adsr-sliders">
                   <div class="slider-attack">
-  <span id="attack-value">0</span>
-  <input type="range" id="attack" min="0" max="30" step="0.001" value="0">
-</div>
-<div class="slider-decay">
-  <span id="decay-value">0.0</span>
-  <input type="range" id="decay" min="0" max="30" step="0.001" value="0.0">
-</div>
-<div class="slider-sustain">
-  <span id="sustain-value">1</span>
-  <input type="range" id="sustain" min="0" max="1" step="0.001" value="1">
-</div>
-<div class="slider-release">
-  <span id="release-value">0.00</span>
-  <input type="range" id="release" min="0" max="30" step="0.001" value="0.000">
-</div>
+                    <span id="attack-value">0</span>
+                    <input type="range" id="attack" min="0" max="30" step="0.001" value="0">
+                  </div>
+                  <div class="slider-decay">
+                    <span id="decay-value">0.0</span>
+                    <input type="range" id="decay" min="0" max="30" step="0.001" value="0.0">
+                  </div>
+                  <div class="slider-sustain">
+                    <span id="sustain-value">1</span>
+                    <input type="range" id="sustain" min="0" max="1" step="0.001" value="1">
+                  </div>
+                  <div class="slider-release">
+                    <span id="release-value">0.00</span>
+                    <input type="range" id="release" min="0" max="30" step="0.001" value="0.000">
+                  </div>
+                </div>
+
+                <!-- Filter Envelope sliders (shown when FILTER mode active) -->
+                <div class="slider-group filter-sliders" id="filter-envelope-sliders">
+                  <div class="slider-attack">
+                    <span id="filter-attack-value">0</span>
+                    <input type="range" id="filter-attack" min="0" max="30" step="0.001" value="0">
+                  </div>
+                  <div class="slider-decay">
+                    <span id="filter-decay-value">0.0</span>
+                    <input type="range" id="filter-decay" min="0" max="30" step="0.001" value="0.0">
+                  </div>
+                  <div class="slider-sustain">
+                    <span id="filter-sustain-value">1</span>
+                    <input type="range" id="filter-sustain" min="0" max="1" step="0.001" value="1">
+                  </div>
+                  <div class="slider-release">
+                    <span id="filter-release-value">0.00</span>
+                    <input type="range" id="filter-release" min="0" max="30" step="0.001" value="0.000">
+                  </div>
                 </div>
                 
                 <div class="slider-labels">
