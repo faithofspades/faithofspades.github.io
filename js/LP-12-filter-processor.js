@@ -86,32 +86,44 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
   setFilterCutoff(filter, cutoffHz, resonance) {
     const cutoff = Math.max(10, Math.min(this.sampleRate * 0.45, cutoffHz));
     
-    const fc = cutoff / this.sampleRate;
-    const f = fc * 0.5; // Oversampled (2x)
+    // Calculate fc using 2x sample rate since we run 2x oversampling loop
+    const effectiveSampleRate = this.sampleRate * 2;
+    const fc = cutoff / effectiveSampleRate;
     const fc2 = fc * fc;
     const fc3 = fc2 * fc;
     
     // Huovilainen's frequency and resonance compensation
     const fcr = 1.8730 * fc3 + 0.4955 * fc2 - 0.6490 * fc + 0.9988;
-    // Use full acr value for proper filter response and bass retention
     filter.acr = -3.9364 * fc2 + 1.8409 * fc + 0.9968;
     
-    // Calculate tune parameter - scale appropriately for digital domain (0-1 range)
-    const tuneBase = (1.0 - Math.exp(-(2 * this.MOOG_PI * f * fcr)));
-    filter.tune = tuneBase / (1.0 + tuneBase); // Normalize to prevent instability
+    // Standard Huovilainen tune with fcr pre-warping
+    filter.tune = 1.0 - Math.exp(-2 * Math.PI * fc * fcr);
     
-    // Update resonance with new acr
-    this.setFilterResonance(filter, resonance);
+    // Update resonance with new acr and cutoff frequency for frequency-dependent scaling
+    this.setFilterResonance(filter, resonance, cutoffHz);
   }
   
   // Set resonance using Huovilainen's method with proper scaling
-  setFilterResonance(filter, res) {
+  setFilterResonance(filter, res, cutoffHz) {
     // Simple hard cap at a safe maximum to prevent instability and artifacts
     // Dial back from 76% until we find stable maximum
-    const cappedRes = Math.min(res, 0.75); // Start at 70% and test
+    const cappedRes = Math.min(res, 0.74); // Start at 74% and test
     const scaledRes = cappedRes * 0.95; // Scale to strong but safe range
     const quadraticRes = scaledRes * scaledRes; // Quadratic for musical curve
-    const resonance = Math.max(0, Math.min(0.94, quadraticRes * 0.94));
+    let resonance = Math.max(0, Math.min(0.96, quadraticRes * 0.96));
+    
+    // FREQUENCY-DEPENDENT RESONANCE SCALING
+    // Reduce resonance at higher frequencies to prevent ear-piercing peaks
+    // Aim for consistent perceived loudness across the frequency range
+    if (cutoffHz > 1000) {
+      // Logarithmic reduction above 1kHz
+      // At 1kHz: no reduction (1.0x)
+      // At 3kHz: ~0.6x reduction
+      // At 10kHz: ~0.4x reduction
+      const frequencyRatio = cutoffHz / 1000.0;
+      const reductionFactor = 1.0 / Math.pow(frequencyRatio, 0.03); // Square root falloff
+      resonance *= reductionFactor;
+    }
     
     // Standard feedback strength
     filter.resQuad = 8.0 * resonance * filter.acr;
@@ -121,7 +133,7 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     filter.cappedActiveResonance = cappedRes;
   }
   
-  // Process one sample through Huovilainen filter with 4x oversampling
+  // Process one sample through Huovilainen filter with 2x oversampling
   // MODIFIED: Taps output after 2 poles (stage[1]) for 12dB/octave response
   processHuovilainenFilter(filter, input) {
     const { stage, stageTanh, delay, tune, resQuad } = filter;
@@ -134,36 +146,33 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     const estimatedCutoff = (tune / (2.0 * Math.PI)) * this.sampleRate * 4.0; // Approximate
     const nyquistFreq = this.sampleRate * 0.5; // Half sample rate
     
-    // 4x oversampling to prevent aliasing from tanh nonlinearities at high frequencies
-    for (let j = 0; j < 4; j++) {
+    // 2x oversampling to prevent aliasing from tanh and harmonics
+    for (let j = 0; j < 2; j++) {
       // Clean feedback signal
       let feedbackSignal = delay[5];
       
       // Add subtle harmonics following overtone series (only when resonance is present)
       if (resAmount > 0.1) {
-        // Generate harmonics: octave (2x), octave+fifth (3x), etc.
-        // Each harmonic gets progressively quieter
         let harmonics = 0;
         
-        // Generate 16 harmonics following the overtone series
-        // BUT only if they won't exceed Nyquist frequency
-        for (let h = 2; h <= 17; h++) {
-          // Calculate the frequency this harmonic would create
-          const harmonicFreq = estimatedCutoff * h;
-          
-          // Only generate harmonics below Nyquist to prevent aliasing
-          if (harmonicFreq < nyquistFreq) {
-            // Amplitude decreases with harmonic number (1/h falloff)
-            const amplitude = 1.0 / h;
-            // Overall harmonic strength scales with resonance (boosted to 20% max for more presence)
-            const strength = resAmount * 0.20 * amplitude;
-            // Generate harmonic by raising signal to power (approximation of frequency multiplication)
-            const harmonic = Math.pow(Math.abs(feedbackSignal), h) * Math.sign(feedbackSignal);
-            harmonics += harmonic * strength;
-          } else {
-            // Stop generating harmonics once we exceed Nyquist
-            break;
-          }
+        // SEPARATE GENERATION: ODD HARMONICS (3, 5, 7, 9, 11, 13, 15, 17)
+        // These are MUCH louder and give the classic Moog resonance character
+        for (let h = 3; h <= 17; h += 2) {
+          // Slower rolloff with Math.pow(h, 0.3) instead of Math.sqrt(h)
+          // This keeps high harmonics more audible
+          const amplitude = 0.009 / Math.pow(h, 0.1); // Even slower rolloff
+          const strength = resAmount * 1 * amplitude; // Reduced overall amplitude
+          const harmonic = feedbackSignal * strength;
+          harmonics += harmonic;
+        }
+        
+        // SEPARATE GENERATION: EVEN HARMONICS (2, 4, 6, 8, 10, 12, 14, 16)
+        // These are MUCH quieter for contrast
+        for (let h = 2; h <= 16; h += 2) {
+          const amplitude = 0.00  / Math.sqrt(h);
+          const strength = resAmount * 0.0 * amplitude; // Very subtle even harmonics (8x quieter!)
+          const harmonic = feedbackSignal * strength;
+          harmonics += harmonic;
         }
         
         // Mix harmonics into feedback
@@ -347,7 +356,7 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
         // Compensate by boosting input proportionally: ~16dB = 6x linear gain
         // CRITICAL: Use cappedActiveResonance (not activeResonance) to prevent excessive compensation above cap
         const safeResonance = filter.cappedActiveResonance || filter.activeResonance;
-        const inputCompensation = 1.0 + (safeResonance * 5.0);
+        const inputCompensation = 1.0 + (safeResonance * 5);
         const compensatedInput = inputSample * inputCompensation;
         
         // Process through Huovilainen filter with 4x oversampling
