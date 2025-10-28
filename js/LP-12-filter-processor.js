@@ -116,13 +116,20 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     // Reduce resonance at higher frequencies to prevent ear-piercing peaks
     // Aim for consistent perceived loudness across the frequency range
     if (cutoffHz > 1000) {
-      // Logarithmic reduction above 1kHz
+      // Very gentle logarithmic reduction above 1kHz
       // At 1kHz: no reduction (1.0x)
-      // At 3kHz: ~0.6x reduction
-      // At 10kHz: ~0.4x reduction
+      // At 3kHz: ~0.97x reduction
+      // At 10kHz: ~0.92x reduction
       const frequencyRatio = cutoffHz / 1000.0;
-      const reductionFactor = 1.0 / Math.pow(frequencyRatio, 0.03); // Square root falloff
+      const reductionFactor = 1.0 / Math.pow(frequencyRatio, 0.001); // Much gentler falloff
       resonance *= reductionFactor;
+    }
+    
+    // Additional reduction above 13kHz for very high frequencies
+    if (cutoffHz > 13000) {
+      const highFreqRatio = cutoffHz / 13000.0;
+      const highFreqReduction = 1.0 / Math.pow(highFreqRatio, 0.15); // Steeper reduction
+      resonance *= highFreqReduction;
     }
     
     // Standard feedback strength
@@ -148,21 +155,28 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     
     // 2x oversampling to prevent aliasing from tanh and harmonics
     for (let j = 0; j < 2; j++) {
-      // Clean feedback signal
+      // 4-pole feedback signal for strong resonance
       let feedbackSignal = delay[5];
       
+
+      
       // Add subtle harmonics following overtone series (only when resonance is present)
+      // Use delay[5] as harmonic source - this is the resonating signal before filtering
       if (resAmount > 0.1) {
         let harmonics = 0;
+        
+        // Generate harmonics from the resonant feedback signal (before it gets filtered)
+        // This ensures we have strong signal to generate all harmonics from
+        const harmonicSource = delay[5];
         
         // SEPARATE GENERATION: ODD HARMONICS (3, 5, 7, 9, 11, 13, 15, 17)
         // These are MUCH louder and give the classic Moog resonance character
         for (let h = 3; h <= 17; h += 2) {
-          // Slower rolloff with Math.pow(h, 0.3) instead of Math.sqrt(h)
-          // This keeps high harmonics more audible
-          const amplitude = 0.009 / Math.pow(h, 0.1); // Even slower rolloff
-          const strength = resAmount * 1 * amplitude; // Reduced overall amplitude
-          const harmonic = feedbackSignal * strength;
+          // Very slow rolloff - let the natural filter response shape them
+          // Increased base amplitude for stronger resonant peaks
+          const amplitude = 0.008 / Math.pow(h, 0.03); // Almost flat, stronger base
+          const strength = resAmount * 1.0 * amplitude; // Boost strength
+          const harmonic = harmonicSource * strength;
           harmonics += harmonic;
         }
         
@@ -171,7 +185,7 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
         for (let h = 2; h <= 16; h += 2) {
           const amplitude = 0.00  / Math.sqrt(h);
           const strength = resAmount * 0.0 * amplitude; // Very subtle even harmonics (8x quieter!)
-          const harmonic = feedbackSignal * strength;
+          const harmonic = harmonicSource * strength;
           harmonics += harmonic;
         }
         
@@ -220,24 +234,42 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     // Convert percentage to 0-1 range
     const driveAmount = drivePercent / 100.0;
     
+    // First diode stage (0-50% range, active throughout 0-100%)
     // Much gentler pre-gain to reduce aliasing
-    const preGain = 1.0 + (driveAmount * 0.8); // Reduced from 1.5 to 0.8
-    let driven = input * preGain;
+    const preGain1 = 1.0 + (Math.min(driveAmount, 0.5) * 0.8 * 2.0); // Scale 0-50% to full range
+    let driven1 = input * preGain1;
     
     // Higher threshold for smoother operation
-    const threshold = 1.2 - (driveAmount * 0.2); // Increased from 1.0 - 0.3
-    const normalizedInput = driven / threshold;
+    const threshold1 = 1.2 - (Math.min(driveAmount, 0.5) * 0.2 * 2.0);
+    const normalizedInput1 = driven1 / threshold1;
     
     // Pure sinusoidal shaping - NO hard clipping ever
-    // The sine function naturally limits and rounds peaks smoothly
-    const shaped = Math.sin(normalizedInput * Math.PI * 0.5);
+    const shaped1 = Math.sin(normalizedInput1 * Math.PI * 0.5);
+    let output = shaped1 * threshold1;
     
-    // Scale back to threshold
-    let output = shaped * threshold;
+    // Gain compensation for first stage
+    const gainComp1 = 1.0 - (Math.min(driveAmount, 0.5) * 0.25 * 2.0);
+    output *= gainComp1;
     
-    // Stronger gain compensation for smoother sound
-    const gainComp = 1.0 - (driveAmount * 0.25); // Increased from 0.15 to 0.25
-    output *= gainComp;
+    // Second diode stage (kicks in 50-100%)
+    if (driveAmount > 0.5) {
+      const secondStageDrive = (driveAmount - 0.5) * 2.0; // Normalize 50-100% to 0-1
+      
+      // Second stage with more aggressive shaping
+      const preGain2 = 1.0 + (secondStageDrive * 1.2); // Stronger drive
+      let driven2 = output * preGain2;
+      
+      const threshold2 = 1.1 - (secondStageDrive * 0.15);
+      const normalizedInput2 = driven2 / threshold2;
+      
+      // Sine shaping again for smooth stacking
+      const shaped2 = Math.sin(normalizedInput2 * Math.PI * 0.5);
+      output = shaped2 * threshold2;
+      
+      // Gain compensation for second stage
+      const gainComp2 = 1.0 - (secondStageDrive * 0.2);
+      output *= gainComp2;
+    }
     
     return output;
   }
