@@ -106,23 +106,72 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
   
   // Set resonance using Huovilainen's method with proper scaling
   setFilterResonance(filter, res) {
-    // Apply exponential curve to make 0.94 feel like max
-    // This maps user 0-1 range to actual 0-0.94 range with more control at high end
-    const scaledRes = res * res * 0.94; // Quadratic scaling caps at 0.94
-    const resonance = Math.max(0, Math.min(0.94, scaledRes));
-    // Standard resonance feedback strength
+    // Simple hard cap at a safe maximum to prevent instability and artifacts
+    // Dial back from 76% until we find stable maximum
+    const cappedRes = Math.min(res, 0.75); // Start at 70% and test
+    const scaledRes = cappedRes * 0.95; // Scale to strong but safe range
+    const quadraticRes = scaledRes * scaledRes; // Quadratic for musical curve
+    const resonance = Math.max(0, Math.min(0.94, quadraticRes * 0.94));
+    
+    // Standard feedback strength
     filter.resQuad = 8.0 * resonance * filter.acr;
+    
+    // Store the CAPPED resonance value for input compensation calculations
+    // This prevents excessive gain compensation above the resonance cap
+    filter.cappedActiveResonance = cappedRes;
   }
   
-  // Process one sample through Huovilainen filter with 2x oversampling
+  // Process one sample through Huovilainen filter with 4x oversampling
   // MODIFIED: Taps output after 2 poles (stage[1]) for 12dB/octave response
   processHuovilainenFilter(filter, input) {
     const { stage, stageTanh, delay, tune, resQuad } = filter;
     
-    // 2x oversampling
-    for (let j = 0; j < 2; j++) {
-      // Standard 4-pole feedback from output (still from stage 3 for proper resonance)
-      const inputSample = input - resQuad * delay[5];
+    // Calculate harmonic content based on resonance level
+    const resAmount = filter.activeResonance;
+    
+    // Calculate current cutoff frequency for Nyquist limiting
+    // Estimate cutoff from tune parameter (inverse relationship)
+    const estimatedCutoff = (tune / (2.0 * Math.PI)) * this.sampleRate * 4.0; // Approximate
+    const nyquistFreq = this.sampleRate * 0.5; // Half sample rate
+    
+    // 4x oversampling to prevent aliasing from tanh nonlinearities at high frequencies
+    for (let j = 0; j < 4; j++) {
+      // Clean feedback signal
+      let feedbackSignal = delay[5];
+      
+      // Add subtle harmonics following overtone series (only when resonance is present)
+      if (resAmount > 0.1) {
+        // Generate harmonics: octave (2x), octave+fifth (3x), etc.
+        // Each harmonic gets progressively quieter
+        let harmonics = 0;
+        
+        // Generate 16 harmonics following the overtone series
+        // BUT only if they won't exceed Nyquist frequency
+        for (let h = 2; h <= 17; h++) {
+          // Calculate the frequency this harmonic would create
+          const harmonicFreq = estimatedCutoff * h;
+          
+          // Only generate harmonics below Nyquist to prevent aliasing
+          if (harmonicFreq < nyquistFreq) {
+            // Amplitude decreases with harmonic number (1/h falloff)
+            const amplitude = 1.0 / h;
+            // Overall harmonic strength scales with resonance (boosted to 20% max for more presence)
+            const strength = resAmount * 0.20 * amplitude;
+            // Generate harmonic by raising signal to power (approximation of frequency multiplication)
+            const harmonic = Math.pow(Math.abs(feedbackSignal), h) * Math.sign(feedbackSignal);
+            harmonics += harmonic * strength;
+          } else {
+            // Stop generating harmonics once we exceed Nyquist
+            break;
+          }
+        }
+        
+        // Mix harmonics into feedback
+        feedbackSignal = feedbackSignal + harmonics;
+      }
+      
+      // Standard 4-pole feedback
+      const inputSample = input - resQuad * feedbackSignal;
       
       // First stage with tanh - proper scaling for transistor nonlinearity
       delay[0] = stage[0] = delay[0] + tune * (Math.tanh(inputSample) - stageTanh[0]);
@@ -155,38 +204,33 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
     return stage[1];
   }
   
-  // Exponential diode clipping (smooth, natural)
-  diodeClippingExponential(input, threshold) {
-    const normalized = input / threshold;
-    let output;
+  // Serum-style Diode 2: Static sinusoidal distortion - SMOOTHED for LP-12
+  // Pure sine-based shaping - smooth, rounded, slightly fizzy but never harsh
+  // drivePercent: 0-100, the percentage of drive intensity (e.g., 24 for 24%)
+  diode2Clipping(input, drivePercent) {
+    // Convert percentage to 0-1 range
+    const driveAmount = drivePercent / 100.0;
     
-    if (normalized < 0) {
-      output = -1.0 + Math.exp(normalized);
-    } else if (normalized > 0) {
-      output = 1.0 - Math.exp(-normalized);
-    } else {
-      output = 0;
-    }
+    // Much gentler pre-gain to reduce aliasing
+    const preGain = 1.0 + (driveAmount * 0.8); // Reduced from 1.5 to 0.8
+    let driven = input * preGain;
     
-    return output * threshold;
-  }
-  
-  // Step-function diode clipping (harder, more character)
-  diodeClippingStep(input, threshold) {
-    const sign = input >= 0 ? 1 : -1;
-    const absInput = Math.abs(input);
-    const normalized = absInput / threshold;
-    let output;
+    // Higher threshold for smoother operation
+    const threshold = 1.2 - (driveAmount * 0.2); // Increased from 1.0 - 0.3
+    const normalizedInput = driven / threshold;
     
-    if (normalized <= (1.0 / 3.0)) {
-      output = 2.0 * normalized;
-    } else if (normalized <= (2.0 / 3.0)) {
-      output = (-3.0 * normalized * normalized) + (4.0 * normalized) - (1.0 / 3.0);
-    } else {
-      output = 1.0;
-    }
+    // Pure sinusoidal shaping - NO hard clipping ever
+    // The sine function naturally limits and rounds peaks smoothly
+    const shaped = Math.sin(normalizedInput * Math.PI * 0.5);
     
-    return sign * output * threshold;
+    // Scale back to threshold
+    let output = shaped * threshold;
+    
+    // Stronger gain compensation for smoother sound
+    const gainComp = 1.0 - (driveAmount * 0.25); // Increased from 0.15 to 0.25
+    output *= gainComp;
+    
+    return output;
   }
   
   process(inputs, outputs, parameters) {
@@ -301,55 +345,22 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
         // Input gain compensation for passband loss due to negative feedback
         // As resonance increases, negative feedback reduces passband gain significantly
         // Compensate by boosting input proportionally: ~16dB = 6x linear gain
-        const inputCompensation = 1.0 + (filter.activeResonance * 5.0);
+        // CRITICAL: Use cappedActiveResonance (not activeResonance) to prevent excessive compensation above cap
+        const safeResonance = filter.cappedActiveResonance || filter.activeResonance;
+        const inputCompensation = 1.0 + (safeResonance * 5.0);
         const compensatedInput = inputSample * inputCompensation;
         
-        // Process through Huovilainen filter with 2x oversampling
+        // Process through Huovilainen filter with 4x oversampling
         let filterOutput = this.processHuovilainenFilter(filter, compensatedInput);
         
         // Apply makeup gain to compensate for filter topology loss
         filterOutput *= 5.0;
         
-        // VARIANT-CONTROLLED POST-PROCESSING CHAIN
-        // Harshness ranges from 0 (gentle) to 1 (aggressive)
-        
-        // Soft clipper threshold and drive based on harshness
-        // At harshness=0: threshold=1.5 (rarely clips), drive=0.95 (gentle)
-        // At harshness=0.5: threshold=1.0, drive=0.85 (balanced)
-        // At harshness=1.0: threshold=0.6, drive=0.5 (aggressive)
-        const softClipThreshold = 1.5 - (harshness * 1.0);
-        const softClipDrive = 0.95 - (harshness * 1.0);
-        
-        if (Math.abs(filterOutput) > softClipThreshold) {
-          filterOutput = Math.tanh(filterOutput * softClipDrive) / softClipDrive * softClipThreshold;
-        }
-        
-        // Two-stage diode clipping with harshness control
-        // First diode: exponential clipping with harshness-controlled parameters
-        // Threshold: 0.95 (gentle) -> 0.8 (balanced) -> 0.6 (aggressive)
-        // Mix: 0.05 (gentle) -> 0.15 (balanced) -> 0.35 (aggressive)
-        const diode1Threshold = 0.95 - (harshness * 0.65);
-        const diode1Mix = 0.05 + (harshness * 0.30);
-        let diode1Out = this.diodeClippingExponential(filterOutput, diode1Threshold);
-        filterOutput = filterOutput * (1.0 - diode1Mix) + diode1Out * diode1Mix;
-        
-        // Second diode: step-function clipping with harshness control
-        // Threshold: 0.85 (gentle) -> 0.7 (balanced) -> 0.5 (aggressive)
-        // Mix: 0.15 (gentle) -> 0.35 (balanced) -> 0.65 (aggressive)
-        const diode2Threshold = 0.85 - (harshness * 0.35);
-        const diode2Mix = 0.15 + (harshness * 0.50);
-        let diode2Out = this.diodeClippingStep(filterOutput, diode2Threshold);
-        filterOutput = filterOutput * (1.0 - diode2Mix) + diode2Out * diode2Mix;
-        
-        // Final brick-wall limiter to prevent stereo phase issues
-        // Hard limit at ±1.0 with a tiny soft knee to avoid harsh artifacts
-        const limiterThreshold = 0.95;
-        if (Math.abs(filterOutput) > limiterThreshold) {
-          const sign = filterOutput >= 0 ? 1 : -1;
-          const excess = Math.abs(filterOutput) - limiterThreshold;
-          // Soft knee: remaining 0.05 headroom compressed to exponential curve
-          filterOutput = sign * (limiterThreshold + (0.05 * (1.0 - Math.exp(-excess * 20.0))));
-        }
+        // Apply Moog-style sine diode with variant knob controlling drive
+        // harshness 0 = 0% drive (clean), harshness 1.0 = 50% drive max (smoother)
+        // Capped at 50% to prevent aliasing and keep it smooth
+        const diodeDrive = harshness * 50.0;
+        filterOutput = this.diode2Clipping(filterOutput, diodeDrive);
         
         outputChannel[i] = filterOutput;
       }

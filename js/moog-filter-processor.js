@@ -56,6 +56,13 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
     const releaseTime = 0.001; // 1ms - very fast release for tight ADSR following
     this.attackCoef = Math.exp(-1.0 / (attackTime * sampleRate));
     this.releaseCoef = Math.exp(-1.0 / (releaseTime * sampleRate));
+    
+    // Add resonance decay system (same as LP-12)
+    this.resonanceSmoothed = 0;
+    
+    // Calculate decay coefficient for 5ms decay time
+    const decayTime = 0.005;
+    this.resonanceDecayCoef = Math.exp(-1.0 / (decayTime * sampleRate));
   }
   
   // One-pole filter stage implementation
@@ -127,12 +134,16 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
       stage3: this.createOnePole(),
       stage4: this.createOnePole(),
       
+      // Add active resonance tracking (for decay)
+      activeResonance: 0.0,
+      
       // Reset all stages
       reset() {
         this.stage1.reset();
         this.stage2.reset();
         this.stage3.reset();
         this.stage4.reset();
+        this.activeResonance = 0.0;
       }
     };
   }
@@ -239,15 +250,18 @@ softSaturate(input, driveAmount) {
   // No more ADSR scaling - use raw resonance value
   const safeRes = Math.min(0.99, normalizedRes);
   
-  // Same curve calculation
+  // INCREASED resonance curve for more pronounced peak
+  // Low range (0.0 - 0.2): gentle start
   if (safeRes < 0.2) {
-    this.K = safeRes * 2.0;
+    this.K = safeRes * 2.5; // Increased from 2.0
   } else if (safeRes < 0.6) {
+    // Mid range (0.2 - 0.6): accelerating curve
     const t = (safeRes - 0.2) / 0.4;
-    this.K = 0.4 + t * t * 1.6;
+    this.K = 0.5 + t * t * 2.0; // Increased from 0.4 + t*t*1.6
   } else {
+    // High range (0.6 - 1.0): strong resonance
     const t = (safeRes - 0.6) / 0.4;
-    this.K = 2.0 + t * t * 1.95;
+    this.K = 2.0 + t * t * 1.96; // Increased from 2.0 + t*t*1.95 (max now ~5.0 instead of ~3.95)
   }
   
   // Update alpha0 since it depends on K
@@ -258,6 +272,33 @@ softSaturate(input, driveAmount) {
   // No change to the parameter value - just store it
   this.drive = Math.max(0.1, Math.min(5.0, driveAmount));
 }
+  
+  // Serum-style Diode 2: Static sinusoidal distortion at 10% intensity
+  // Pure sine-based shaping - smooth, rounded, slightly fizzy but never harsh
+  // This is a FIXED effect - doesn't increase with drive, only responds to signal level
+  diode2Clipping(input) {
+    // Fixed at 10% of maximum potential - very gentle, smooth character
+    // Small pre-gain to hit the sweet spot of the sine curve
+    const preGain = 1.15; // Just 15% boost - gets "driven" with louder signals
+    let driven = input * preGain;
+    
+    // Wide threshold for gentle shaping - only the loudest peaks get compressed
+    const threshold = 0.97; // Very high threshold = mostly clean, just a touch of rounding
+    const normalizedInput = driven / threshold;
+    
+    // Pure sinusoidal shaping - NO hard clipping ever
+    // The sine function naturally limits and rounds peaks smoothly
+    const shaped = Math.sin(normalizedInput * Math.PI * 0.5);
+    
+    // Scale back to threshold
+    let output = shaped * threshold;
+    
+    // Minimal gain compensation - just enough to maintain level
+    const gainComp = 0.97;
+    output *= gainComp;
+    
+    return output;
+  }
   processWithDrive(input, driveAmount) {
   // Only apply if drive > 1
   if (driveAmount <= 1.0) return input;
@@ -327,6 +368,19 @@ process(inputs, outputs, parameters) {
       
       // Apply input gain
       let inputSample = inputChannel[i] * effectiveInputGain;
+      
+      // Detect if input is present (same as LP-12)
+      const inputPresent = Math.abs(inputSample) > 0.0001;
+      
+      // Get target resonance value
+      const res = resonance.length > 1 ? resonance[i] : resonance[0];
+      
+      // Resonance decay when no input (same as LP-12)
+      if (inputPresent) {
+        filter.activeResonance = res;
+      } else {
+        filter.activeResonance *= this.resonanceDecayCoef;
+      }
       
       // Calculate the actual cutoff frequency
       let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
@@ -404,13 +458,13 @@ process(inputs, outputs, parameters) {
   }
 }
       
-      // Rest of the processing remains the same...
+      // Rest of the processing - use activeResonance instead of raw resonance
       this.setCutoff(actualCutoff);
-      const res = resonance.length > 1 ? resonance[i] : resonance[0];
-      this.setResonance(res);
+      this.setResonance(filter.activeResonance);
       
       // Continue with the rest of the filter processing as before
-      const bassFactor = bassCompensation * 0.7 + 0.3;
+      // REDUCED bass compensation dampening for stronger resonance
+      const bassFactor = bassCompensation * 0.8 + 0.2; // Changed from 0.7 + 0.3
       const effectiveK = this.K * bassFactor;
       
       const sigma = 
@@ -419,8 +473,8 @@ process(inputs, outputs, parameters) {
         filter.stage3.getFeedbackOutput() +
         filter.stage4.getFeedbackOutput();
       
-      // Scale input by resonance factor
-      inputSample *= 1.0 + effectiveK * 0.7;
+      // Scale input by resonance factor - INCREASED from 0.7 to 1.1 for more defined peak
+      inputSample *= 1.0 + effectiveK * 1.1;
       
       let u = (inputSample - effectiveK * sigma) * this.alpha0;
       
@@ -444,6 +498,10 @@ process(inputs, outputs, parameters) {
         const postDrive = this.saturation;
         filterOutput = this.processWithDrive(filterOutput, postDrive);
       }
+      
+      // Apply static Diode 2 clipping - pure sine shaping, smooth and rounded
+      // Fixed at 10% intensity - responds to signal level but never gets harsh
+      filterOutput = this.diode2Clipping(filterOutput);
       
       outputChannel[i] = filterOutput;
     }
