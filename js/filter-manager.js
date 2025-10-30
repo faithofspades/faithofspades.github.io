@@ -148,13 +148,18 @@ class FilterManager {
           console.log(`Crossfading ${voiceId} to LH12 filter over ${crossfadeDuration*1000}ms`);
         } else {
           // Fade in LP-24, fade out others
-          filterData.lp12Gain.gain.setValueAtTime(filterData.lp12Gain.gain.value || 1, now);
+          // Read CURRENT gain values to ensure smooth crossfade FROM LH-12
+          const currentLp12Gain = filterData.lp12Gain.gain.value;
+          const currentLp24Gain = filterData.lp24Gain.gain.value;
+          const currentLh12Gain = filterData.lh12Gain.gain.value;
+          
+          filterData.lp12Gain.gain.setValueAtTime(currentLp12Gain, now);
           filterData.lp12Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
           
-          filterData.lh12Gain.gain.setValueAtTime(filterData.lh12Gain.gain.value || 0, now);
+          filterData.lh12Gain.gain.setValueAtTime(currentLh12Gain, now);
           filterData.lh12Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
           
-          filterData.lp24Gain.gain.setValueAtTime(filterData.lp24Gain.gain.value || 0, now);
+          filterData.lp24Gain.gain.setValueAtTime(currentLp24Gain, now);
           filterData.lp24Gain.gain.linearRampToValueAtTime(1, now + crossfadeDuration);
           
           filterData.activeFilter = filterData.lp24Filter;
