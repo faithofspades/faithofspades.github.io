@@ -49,21 +49,25 @@
   .red-section {
     background-color: #E5AB5F;
     width: 25%;
+    height: 433px;
   }
   
   .orange-section {
     background-color: #CF814D;
     width: 25%;
+    height: 433px;
   }
   
   .yellow-section {
     background-color: #BA5446;
     width: 25%;
+    height: 433px;
   }
   
   .green-section {
     background-color: #6B8F53;
     width: 25%;
+    height: 433px;
   }
   
   /* Slider container */

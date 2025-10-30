@@ -385,43 +385,63 @@ process(inputs, outputs, parameters) {
       // Calculate the actual cutoff frequency
       let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
       
-      // Apply keytracking as before...
+      // STEP 1: Apply keytracking first (sets the base frequency for this note)
       if (keytrackAmount !== 0) {
         const noteFreqRatio = Math.pow(2, (currentMidiNote - 69) / 12);
         actualCutoff *= Math.pow(noteFreqRatio, keytrackAmount);
       }
       
-      // Apply envelope modulation to cutoff with direct mapping at max
+      // STEP 2: Apply envelope modulation ON TOP of keytracked frequency
+      // Use actualCutoff (with keytracking) as the base, not raw slider value
       if (envValue !== 0) {
   if (envValue > 0) {
     // Check if envelope amount is at maximum (bipolar scale: 1.0 = maximum)
     if (envValue >= 0.95) {
-      // UPDATED: Use current cutoff slider value as minimum instead of hardcoded 8Hz
-      // Get base cutoff (from slider, before any keytracking)
-      const baseSliderCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
-      const minFreq = baseSliderCutoff; // Use slider value as minimum 
+      // Store keytracked cutoff as the base frequency
+      const baseFreq = actualCutoff;
       let maxFreq = 16000;
       
-      // CLASSIC MODE: Sustain level controls attack target frequency
-      // sustain=1.0: attack goes to baseSliderCutoff (no ramp)
-      // sustain=0.5: attack goes to halfway between baseSliderCutoff and 16kHz
-      // sustain=0.0: attack goes to 16kHz (full ramp)
+      // CLASSIC MODE: Sustain level controls attack target, decay returns to base
+      // In classic mode: baseFreq → attackTarget (based on sustain) → decay to baseFreq → hold at baseFreq
+      // In normal mode: baseFreq → 16kHz → holds at (sustain * range)
       if (classicMode > 0.5) {
-        // In classic mode, calculate max frequency based on sustain level
-        // Use logarithmic interpolation for musical response
-        const logMinFreq = Math.log(baseSliderCutoff);
+        // In classic mode, attack target is controlled by sustain level
+        // sustain=1.0: attack goes to baseFreq (no ramp up, stays at base)
+        // sustain=0.5: attack goes to halfway between baseFreq and 16kHz, then decays to base
+        // sustain=0.0: attack goes to 16kHz (full ramp), then decays to base
+        const logMinFreq = Math.log(baseFreq);
         const logMaxFreq = Math.log(16000);
         const logTargetFreq = logMinFreq + ((1.0 - sustainLevel) * (logMaxFreq - logMinFreq));
-        maxFreq = Math.exp(logTargetFreq);
+        const attackTarget = Math.exp(logTargetFreq);
+        
+        // Classic mode: ADSR envelope creates a "spike" that returns to base
+        // ADSR goes from 0 → 1 (attack) → sustain level → 0 (release)
+        // But we want: baseFreq → attackTarget → baseFreq (held during sustain)
+        // So we map: ADSR closer to 1.0 = higher frequency, ADSR at sustain = baseFreq
+        
+        // If ADSR is above sustain level (in attack/decay), sweep between base and target
+        // If ADSR is at sustain level or below, stay at base
+        if (currentAdsrValue > sustainLevel) {
+          // We're in attack or decay phase - sweep from base to target
+          // Normalize to 0-1 range where sustainLevel=0 and 1.0=1
+          const normalizedEnv = (currentAdsrValue - sustainLevel) / (1.0 - sustainLevel);
+          const logBase = Math.log(baseFreq);
+          const logTarget = Math.log(attackTarget);
+          const logFreq = logBase + (normalizedEnv * (logTarget - logBase));
+          actualCutoff = Math.exp(logFreq);
+        } else {
+          // We're in sustain or release - stay at base frequency
+          actualCutoff = baseFreq;
+        }
+      } else {
+        // NORMAL MODE: Full sweep to 16kHz during attack, sustain level controls held frequency
+        const logMinFreq = Math.log(baseFreq);
+        const logMaxFreq = Math.log(maxFreq);
+        
+        // Map ADSR value (0-1) directly to logarithmic frequency range
+        const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
+        actualCutoff = Math.exp(logFreq);
       }
-      
-      // Use logarithmic mapping for musical cutoff sweeps
-      const logMinFreq = Math.log(minFreq);
-      const logMaxFreq = Math.log(maxFreq);
-      
-      // Map ADSR value (0-1) directly to logarithmic frequency range
-      const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
-      actualCutoff = Math.exp(logFreq);
       
       
     } else {
@@ -433,10 +453,8 @@ process(inputs, outputs, parameters) {
     // NEW HANDLING FOR NEGATIVE ENVELOPE
     // Check if envelope amount is at minimum (bipolar scale: -1.0 = minimum)
     if (envValue <= -0.95) {
-      // Direct mapping for extreme negative case - map ADSR in REVERSE from cutoff to 8Hz
-      // Get base cutoff (from slider, before any keytracking)
-      const baseSliderCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
-      const maxFreq = baseSliderCutoff; // Use slider value as maximum
+      // For negative envelope, sweep DOWN from keytracked frequency
+      const maxFreq = actualCutoff;
       const minFreq = 8; // Minimum possible frequency
       
       // Use logarithmic mapping for musical cutoff sweeps
@@ -446,11 +464,6 @@ process(inputs, outputs, parameters) {
       // INVERTED mapping - higher ADSR = lower frequency
       const logFreq = logMaxFreq - (currentAdsrValue * (logMaxFreq - logMinFreq));
       actualCutoff = Math.exp(logFreq);
-      
-      // Add debug logging for direct mapping
-      if (i === 0) {
-        console.log(`Negative ADSR mapping: ADSR=${currentAdsrValue.toFixed(2)}, From=${maxFreq.toFixed(1)}Hz To=8Hz, Current=${actualCutoff.toFixed(1)}Hz`);
-      }
     } else {
       // Original behavior for moderate negative envelope amounts
       actualCutoff *= Math.pow(10, envValue * 0.8);

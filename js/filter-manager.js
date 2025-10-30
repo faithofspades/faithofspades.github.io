@@ -1,12 +1,13 @@
-// Add import for the LP-12 filter
+// Add imports for all filter types
 import { MoogFilterNode } from './moog-filter-node.js';
 import { LP12FilterNode } from './LP-12-filter-node.js';
+import { LH12FilterNode } from './lh-12-filter-node.js';
 class FilterManager {
   constructor(audioContext) {
     this.audioCtx = audioContext;
     this.currentFilterType = 'lp24'; // DEFAULT to LP24 filter
     
-    // Store persistent filter instances - each voice will have TWO filters
+    // Store persistent filter instances - each voice will have THREE filters
     this.voiceFilters = new Map(); // voiceId -> filter data
     
     // Global filter parameters
@@ -31,23 +32,25 @@ class FilterManager {
     // Load worklet processor
     this._loadWorkletProcessor();
     
-    console.log("Dual-filter manager initialized with LP24 filter active");
+    console.log("Triple-filter manager initialized with LP24 filter active");
   }
   
-  // Load both processor types
+  // Load all processor types
   async _loadWorkletProcessor() {
     try {
       if (!this._processorLoaded) {
         try {
           await this.audioCtx.audioWorklet.addModule('./js/moog-filter-processor.js');
           await this.audioCtx.audioWorklet.addModule('./js/LP-12-filter-processor.js');
-          console.log("Successfully loaded filter processors");
+          await this.audioCtx.audioWorklet.addModule('./js/lh-12-filter-processor.js');
+          console.log("Successfully loaded all filter processors");
           this._processorLoaded = true;
         } catch (loadError) {
           console.error('Failed to load with ./js/ path, trying relative path...');
           try {
             await this.audioCtx.audioWorklet.addModule('moog-filter-processor.js');
             await this.audioCtx.audioWorklet.addModule('LP-12-filter-processor.js');
+            await this.audioCtx.audioWorklet.addModule('lh-12-filter-processor.js');
             console.log("Successfully loaded using direct path");
             this._processorLoaded = true;
           } catch (secondError) {
@@ -61,11 +64,11 @@ class FilterManager {
     }
   }
 
-  // Set filter type - now just switches connections between existing filters
+  // Set filter type - now switches connections between existing filters
   setFilterType(type) {
     if (type === this.currentFilterType) return; // No change
 
-    const validTypes = ['lp24', 'lp12'];
+    const validTypes = ['lp24', 'lp12', 'lh12'];
     if (!validTypes.includes(type)) {
       console.error(`Invalid filter type: ${type}. Using LP24 instead.`);
       type = 'lp24';
@@ -86,7 +89,7 @@ class FilterManager {
   const now = this.audioCtx.currentTime;
   
   this.voiceFilters.forEach((filterData, voiceId) => {
-    if (filterData && filterData.lp12Filter && filterData.lp24Filter) {
+    if (filterData && filterData.lp12Filter && filterData.lp24Filter && filterData.lh12Filter) {
       try {
         // Get the input and output nodes
         const inputNode = filterData.inputNode;
@@ -98,58 +101,75 @@ class FilterManager {
         if (!filterData.lp12Gain) {
           filterData.lp12Gain = this.audioCtx.createGain();
           filterData.lp24Gain = this.audioCtx.createGain();
+          filterData.lh12Gain = this.audioCtx.createGain();
           
           // Connect the filter outputs through their gain nodes to the output
           filterData.lp12Filter.disconnect();
           filterData.lp24Filter.disconnect();
+          filterData.lh12Filter.disconnect();
           
           filterData.lp12Filter.connect(filterData.lp12Gain);
           filterData.lp24Filter.connect(filterData.lp24Gain);
+          filterData.lh12Filter.connect(filterData.lh12Gain);
           
           filterData.lp12Gain.connect(outputNode);
           filterData.lp24Gain.connect(outputNode);
+          filterData.lh12Gain.connect(outputNode);
         }
         
         // Set crossfade gains based on which filter is active
         if (this.currentFilterType === 'lp12') {
-          // Fade in LP-12, fade out LP-24
+          // Fade in LP-12, fade out others
           filterData.lp24Gain.gain.setValueAtTime(filterData.lp24Gain.gain.value || 1, now);
           filterData.lp24Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
+          
+          filterData.lh12Gain.gain.setValueAtTime(filterData.lh12Gain.gain.value || 0, now);
+          filterData.lh12Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
           
           filterData.lp12Gain.gain.setValueAtTime(filterData.lp12Gain.gain.value || 0, now);
           filterData.lp12Gain.gain.linearRampToValueAtTime(1, now + crossfadeDuration);
           
-          // Input should always be connected to both filters
-          try {
-            inputNode.disconnect();
-          } catch (e) {}
-          
-          inputNode.connect(filterData.lp12Filter);
-          inputNode.connect(filterData.lp24Filter);
-          
           filterData.activeFilter = filterData.lp12Filter;
           
           console.log(`Crossfading ${voiceId} to LP12 filter over ${crossfadeDuration*1000}ms`);
+        } else if (this.currentFilterType === 'lh12') {
+          // Fade in LH-12, fade out others
+          filterData.lp24Gain.gain.setValueAtTime(filterData.lp24Gain.gain.value || 1, now);
+          filterData.lp24Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
+          
+          filterData.lp12Gain.gain.setValueAtTime(filterData.lp12Gain.gain.value || 0, now);
+          filterData.lp12Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
+          
+          filterData.lh12Gain.gain.setValueAtTime(filterData.lh12Gain.gain.value || 0, now);
+          filterData.lh12Gain.gain.linearRampToValueAtTime(1, now + crossfadeDuration);
+          
+          filterData.activeFilter = filterData.lh12Filter;
+          
+          console.log(`Crossfading ${voiceId} to LH12 filter over ${crossfadeDuration*1000}ms`);
         } else {
-          // Fade in LP-24, fade out LP-12
+          // Fade in LP-24, fade out others
           filterData.lp12Gain.gain.setValueAtTime(filterData.lp12Gain.gain.value || 1, now);
           filterData.lp12Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
           
+          filterData.lh12Gain.gain.setValueAtTime(filterData.lh12Gain.gain.value || 0, now);
+          filterData.lh12Gain.gain.linearRampToValueAtTime(0, now + crossfadeDuration);
+          
           filterData.lp24Gain.gain.setValueAtTime(filterData.lp24Gain.gain.value || 0, now);
           filterData.lp24Gain.gain.linearRampToValueAtTime(1, now + crossfadeDuration);
-          
-          // Input should always be connected to both filters
-          try {
-            inputNode.disconnect();
-          } catch (e) {}
-          
-          inputNode.connect(filterData.lp12Filter);
-          inputNode.connect(filterData.lp24Filter);
           
           filterData.activeFilter = filterData.lp24Filter;
           
           console.log(`Crossfading ${voiceId} to LP24 filter over ${crossfadeDuration*1000}ms`);
         }
+        
+        // Input should always be connected to all three filters
+        try {
+          inputNode.disconnect();
+        } catch (e) {}
+        
+        inputNode.connect(filterData.lp12Filter);
+        inputNode.connect(filterData.lp24Filter);
+        inputNode.connect(filterData.lh12Filter);
         
         // Update filter note state if needed
         setTimeout(() => {
@@ -160,13 +180,16 @@ class FilterManager {
   // VERIFICATION: Add this to check final gain values
   const lp12GainValue = filterData.lp12Gain.gain.value;
   const lp24GainValue = filterData.lp24Gain.gain.value;
+  const lh12GainValue = filterData.lh12Gain.gain.value;
   
   console.log(`Crossfade for ${voiceId} to ${this.currentFilterType} completed - ` + 
-              `LP12 gain=${lp12GainValue.toFixed(2)}, LP24 gain=${lp24GainValue.toFixed(2)}`);
+              `LP12=${lp12GainValue.toFixed(2)}, LP24=${lp24GainValue.toFixed(2)}, LH12=${lh12GainValue.toFixed(2)}`);
               
   // Force a parameter update to verify the filter is working
   if (this.currentFilterType === 'lp12') {
     filterData.lp12Filter.setCutoff(this.cutoff);
+  } else if (this.currentFilterType === 'lh12') {
+    filterData.lh12Filter.setCutoff(this.cutoff);
   } else {
     filterData.lp24Filter.setCutoff(this.cutoff);
   }
@@ -178,7 +201,7 @@ class FilterManager {
   });
 }
 
-  // Create both filter types for each voice
+  // Create all three filter types for each voice
   async createPersistentFilter(voiceId) {
   // Wait for processor to load
   if (!this._processorLoaded) {
@@ -191,7 +214,7 @@ class FilterManager {
   }
   
   try {
-    // Create both filter types
+    // Create all three filter types
     const lp24Filter = new MoogFilterNode(this.audioCtx, {
       parameterData: {
         cutoff: this.cutoff,
@@ -220,13 +243,28 @@ class FilterManager {
       }
     });
     
+    const lh12Filter = new LH12FilterNode(this.audioCtx, {
+      parameterData: {
+        cutoff: this.cutoff,
+        resonance: this.resonance,
+        drive: this.drive,
+        saturation: this.saturation,
+        bassCompensation: this.variant,
+        keytrackAmount: (this.keytrackAmount - 0.5) * 2,
+        envelopeAmount: (this.envelopeAmount - 0.5) * 2,
+        currentMidiNote: 69,
+        inputGain: this.inputGain
+      }
+    });
+    
     // Add verification logging
     console.log(`Filter processors created for ${voiceId}:
       LP24: ${lp24Filter._processorName || 'unknown'}
       LP12: ${lp12Filter._processorName || 'unknown'}
+      LH12: ${lh12Filter._processorName || 'unknown'}
     `);
     
-    // Set ADSR parameters for both filters
+    // Set ADSR parameters for all filters
     lp24Filter.setAttackTime(this.attackTime);
     lp24Filter.setDecayTime(this.decayTime);
     lp24Filter.setSustainLevel(this.sustainLevel);
@@ -237,6 +275,11 @@ class FilterManager {
     lp12Filter.setSustainLevel(this.sustainLevel);
     lp12Filter.setReleaseTime(this.releaseTime);
     
+    lh12Filter.setAttackTime(this.attackTime);
+    lh12Filter.setDecayTime(this.decayTime);
+    lh12Filter.setSustainLevel(this.sustainLevel);
+    lh12Filter.setReleaseTime(this.releaseTime);
+    
     // Create mixer nodes for input and output
     const inputNode = new GainNode(this.audioCtx);
     const outputNode = new GainNode(this.audioCtx);
@@ -244,35 +287,48 @@ class FilterManager {
     // Create crossfade gain nodes
     const lp12Gain = this.audioCtx.createGain();
     const lp24Gain = this.audioCtx.createGain();
+    const lh12Gain = this.audioCtx.createGain();
     
     // Set initial gain states based on current filter type
     if (this.currentFilterType === 'lp12') {
       lp12Gain.gain.setValueAtTime(1, this.audioCtx.currentTime);
       lp24Gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+      lh12Gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+    } else if (this.currentFilterType === 'lh12') {
+      lp12Gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+      lp24Gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+      lh12Gain.gain.setValueAtTime(1, this.audioCtx.currentTime);
     } else {
       lp12Gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
       lp24Gain.gain.setValueAtTime(1, this.audioCtx.currentTime);
+      lh12Gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
     }
     
     // Connect through crossfade structure
     lp12Filter.connect(lp12Gain);
     lp24Filter.connect(lp24Gain);
+    lh12Filter.connect(lh12Gain);
     lp12Gain.connect(outputNode);
     lp24Gain.connect(outputNode);
+    lh12Gain.connect(outputNode);
     
     // Determine which one is active based on current setting
-    const activeFilter = this.currentFilterType === 'lp12' ? lp12Filter : lp24Filter;
+    const activeFilter = this.currentFilterType === 'lp12' ? lp12Filter : 
+                         this.currentFilterType === 'lh12' ? lh12Filter : lp24Filter;
     
-    // Input node connects to both filters always
+    // Input node connects to all filters always
     inputNode.connect(lp12Filter);
     inputNode.connect(lp24Filter);
+    inputNode.connect(lh12Filter);
     
     // Store all filter data
     this.voiceFilters.set(voiceId, {
       lp24Filter,
       lp12Filter,
+      lh12Filter,
       lp12Gain,
       lp24Gain,
+      lh12Gain,
       activeFilter,
       inputNode,
       outputNode,
@@ -281,7 +337,7 @@ class FilterManager {
       type: voiceId.startsWith('sampler-') ? 'sampler' : 'osc'
     });
     
-    console.log(`Created dual-filter system for voice ${voiceId} with ${this.currentFilterType} active`);
+    console.log(`Created triple-filter system for voice ${voiceId} with ${this.currentFilterType} active`);
     return inputNode;
     
   } catch (error) {
@@ -314,6 +370,9 @@ class FilterManager {
       if (filterData.lp12Filter) {
         filterData.lp12Filter.setCutoff(this.cutoff);
       }
+      if (filterData.lh12Filter) {
+        filterData.lh12Filter.setCutoff(this.cutoff);
+      }
     });
     
     console.log(`Filter cutoff set to ${this.cutoff.toFixed(1)}Hz`);
@@ -329,6 +388,9 @@ class FilterManager {
       if (filterData.lp12Filter) {
         filterData.lp12Filter.setResonance(this.resonance);
       }
+      if (filterData.lh12Filter) {
+        filterData.lh12Filter.setResonance(this.resonance);
+      }
     });
     
     console.log(`Filter resonance set to ${this.resonance.toFixed(2)}`);
@@ -343,8 +405,12 @@ class FilterManager {
       filterData.lp24Filter.setDrive(1.0 + normalizedValue * 4.0);
     }
     if (filterData.lp12Filter) {
-      // For LP12, pass the raw value - it will be used for HP resonance
+      // For LP12, pass the raw value - it will be used for diode amount
       filterData.lp12Filter.setDrive(normalizedValue);
+    }
+    if (filterData.lh12Filter) {
+      // For LH12, pass the raw value - unused (reserved for future)
+      filterData.lh12Filter.setDrive(normalizedValue);
     }
   });
   
@@ -360,6 +426,9 @@ class FilterManager {
       }
       if (filterData.lp12Filter) {
         filterData.lp12Filter.setBassCompensation(normalizedValue);
+      }
+      if (filterData.lh12Filter) {
+        filterData.lh12Filter.setBassCompensation(normalizedValue);
       }
     });
     
@@ -377,6 +446,9 @@ class FilterManager {
       if (filterData.lp12Filter) {
         filterData.lp12Filter.setEnvelopeAmount(bipolarValue);
       }
+      if (filterData.lh12Filter) {
+        filterData.lh12Filter.setEnvelopeAmount(bipolarValue);
+      }
     });
     
     console.log(`Filter envelope amount set to ${normalizedValue.toFixed(2)}`);
@@ -392,6 +464,9 @@ class FilterManager {
       }
       if (filterData.lp12Filter) {
         filterData.lp12Filter.setKeytrackAmount(bipolarValue);
+      }
+      if (filterData.lh12Filter) {
+        filterData.lh12Filter.setKeytrackAmount(bipolarValue);
       }
     });
     
@@ -420,6 +495,13 @@ class FilterManager {
         filterData.lp12Filter.setReleaseTime(release);
         filterData.lp12Filter.setClassicMode(classicMode);
       }
+      if (filterData.lh12Filter) {
+        filterData.lh12Filter.setAttackTime(attack);
+        filterData.lh12Filter.setDecayTime(decay);
+        filterData.lh12Filter.setSustainLevel(sustain);
+        filterData.lh12Filter.setReleaseTime(release);
+        filterData.lh12Filter.setClassicMode(classicMode);
+      }
     });
     
     console.log(`Filter ADSR set to A:${attack}s D:${decay}s S:${sustain} R:${release}s${classicMode ? ' [CLASSIC MODE]' : ''}`);
@@ -435,6 +517,9 @@ class FilterManager {
       if (filterData.lp12Filter) {
         filterData.lp12Filter.setInputGain(this.inputGain);
       }
+      if (filterData.lh12Filter) {
+        filterData.lh12Filter.setInputGain(this.inputGain);
+      }
     });
     
     console.log(`Filter input gain set to ${(normalizedValue * 100).toFixed(0)}%`);
@@ -446,7 +531,7 @@ class FilterManager {
     
     filterData.amplitudeGainNode = gainNode;
     
-    // Setup amplitude tracking for both filters
+    // Setup amplitude tracking for all filters
     if (filterData.lp24Filter) {
       filterData.lp24Filter.setAmplitudeGainNode(gainNode);
     }
@@ -455,11 +540,16 @@ class FilterManager {
       filterData.lp12Filter.setAmplitudeGainNode(gainNode);
     }
     
+    if (filterData.lh12Filter) {
+      filterData.lh12Filter.setAmplitudeGainNode(gainNode);
+    }
+    
     // Start the update loop if not already started
     if (!filterData.updateInterval) {
       filterData.updateInterval = setInterval(() => {
         if (filterData.lp24Filter) filterData.lp24Filter.updateFromAmplitude();
         if (filterData.lp12Filter) filterData.lp12Filter.updateFromAmplitude();
+        if (filterData.lh12Filter) filterData.lh12Filter.updateFromAmplitude();
       }, 5);
     }
     
@@ -472,13 +562,17 @@ class FilterManager {
     
     filterData.currentNote = noteNumber;
     
-    // Update both filters
+    // Update all filters
     if (filterData.lp24Filter) {
       filterData.lp24Filter.noteOn(noteNumber, velocity, !isLegatoTransition, envelopeState, currentEnvelopeValue);
     }
     
     if (filterData.lp12Filter) {
       filterData.lp12Filter.noteOn(noteNumber, velocity, !isLegatoTransition, envelopeState, currentEnvelopeValue);
+    }
+    
+    if (filterData.lh12Filter) {
+      filterData.lh12Filter.noteOn(noteNumber, velocity, !isLegatoTransition, envelopeState, currentEnvelopeValue);
     }
     
     console.log(`Filter noteOn for voice ${voiceId}, note ${noteNumber}, retrigger=${!isLegatoTransition}`);
@@ -493,13 +587,17 @@ class FilterManager {
       return;
     }
     
-    // Release both filters
+    // Release all filters
     if (filterData.lp24Filter) {
       filterData.lp24Filter.noteOff();
     }
     
     if (filterData.lp12Filter) {
       filterData.lp12Filter.noteOff();
+    }
+    
+    if (filterData.lh12Filter) {
+      filterData.lh12Filter.noteOff();
     }
     
     console.log(`Filter noteOff for voice ${voiceId}`);
@@ -514,6 +612,7 @@ class FilterManager {
       try {
         if (filterData.lp24Filter) filterData.lp24Filter.disconnect();
         if (filterData.lp12Filter) filterData.lp12Filter.disconnect();
+        if (filterData.lh12Filter) filterData.lh12Filter.disconnect();
         if (filterData.inputNode) filterData.inputNode.disconnect();
         if (filterData.outputNode) filterData.outputNode.disconnect();
       } catch (e) {

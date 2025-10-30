@@ -566,7 +566,7 @@ function initializeFilterControls() {
       switch (value) {
         case 4: filterType = 'lp12'; break;
         case 3: filterType = 'lp24'; break; // Moog filter
-        case 2: filterType = 'phase'; break;
+        case 2: filterType = 'lh12'; break;
         case 1: filterType = 'comb'; break;
         case 0: filterType = 'dist'; break;
       }
