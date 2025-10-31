@@ -91,7 +91,8 @@ function initializeFilterSystem() {
   
   // Configure filter with proper defaults
   if (filterManager) {
-    filterManager.setDrive(0.0); // Set to 0% (unity gain, no overdrive)
+    // Drive is initialized to 0.5 in FilterManager constructor (50% = unity gain for LH18)
+    // It will be set again when the UI initializes the slider
     filterManager.setCutoff(16000); // 100% = 20kHz (no filtering)
     filterManager.setResonance(0.0); // No resonance
   }
@@ -612,10 +613,14 @@ if (driveSlider) {
   driveSlider.addEventListener('input', (e) => {
     const value = parseFloat(e.target.value);
     if (filterManager) {
-      // Use the new method instead of setDrive
+      // Drive slider controls inputGain for LP24/LP12/LH12, but LH18 needs setDrive
       filterManager.setInputGain(value);
     }
   });
+  // Initialize the filter with the default value
+  if (filterManager) {
+    filterManager.setInputGain(0.5);
+  }
 }
   
   // Variant Slider - DEFAULT TO 50% (unity)

@@ -21,7 +21,7 @@ export class LH18FilterNode extends AudioWorkletNode {
       ...options
     };
     
-    super(audioContext, 'lp-12-filter-processor', nodeOptions);
+    super(audioContext, 'lh-18-filter-processor', nodeOptions);
     
     this._currentMidiNote = 69;
     this._keytrackAmount = 0;
@@ -92,7 +92,6 @@ export class LH18FilterNode extends AudioWorkletNode {
     
     // Trigger independent filter envelope using SCHEDULED AUTOMATION (like VCA)
     if (isLegatoTransition || !retrigger) {
-      console.log(`Filter legato transition to note ${midiNote} - maintaining current envelope`);
       // Don't retrigger envelope in legato mode
     } else {
       const now = this.context.currentTime;
@@ -118,8 +117,6 @@ export class LH18FilterNode extends AudioWorkletNode {
       this.envelopeStage = 'attack';
       this.envelopeStartTime = now;
       this.envelopeValue = 0;
-      
-      console.log(`Filter envelope triggered for note ${midiNote} - Attack: ${this.attackTime.toFixed(3)}s, Decay: ${this.decayTime.toFixed(3)}s, Sustain: ${this.sustainLevel.toFixed(2)}`);
     }
   }
   
@@ -144,8 +141,6 @@ export class LH18FilterNode extends AudioWorkletNode {
     
     this.envelopeStage = 'release';
     this.envelopeReleaseTime = now;
-    
-    console.log(`Filter envelope released - Release time: ${this.releaseTime.toFixed(3)}s`);
   }
   reset(targetValue = null, isVoiceSteal = false) {
   // For normal resets (not voice stealing), reset the filter processor state
@@ -163,8 +158,6 @@ export class LH18FilterNode extends AudioWorkletNode {
     this.parameters.get('adsrValue').cancelScheduledValues(now);
     this.parameters.get('adsrValue').setValueAtTime(currentValue, now);
     this.parameters.get('adsrValue').linearRampToValueAtTime(targetValue, now + 0.005);
-    
-    console.log(`Filter smoothly transitioning to new ADSR value ${targetValue.toFixed(2)} (voice steal)`);
   } else {
     // Normal reset (note end) - don't abruptly set to 0, let ADSR naturally complete
     // The voice's gain node tracking will gradually bring this to zero
@@ -185,8 +178,9 @@ export class LH18FilterNode extends AudioWorkletNode {
 }
   // Parameter setters
   setCutoff(value) {
-  // FIXED: Accept 8Hz to 16000Hz range
-  this.parameters.get('cutoff').value = Math.max(8, Math.min(16000, value));
+  // Accept 8Hz to 16000Hz range
+  const clampedValue = Math.max(8, Math.min(16000, value));
+  this.parameters.get('cutoff').value = clampedValue;
 }
 setInputGain(value) {
   const param = this.parameters.get('inputGain');
@@ -200,7 +194,8 @@ setResonance(value) {
 }
   
   setDrive(value) {
-    this.parameters.get('drive').value = Math.max(0.1, Math.min(5.0, value));
+    const clampedValue = Math.max(0.1, Math.min(5.0, value));
+    this.parameters.get('drive').setValueAtTime(clampedValue, this.context.currentTime);
   }
   
   setSaturation(value) {
@@ -222,14 +217,11 @@ setResonance(value) {
   // Bipolar envelope amount (-1.0 to 1.0)
   this._envelopeAmount = Math.max(-1.0, Math.min(1.0, value));
   
-  // CRITICAL FIX: Update the actual parameter in the processor
-  // This was missing before - we were storing the value but not sending it
+  // Update the actual parameter in the processor
   this.parameters.get('envelopeAmount').setValueAtTime(
     this._envelopeAmount,
     this.context.currentTime
   );
-
-  console.log(`LP-12FilterNode: envelope amount set to ${this._envelopeAmount.toFixed(2)}`);
 }
   
   // ADSR parameter setters
