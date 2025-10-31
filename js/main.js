@@ -120,24 +120,21 @@ let isWorkletReady = false;
 let pendingInitialization = true;
 // Helper function to create natural decay/release curves
 function applyCurvedEnvelope(gainNode, startValue, endValue, duration, startTime, curveType) {
-  // Cancel any scheduled values first
-  gainNode.cancelScheduledValues(startTime);
+  // Only cancel scheduled values if we're starting immediately (not scheduling for future)
+  const now = audioCtx.currentTime;
+  if (startTime <= now + 0.001) {
+    gainNode.cancelScheduledValues(startTime);
+  }
   
   // Set the starting point
   gainNode.setValueAtTime(Math.max(0.0001, startValue), startTime);
   
   if (curveType === 'decay' || curveType === 'release') {
-    // For decay and release: quick initial drop that gradually flattens out
-    // setTargetAtTime creates exactly this exponential curve with "hang time"
-    // The time constant determines how quickly it approaches the target value
-    const timeConstant = duration * 0.3; // Smaller values = faster initial drop
-    
-    // This creates an exponential decay curve toward the target value
+    // Use setTargetAtTime with a faster time constant for smoother fade to zero
+    // Time constant = duration / 5 (instead of / 3) makes it decay faster initially
+    // This gives more time for the tail to smoothly approach zero
+    const timeConstant = duration / 5;
     gainNode.setTargetAtTime(endValue, startTime, timeConstant);
-    
-    // Schedule an explicit end point to ensure we reach the target 
-    // (setTargetAtTime asymptotically approaches but never reaches the target value)
-    gainNode.setValueAtTime(endValue, startTime + duration);
   } else {
     // For attack and other types, keep using linear ramps
     gainNode.linearRampToValueAtTime(endValue, startTime + duration);
@@ -567,8 +564,8 @@ function initializeFilterControls() {
         case 4: filterType = 'lp12'; break;
         case 3: filterType = 'lp24'; break; // Moog filter
         case 2: filterType = 'lh12'; break;
-        case 1: filterType = 'comb'; break;
-        case 0: filterType = 'dist'; break;
+        case 1: filterType = 'lh18'; break;
+        case 0: filterType = 'lh24'; break;
       }
       
       if (filterManager) {
@@ -5637,6 +5634,7 @@ if (legatoTransition && osc2.state === 'playing') {
         osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
     }
 } else {
+    // Cancel any pending envelope ramps (critical for voice stealing during release)
     osc2.gainNode.gain.setValueAtTime(currentGain, now);
     osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
     osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);

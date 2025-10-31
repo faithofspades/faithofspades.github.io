@@ -1,4 +1,9 @@
-class LH12FilterProcessor extends AudioWorkletProcessor {
+// LH-18 Filter Processor
+// LP-12 (Huovilainen Moog) + Resonating 24dB/oct Highpass (4-pole with 12dB resonance slope)
+// Diode clipping controlled by drive knob (upper 50%)
+// Variant knob controls HP cutoff (linked to envelope/keytrack like LP cutoff)
+
+class LH18FilterProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
       { name: 'cutoff', defaultValue: 1000, minValue: 8, maxValue: 16000, automationRate: 'a-rate' },
@@ -7,7 +12,7 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
       { name: 'saturation', defaultValue: 1.0, minValue: 0.1, maxValue: 10.0, automationRate: 'k-rate' },
       { name: 'envelopeAmount', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'a-rate' },
       { name: 'keytrackAmount', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'k-rate' },
-      { name: 'bassCompensation', defaultValue: 0.5, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }, // Repurposed as "HP Amount"
+      { name: 'bassCompensation', defaultValue: 0.5, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }, // Repurposed as "Harshness"
       { name: 'currentMidiNote', defaultValue: 69, minValue: 0, maxValue: 127, automationRate: 'k-rate' },
       { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
       { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' },
@@ -22,13 +27,13 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
     this.sampleRate = sampleRate;
     
     // Huovilainen specific constants
-    this.thermal = 1.0;
+    this.thermal = 1.0; // Normalized thermal scaling (originally 0.000025V but normalized for digital domain)
     
     this.channelFilters = [];
     this.resonanceSmoothed = 0;
     
     this.port.onmessage = this.handleMessage.bind(this);
-    console.log(`LH-12 Hybrid Moog filter initialized at ${this.sampleRate}Hz`);
+    console.log(`LP-12 Huovilainen Moog filter initialized at ${this.sampleRate}Hz`);
     this.port.postMessage({ type: 'initialized', sampleRate: this.sampleRate });
     
     // Calculate decay coefficient for 5ms decay time
@@ -45,10 +50,10 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
   
   createChannelFilter() {
     return {
-      // Huovilainen lowpass arrays
-      stage: new Float64Array(4),
-      stageTanh: new Float64Array(3),
-      delay: new Float64Array(6),
+      // Huovilainen uses specific arrays
+      stage: new Float64Array(4),      // Current stage values
+      stageTanh: new Float64Array(3),  // Cached tanh values for stages 0-2
+      delay: new Float64Array(6),      // Delay line (includes phase compensation)
       
       // Filter parameters
       tune: 0.0,
@@ -57,20 +62,7 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
       
       activeResonance: 0.0,
       
-      // 4-pole (24dB/oct) highpass state variables (cascaded 1-pole filters)
-      hpStage1X: 0.0,  // Stage 1 previous input
-      hpStage1Y: 0.0,  // Stage 1 previous output
-      hpStage2X: 0.0,  // Stage 2 previous input
-      hpStage2Y: 0.0,  // Stage 2 previous output
-      hpStage3X: 0.0,  // Stage 3 previous input
-      hpStage3Y: 0.0,  // Stage 3 previous output
-      hpStage4X: 0.0,  // Stage 4 previous input
-      hpStage4Y: 0.0,  // Stage 4 previous output
-      
-      // Smooth HPF amount to prevent clicks
-      hpAmountSmooth: 0.0,
-      
-      // Cache for resonance calculation
+      // Cache for resonance calculation (performance optimization)
       lastResonanceValue: -1,
       lastCutoffHz: -1,
       
@@ -79,15 +71,6 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
         this.stageTanh.fill(0);
         this.delay.fill(0);
         this.activeResonance = 0.0;
-        this.hpStage1X = 0.0;
-        this.hpStage1Y = 0.0;
-        this.hpStage2X = 0.0;
-        this.hpStage2Y = 0.0;
-        this.hpStage3X = 0.0;
-        this.hpStage3Y = 0.0;
-        this.hpStage4X = 0.0;
-        this.hpStage4Y = 0.0;
-        this.hpAmountSmooth = 0.0;
         this.lastResonanceValue = -1;
         this.lastCutoffHz = -1;
       }
@@ -115,6 +98,8 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
     }
   }
   
+  // NO diode processing - Huovilainen model has its own nonlinearities
+  
   // Set cutoff using Huovilainen's method
   setFilterCutoff(filter, cutoffHz, resonance) {
     const cutoff = Math.max(10, Math.min(this.sampleRate * 0.45, cutoffHz));
@@ -133,6 +118,7 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
     filter.tune = 1.0 - Math.exp(-2 * Math.PI * fc * fcr);
     
     // Only recalculate resonance if it or cutoff changed significantly (optimization)
+    // This prevents expensive Math.pow calls on every audio sample
     const resonanceChanged = Math.abs(filter.lastResonanceValue - resonance) > 0.001;
     const cutoffChanged = Math.abs(filter.lastCutoffHz - cutoffHz) > 10;
     
@@ -146,23 +132,31 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
   // Set resonance using Huovilainen's method with proper scaling
   setFilterResonance(filter, res, cutoffHz) {
     // Map the full 0-1 input range to 0-0.74 safe range
+    // This makes the entire slider range feel responsive
     const mappedRes = res * 0.74;
     
     // Apply scaling curve to the mapped value
-    const scaledRes = mappedRes * 0.95;
-    const quadraticRes = scaledRes * scaledRes;
+    const scaledRes = mappedRes * 0.95; // Scale to strong but safe range
+    const quadraticRes = scaledRes * scaledRes; // Quadratic for musical curve
     let resonance = Math.max(0, Math.min(0.96, quadraticRes * 0.96));
     
     // FREQUENCY-DEPENDENT RESONANCE SCALING
+    // Reduce resonance at higher frequencies to prevent ear-piercing peaks
+    // Aim for consistent perceived loudness across the frequency range
     if (cutoffHz > 1000) {
+      // Very gentle logarithmic reduction above 1kHz
+      // At 1kHz: no reduction (1.0x)
+      // At 3kHz: ~0.97x reduction
+      // At 10kHz: ~0.92x reduction
       const frequencyRatio = cutoffHz / 1000.0;
-      const reductionFactor = 1.0 / Math.pow(frequencyRatio, 0.001);
+      const reductionFactor = 1.0 / Math.pow(frequencyRatio, 0.001); // Much gentler falloff
       resonance *= reductionFactor;
     }
     
+    // Additional reduction above 13kHz for very high frequencies
     if (cutoffHz > 13000) {
       const highFreqRatio = cutoffHz / 13000.0;
-      const highFreqReduction = 1.0 / Math.pow(highFreqRatio, 0.15);
+      const highFreqReduction = 1.0 / Math.pow(highFreqRatio, 0.15); // Steeper reduction
       resonance *= highFreqReduction;
     }
     
@@ -170,15 +164,22 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
     filter.resQuad = 8.0 * resonance * filter.acr;
     
     // Store the MAPPED resonance value for input compensation calculations
+    // Use the mapped value (0-0.74 range) so compensation scales properly
     filter.cappedActiveResonance = mappedRes;
   }
   
   // Process one sample through Huovilainen filter with 2x oversampling
+  // MODIFIED: Taps output after 2 poles (stage[1]) for 12dB/octave response
   processHuovilainenFilter(filter, input) {
     const { stage, stageTanh, delay, tune, resQuad } = filter;
     
     // Calculate harmonic content based on resonance level
     const resAmount = filter.activeResonance;
+    
+    // Calculate current cutoff frequency for Nyquist limiting
+    // Estimate cutoff from tune parameter (inverse relationship)
+    const estimatedCutoff = (tune / (2.0 * Math.PI)) * this.sampleRate * 4.0; // Approximate
+    const nyquistFreq = this.sampleRate * 0.5; // Half sample rate
     
     // 2x oversampling to prevent aliasing from tanh and harmonics
     for (let j = 0; j < 2; j++) {
@@ -202,76 +203,81 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
       // Standard 4-pole feedback
       const inputSample = input - resQuad * feedbackSignal;
       
-      // First stage with tanh
+      // First stage with tanh - proper scaling for transistor nonlinearity
       delay[0] = stage[0] = delay[0] + tune * (Math.tanh(inputSample) - stageTanh[0]);
       
-      // Process stages 1-3
+      // Process stages 1-3 (indices k = 1, 2, 3)
       for (let k = 1; k < 4; k++) {
         const stageInput = stage[k - 1];
+        
+        // Calculate and cache tanh for this input
         stageTanh[k - 1] = Math.tanh(stageInput);
         
         if (k !== 3) {
+          // For stages 1-2, use cached tanh from stageTanh array
           stage[k] = delay[k] + tune * (stageTanh[k - 1] - stageTanh[k]);
         } else {
+          // For stage 3 (last stage), calculate tanh of delay[k] directly
           stage[k] = delay[k] + tune * (stageTanh[k - 1] - Math.tanh(delay[k]));
         }
         
         delay[k] = stage[k];
       }
       
-      // Half-sample delay for phase compensation
+      // Half-sample delay for phase compensation (still from stage 3)
       delay[5] = (stage[3] + delay[4]) * 0.5;
       delay[4] = stage[3];
     }
     
-    // OUTPUT FROM STAGE 1 (2 poles = 12dB/octave)
+    // OUTPUT FROM STAGE 1 (2 poles = 12dB/octave) instead of delay[5] (4 poles = 24dB/octave)
+    // This keeps all the resonance feedback math intact while giving 12dB/oct slope
     return stage[1];
   }
   
-  // 2-pole (12dB/oct) non-resonant highpass filter
-  // Two cascaded 1-pole stages for 12dB/octave slope
-  // amount: 0.0 = full highpass (bass removed up to 2kHz), 1.0 = no highpass (full bass) - REVERSED
-  applyHighpass(filter, input, amount) {
-    // REVERSE the slider direction: 0 = max HPF, 1 = no HPF
-    const reversedAmount = 1.0 - amount;
+  // Serum-style Diode 2: Static sinusoidal distortion - SMOOTHED for LP-12
+  // Pure sine-based shaping - smooth, rounded, slightly fizzy but never harsh
+  // drivePercent: 0-100, the percentage of drive intensity (e.g., 24 for 24%)
+  diode2Clipping(input, drivePercent) {
+    // Convert percentage to 0-1 range
+    const driveAmount = drivePercent / 100.0;
     
-    // Smooth the amount parameter with slow smoothing (10ms)
-    const smoothCoeff = 0.9995; // ~5ms at 48kHz
-    filter.hpAmountSmooth = filter.hpAmountSmooth * smoothCoeff + reversedAmount * (1.0 - smoothCoeff);
+    // First diode stage (0-50% range, active throughout 0-100%)
+    // Much gentler pre-gain to reduce aliasing
+    const preGain1 = 1.0 + (Math.min(driveAmount, 0.5) * 0.8 * 2.0); // Scale 0-50% to full range
+    let driven1 = input * preGain1;
     
-    const smoothAmount = filter.hpAmountSmooth;
+    // Higher threshold for smoother operation
+    const threshold1 = 1.2 - (Math.min(driveAmount, 0.5) * 0.2 * 2.0);
+    const normalizedInput1 = driven1 / threshold1;
     
-    // Always process the filter, but crossfade between filtered and unfiltered
-    // This prevents clicks by maintaining filter state even when bypassed
+    // Pure sinusoidal shaping - NO hard clipping ever
+    const shaped1 = Math.sin(normalizedInput1 * Math.PI * 0.5);
+    let output = shaped1 * threshold1;
     
-    // Calculate cutoff frequency for highpass based on amount
-    // Map amount 0-1 to frequency range 20Hz-2000Hz logarithmically (Juno-106 range)
-    const minFreq = 8;
-    const maxFreq = 16000;
-    const logMin = Math.log(minFreq);
-    const logMax = Math.log(maxFreq);
-    const hpCutoff = Math.exp(logMin + Math.max(0.01, smoothAmount) * (logMax - logMin));
+    // Gain compensation for first stage
+    const gainComp1 = 1.0 - (Math.min(driveAmount, 0.5) * 0.25 * 2.0);
+    output *= gainComp1;
     
-    // Calculate one-pole coefficient (same for all 4 stages)
-    const omega = 2.0 * Math.PI * hpCutoff / this.sampleRate;
-    const alpha = 1.0 / (1.0 + omega);
+    // Second diode stage (kicks in 50-100%)
+    if (driveAmount > 0.5) {
+      const secondStageDrive = (driveAmount - 0.5) * 2.0; // Normalize 50-100% to 0-1
+      
+      // Second stage with more aggressive shaping
+      const preGain2 = 1.0 + (secondStageDrive * 1.2); // Stronger drive
+      let driven2 = output * preGain2;
+      
+      const threshold2 = 1.1 - (secondStageDrive * 0.15);
+      const normalizedInput2 = driven2 / threshold2;
+      
+      // Sine shaping again for smooth stacking
+      const shaped2 = Math.sin(normalizedInput2 * Math.PI * 0.5);
+      output = shaped2 * threshold2;
+      
+      // Gain compensation for second stage
+      const gainComp2 = 1.0 - (secondStageDrive * 0.2);
+      output *= gainComp2;
+    }
     
-    // STAGE 1: First 6dB/oct pole
-    // One-pole highpass: y[n] = alpha * (y[n-1] + x[n] - x[n-1])
-    let output = alpha * (filter.hpStage1Y + input - filter.hpStage1X);
-    filter.hpStage1X = input;
-    filter.hpStage1Y = output;
-    
-    // STAGE 2: Second 6dB/oct pole (cumulative 12dB/oct)
-    const stage2Input = output;
-    output = alpha * (filter.hpStage2Y + stage2Input - filter.hpStage2X);
-    filter.hpStage2X = stage2Input;
-    filter.hpStage2Y = output;
-    
-    // Direct output - 12dB/oct slope
-    // The cutoff frequency sweeps from 8Hz to 16kHz based on smoothAmount
-    // At smoothAmount=0 (8Hz), the HP filter removes almost nothing
-    // At smoothAmount=1 (16kHz), the HP filter removes everything below 16kHz
     return output;
   }
   
@@ -286,10 +292,10 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
     const cutoff = parameters.cutoff;
     const resonance = parameters.resonance;
     const drive = parameters.drive[0];
-    const saturation = parameters.saturation[0];
+    const saturation = parameters.saturation[0]; 
     const envelopeAmount = parameters.envelopeAmount;
     const keytrackAmount = parameters.keytrackAmount[0];
-    const hpAmount = parameters.bassCompensation[0]; // Repurposed: HP amount
+    const harshness = parameters.bassCompensation[0]; // Repurposed: 0=gentle, 1=aggressive
     const currentMidiNote = parameters.currentMidiNote[0];
     const adsrValue = parameters.adsrValue;
     const inputGain = parameters.inputGain[0];
@@ -305,6 +311,8 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
         const currentAdsrValue = adsrValue.length > 1 ? adsrValue[i] : adsrValue[0];
         const envValue = envelopeAmount.length > 1 ? envelopeAmount[i] : envelopeAmount[0];
         
+        // FIXED: envelopeAmount should ONLY affect filter cutoff, NOT gain
+        // The gain should remain constant regardless of envelope settings
         const effectiveInputGain = inputGain;
         
         // Scale input with proper gain for filter
@@ -328,37 +336,59 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
         
         let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
         
-        // STEP 1: Apply keytracking first
+        // STEP 1: Apply keytracking first (sets the base frequency for this note)
         if (keytrackAmount !== 0) {
           const noteFreqRatio = Math.pow(2, (currentMidiNote - 69) / 12);
           actualCutoff *= Math.pow(noteFreqRatio, keytrackAmount);
         }
         
         // STEP 2: Apply envelope modulation ON TOP of keytracked frequency
+        // Use actualCutoff (with keytracking) as the base, not raw slider value
         if (envValue !== 0) {
           if (envValue > 0) {
             if (envValue >= 0.95) {
+              // Store keytracked cutoff as the base frequency
               const baseFreq = actualCutoff;
               let maxFreq = 16000;
               
+              // CLASSIC MODE: Sustain level controls attack target, decay returns to base
+              // In classic mode: baseFreq → attackTarget (based on sustain) → decay to baseFreq → hold at baseFreq
+              // In normal mode: baseFreq → 16kHz → holds at (sustain * range)
               if (classicMode > 0.5) {
+                // In classic mode, attack target is controlled by sustain level
+                // sustain=1.0: attack goes to baseFreq (no ramp up, stays at base)
+                // sustain=0.5: attack goes to halfway between baseFreq and 16kHz, then decays to base
+                // sustain=0.0: attack goes to 16kHz (full ramp), then decays to base
                 const logMinFreq = Math.log(baseFreq);
                 const logMaxFreq = Math.log(16000);
                 const logTargetFreq = logMinFreq + ((1.0 - sustainLevel) * (logMaxFreq - logMinFreq));
                 const attackTarget = Math.exp(logTargetFreq);
                 
+                // Classic mode: ADSR envelope creates a "spike" that returns to base
+                // ADSR goes from 0 → 1 (attack) → sustain level → 0 (release)
+                // But we want: baseFreq → attackTarget → baseFreq (held during sustain)
+                // So we map: ADSR closer to 1.0 = higher frequency, ADSR at sustain = baseFreq
+                
+                // If ADSR is above sustain level (in attack/decay), sweep between base and target
+                // If ADSR is at sustain level or below, stay at base
                 if (currentAdsrValue > sustainLevel) {
+                  // We're in attack or decay phase - sweep from base to target
+                  // Normalize to 0-1 range where sustainLevel=0 and 1.0=1
                   const normalizedEnv = (currentAdsrValue - sustainLevel) / (1.0 - sustainLevel);
                   const logBase = Math.log(baseFreq);
                   const logTarget = Math.log(attackTarget);
                   const logFreq = logBase + (normalizedEnv * (logTarget - logBase));
                   actualCutoff = Math.exp(logFreq);
                 } else {
+                  // We're in sustain or release - stay at base frequency
                   actualCutoff = baseFreq;
                 }
               } else {
+                // NORMAL MODE: Full sweep to 16kHz during attack, sustain level controls held frequency
                 const logMinFreq = Math.log(baseFreq);
                 const logMaxFreq = Math.log(maxFreq);
+                
+                // Map ADSR value (0-1) directly to logarithmic frequency range
                 const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
                 actualCutoff = Math.exp(logFreq);
               }
@@ -368,6 +398,7 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
             }
           } else {
             if (envValue <= -0.95) {
+              // For negative envelope, sweep DOWN from keytracked frequency
               const maxFreq = actualCutoff;
               const minFreq = 8;
               
@@ -385,19 +416,25 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
         // Update filter coefficients
         this.setFilterCutoff(filter, actualCutoff, filter.activeResonance);
         
-        // Input gain compensation for passband loss
+        // Input gain compensation for passband loss due to negative feedback
+        // As resonance increases, negative feedback reduces passband gain significantly
+        // Compensate by boosting input proportionally: ~16dB = 6x linear gain
+        // CRITICAL: Use cappedActiveResonance (not activeResonance) to prevent excessive compensation above cap
         const safeResonance = filter.cappedActiveResonance || filter.activeResonance;
         const inputCompensation = 1.0 + (safeResonance * 5);
         const compensatedInput = inputSample * inputCompensation;
         
-        // Process through Huovilainen lowpass filter
+        // Process through Huovilainen filter with 4x oversampling
         let filterOutput = this.processHuovilainenFilter(filter, compensatedInput);
         
-        // Apply makeup gain
+        // Apply makeup gain to compensate for filter topology loss
         filterOutput *= 5.0;
         
-        // Apply 6dB/oct highpass filter (controlled by variant/HP amount slider)
-        filterOutput = this.applyHighpass(filter, filterOutput, hpAmount);
+        // Apply Moog-style sine diode with variant knob controlling drive
+        // harshness 0 = 0% drive (clean), harshness 1.0 = 50% drive max (smoother)
+        // Capped at 50% to prevent aliasing and keep it smooth
+        const diodeDrive = harshness * 50.0;
+        filterOutput = this.diode2Clipping(filterOutput, diodeDrive);
         
         outputChannel[i] = filterOutput;
       }
@@ -406,5 +443,4 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
     return true;
   }
 }
-
-registerProcessor('lh-12-filter-processor', LH12FilterProcessor);
+registerProcessor('lh-18-filter-processor', LH18FilterProcessor);
