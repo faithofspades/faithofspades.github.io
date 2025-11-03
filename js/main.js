@@ -242,11 +242,14 @@ function setupNonLinearFilterSlider() {
   // Function to convert visual position (0-1) to frequency
   function positionToFrequency(position) {
     // logarithmic mapping with 500Hz at midpoint
+    let frequency;
     if (position <= 0.5) {
-      return 8 * Math.pow(500/8, position*2); // 0-0.5 maps to 8-500Hz
+      frequency = 8 * Math.pow(500/8, position*2); // 0-0.5 maps to 8-500Hz
     } else {
-      return 500 * Math.pow(16000/500, (position-0.5)*2); // 0.5-1 maps to 500-16000Hz
+      frequency = 500 * Math.pow(16000/500, (position-0.5)*2); // 0.5-1 maps to 500-16000Hz
     }
+    // Round to nearest whole Hz to avoid fractional frequencies
+    return Math.round(frequency);
   }
   
   // Function to convert frequency to visual position
@@ -263,7 +266,7 @@ function setupNonLinearFilterSlider() {
     // Calculate visual position based on slider physical position
     const visualPosition = parseInt(this.value) / (parseInt(this.max) - parseInt(this.min));
     
-    // Convert to frequency using our mapping
+    // Convert to frequency using our mapping (already rounded to whole Hz)
     const frequency = positionToFrequency(visualPosition);
     
     // Update filter
@@ -271,7 +274,7 @@ function setupNonLinearFilterSlider() {
       filterManager.setCutoff(frequency);
     }
     
-    console.log(`Filter slider: position=${visualPosition.toFixed(2)}, frequency=${frequency.toFixed(1)}Hz`);
+    console.log(`Filter slider: position=${visualPosition.toFixed(2)}, frequency=${frequency}Hz`);
   };
   
   // Initialize with correct frequency (500Hz at midpoint)

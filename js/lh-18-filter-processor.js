@@ -613,46 +613,33 @@ class LH18FilterProcessor extends AudioWorkletProcessor {
         if (envValue !== 0) {
           if (envValue > 0) {
             if (envValue >= 0.95) {
-              // PERFORMANCE OPTIMIZATION: Cache expensive log/exp calculations
-              // Only recalculate if ADSR or base frequency changed significantly
-              const adsrChanged = Math.abs(filter.lastAdsrValue - currentAdsrValue) > 0.01;
-              const cutoffChanged = Math.abs(filter.lastEnvCutoff - actualCutoff) > 5; // Fine resolution: 5Hz threshold
+              // Store keytracked cutoff as the base frequency
+              const baseFreq = actualCutoff;
+              let maxFreq = 16000;
               
-              if (adsrChanged || cutoffChanged) {
-                // Store keytracked cutoff as the base frequency
-                const baseFreq = actualCutoff;
-                let maxFreq = 16000;
+              // CLASSIC MODE: Sustain level controls attack target, decay returns to base
+              if (classicMode > 0.5) {
+                const logMinFreq = Math.log(baseFreq);
+                const logMaxFreq = Math.log(16000);
+                const logTargetFreq = logMinFreq + ((1.0 - sustainLevel) * (logMaxFreq - logMinFreq));
+                const attackTarget = Math.exp(logTargetFreq);
                 
-                // CLASSIC MODE: Sustain level controls attack target, decay returns to base
-                if (classicMode > 0.5) {
-                  const logMinFreq = Math.log(baseFreq);
-                  const logMaxFreq = Math.log(16000);
-                  const logTargetFreq = logMinFreq + ((1.0 - sustainLevel) * (logMaxFreq - logMinFreq));
-                  const attackTarget = Math.exp(logTargetFreq);
-                  
-                  if (currentAdsrValue > sustainLevel) {
-                    const normalizedEnv = (currentAdsrValue - sustainLevel) / (1.0 - sustainLevel);
-                    const logBase = Math.log(baseFreq);
-                    const logTarget = Math.log(attackTarget);
-                    const logFreq = logBase + (normalizedEnv * (logTarget - logBase));
-                    filter.cachedEnvMultiplier = Math.exp(logFreq) / actualCutoff;
-                  } else {
-                    filter.cachedEnvMultiplier = 1.0; // Stay at base
-                  }
+                if (currentAdsrValue > sustainLevel) {
+                  const normalizedEnv = (currentAdsrValue - sustainLevel) / (1.0 - sustainLevel);
+                  const logBase = Math.log(baseFreq);
+                  const logTarget = Math.log(attackTarget);
+                  const logFreq = logBase + (normalizedEnv * (logTarget - logBase));
+                  actualCutoff = Math.exp(logFreq);
                 } else {
-                  // NORMAL MODE: Simplified calculation
-                  const logMinFreq = Math.log(baseFreq);
-                  const logMaxFreq = Math.log(maxFreq);
-                  const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
-                  filter.cachedEnvMultiplier = Math.exp(logFreq) / actualCutoff;
+                  actualCutoff = baseFreq;
                 }
-                
-                filter.lastAdsrValue = currentAdsrValue;
-                filter.lastEnvCutoff = actualCutoff;
+              } else {
+                // NORMAL MODE: Direct calculation
+                const logMinFreq = Math.log(baseFreq);
+                const logMaxFreq = Math.log(maxFreq);
+                const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
+                actualCutoff = Math.exp(logFreq);
               }
-              
-              // Use cached multiplier
-              actualCutoff *= filter.cachedEnvMultiplier;
             } else {
               const scaledEnv = Math.min(0.95, envValue);
               actualCutoff *= 1 + (scaledEnv * 8);
@@ -703,14 +690,36 @@ class LH18FilterProcessor extends AudioWorkletProcessor {
           hpCutoff = Math.max(8, Math.min(16000, hpCutoff));
         }
         
-        // ADSR ENVELOPE for HP (same logic as LP)
-        // PERFORMANCE: Reuse the envelope calculation from LP since they share the same ADSR
+        // ADSR ENVELOPE for HP (independent calculation)
         if (Math.abs(envValue) > 0.01) {
           if (envValue > 0) {
             if (envValue >= 0.95) {
-              // Use the same cached multiplier logic from LP filter
-              // The multiplier was already calculated above for LP
-              hpCutoff *= filter.cachedEnvMultiplier;
+              // Calculate HP envelope independently (don't rely on LP cache)
+              const baseHpFreq = hpCutoff;
+              let maxFreq = 16000;
+              
+              if (classicMode > 0.5) {
+                const logMinFreq = Math.log(baseHpFreq);
+                const logMaxFreq = Math.log(16000);
+                const logTargetFreq = logMinFreq + ((1.0 - sustainLevel) * (logMaxFreq - logMinFreq));
+                const attackTarget = Math.exp(logTargetFreq);
+                
+                if (currentAdsrValue > sustainLevel) {
+                  const normalizedEnv = (currentAdsrValue - sustainLevel) / (1.0 - sustainLevel);
+                  const logBase = Math.log(baseHpFreq);
+                  const logTarget = Math.log(attackTarget);
+                  const logFreq = logBase + (normalizedEnv * (logTarget - logBase));
+                  hpCutoff = Math.exp(logFreq);
+                } else {
+                  hpCutoff = baseHpFreq;
+                }
+              } else {
+                // NORMAL MODE: Sweep HP up to 16kHz
+                const logMinFreq = Math.log(baseHpFreq);
+                const logMaxFreq = Math.log(maxFreq);
+                const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
+                hpCutoff = Math.exp(logFreq);
+              }
             } else {
               const scaledEnv = Math.min(0.95, envValue);
               hpCutoff *= 1 + (scaledEnv * 8);
