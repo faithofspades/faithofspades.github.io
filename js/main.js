@@ -5769,11 +5769,12 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
   voice.state = 'releasing';
   osc1.state = 'releasing';
   
-  // Apply curved release envelope
+  // Apply curved release envelope at 80% speed to leave buffer for exponential tail
   const currentGain = osc1.gainNode.gain.value;
-  applyCurvedEnvelope(osc1.gainNode.gain, currentGain, 0, release, now, 'release');
+  const envelopeRelease = release * 0.6;
+  applyCurvedEnvelope(osc1.gainNode.gain, currentGain, 0, envelopeRelease, now, 'release');
   
-  // Schedule gate closure with the specific release ID (unchanged)
+  // Schedule gate closure after full release time (envelope completes at 80%, tail decays during remaining 20%)
   trackVoiceTimer(voice, () => {
     // Only close if this is still the active release for this voice
     if (osc1.currentReleaseId === releaseId && osc1.state === 'releasing') {
@@ -5792,9 +5793,10 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
   
   osc2.state = 'releasing';
   
-  // Apply curved release envelope
+  // Apply curved release envelope at 80% speed to leave buffer for exponential tail
   const currentGain = osc2.gainNode.gain.value;
-  applyCurvedEnvelope(osc2.gainNode.gain, currentGain, 0, release, now, 'release');
+  const envelopeRelease = release * 0.6;
+  applyCurvedEnvelope(osc2.gainNode.gain, currentGain, 0, envelopeRelease, now, 'release');
   
   trackVoiceTimer(voice, () => {
     if (osc2.currentReleaseId === releaseId && osc2.state === 'releasing') {
@@ -5809,7 +5811,8 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
 // Update filter call to include mono mode parameters
             if (filterManager && voice.osc1Note) {
   // Pass mono mode flag and remaining held notes count to filter
-  filterManager.noteOff(voice.id, false, isMonoMode, heldNotes.length);
+  // CRITICAL: Use osc-${voice.id} to match the voiceId used in createPersistentFilter
+  filterManager.noteOff(`osc-${voice.id}`, false, isMonoMode, heldNotes.length);
 }
         // Clean up voice assignment after release
         trackVoiceTimer(voice, () => {

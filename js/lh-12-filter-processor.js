@@ -126,10 +126,10 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
   
   // Set cutoff using Huovilainen's method
   setFilterCutoff(filter, cutoffHz, resonance) {
-    // AGGRESSIVE CACHING: Skip expensive calculations if changes are tiny
+    // Caching: Skip expensive calculations if changes are tiny
     // Check BEFORE doing any coefficient math
-    const resonanceChanged = Math.abs(filter.lastResonanceValue - resonance) > 0.005; // Increased from 0.001
-    const cutoffChanged = Math.abs(filter.lastCutoffHz - cutoffHz) > 50; // Increased from 10
+    const resonanceChanged = Math.abs(filter.lastResonanceValue - resonance) > 0.005;
+    const cutoffChanged = Math.abs(filter.lastCutoffHz - cutoffHz) > 2; // Fine resolution: 2Hz threshold
     
     // Early exit if nothing significant changed
     if (!resonanceChanged && !cutoffChanged) {
@@ -415,8 +415,8 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
         // Process through Huovilainen lowpass filter
         let filterOutput = this.processHuovilainenFilter(filter, compensatedInput);
         
-        // Apply makeup gain
-        filterOutput *= 5.0;
+        // Apply makeup gain (increased for 12dB/octave output from stage[1])
+        filterOutput *= 8.0;
         
         // Apply 6dB/oct highpass filter (controlled by variant/HP amount slider)
         filterOutput = this.applyHighpass(filter, filterOutput, hpAmount);

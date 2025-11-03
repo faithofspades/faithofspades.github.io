@@ -106,10 +106,10 @@ class LP12FilterProcessor extends AudioWorkletProcessor {
   
   // Set cutoff using Huovilainen's method
   setFilterCutoff(filter, cutoffHz, resonance) {
-    // AGGRESSIVE CACHING: Skip expensive calculations if changes are tiny
+    // Caching: Skip expensive calculations if changes are tiny
     // Check BEFORE doing any coefficient math
-    const resonanceChanged = Math.abs(filter.lastResonanceValue - resonance) > 0.005; // Increased from 0.001
-    const cutoffChanged = Math.abs(filter.lastCutoffHz - cutoffHz) > 50; // Increased from 10
+    const resonanceChanged = Math.abs(filter.lastResonanceValue - resonance) > 0.005;
+    const cutoffChanged = Math.abs(filter.lastCutoffHz - cutoffHz) > 2; // Fine resolution: 2Hz threshold
     
     // Early exit if nothing significant changed
     if (!resonanceChanged && !cutoffChanged) {

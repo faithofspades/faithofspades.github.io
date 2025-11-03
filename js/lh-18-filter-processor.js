@@ -170,10 +170,10 @@ class LH18FilterProcessor extends AudioWorkletProcessor {
   
   // Set cutoff using Huovilainen's method
   setFilterCutoff(filter, cutoffHz, resonance) {
-    // AGGRESSIVE CACHING: Skip expensive calculations if changes are tiny
+    // Caching: Skip expensive calculations if changes are tiny
     // Check BEFORE doing any coefficient math
-    const resonanceChanged = Math.abs(filter.lastResonanceValue - resonance) > 0.005; // Increased from 0.001
-    const cutoffChanged = Math.abs(filter.lastCutoffHz - cutoffHz) > 50; // Increased from 10
+    const resonanceChanged = Math.abs(filter.lastResonanceValue - resonance) > 0.005;
+    const cutoffChanged = Math.abs(filter.lastCutoffHz - cutoffHz) > 2; // Fine resolution: 2Hz threshold
     
     // Early exit if nothing significant changed
     if (!resonanceChanged && !cutoffChanged) {
@@ -244,10 +244,10 @@ class LH18FilterProcessor extends AudioWorkletProcessor {
   
   // Set HP filter cutoff using Huovilainen's method (same math as LP)
   setHPFilterCutoff(filter, cutoffHz, resonance) {
-    // AGGRESSIVE CACHING: Skip expensive calculations if changes are tiny
+    // Caching: Skip expensive calculations if changes are tiny
     // Check BEFORE doing any coefficient math
-    const resonanceChanged = Math.abs(filter.hpLastResonanceValue - resonance) > 0.005; // Increased from 0.001
-    const cutoffChanged = Math.abs(filter.hpLastCutoffHz - cutoffHz) > 50; // Increased from 10
+    const resonanceChanged = Math.abs(filter.hpLastResonanceValue - resonance) > 0.005;
+    const cutoffChanged = Math.abs(filter.hpLastCutoffHz - cutoffHz) > 2; // Fine resolution: 2Hz threshold
     
     // Early exit if nothing significant changed
     if (!resonanceChanged && !cutoffChanged) {
@@ -616,7 +616,7 @@ class LH18FilterProcessor extends AudioWorkletProcessor {
               // PERFORMANCE OPTIMIZATION: Cache expensive log/exp calculations
               // Only recalculate if ADSR or base frequency changed significantly
               const adsrChanged = Math.abs(filter.lastAdsrValue - currentAdsrValue) > 0.01;
-              const cutoffChanged = Math.abs(filter.lastEnvCutoff - actualCutoff) > 100;
+              const cutoffChanged = Math.abs(filter.lastEnvCutoff - actualCutoff) > 5; // Fine resolution: 5Hz threshold
               
               if (adsrChanged || cutoffChanged) {
                 // Store keytracked cutoff as the base frequency
@@ -779,11 +779,11 @@ class LH18FilterProcessor extends AudioWorkletProcessor {
           filterOutput = lpOutput + ((hpOutput - lpOutput) * hpMix);
         }
         
-        // Apply makeup gain to compensate for filter topology loss
-        filterOutput *= 5.0;
+        // Apply makeup gain to compensate for filter topology loss (increased for 12dB/octave output from stage[1])
+        filterOutput *= 8.0;
         
         // STEP 1: Split drive knob into two ranges
-        // Lower 50% (0.0-0.5): Clean pre-gain from 0x to 0.2x (accounting for 5x makeup = 0x to 1x final)
+        // Lower 50% (0.0-0.5): Clean pre-gain from 0x to 0.2x (accounting for 8x makeup = 0x to 1.6x final)
         // Upper 50% (0.5-1.0): Pre-gain stays at 0.2x, add gentle diode from 0% to 40%
         
         // Normalize drive from AudioParam range (0.1-5.0) to 0-1

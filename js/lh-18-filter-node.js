@@ -125,16 +125,26 @@ export class LH18FilterNode extends AudioWorkletNode {
     this._notePlaying = false;
     const now = this.context.currentTime;
     
-    // Get current envelope value from the AudioParam
-    const currentValue = this.parameters.get('adsrValue').value;
     const adsrParam = this.parameters.get('adsrValue');
     
-    // Cancel any scheduled values and schedule release
-    adsrParam.cancelScheduledValues(now);
+    console.log(`[FILTER noteOff] Called at ${now.toFixed(3)}s, current adsrValue: ${adsrParam.value.toFixed(3)}, releaseTime: ${this.releaseTime.toFixed(3)}s`);
     
-    // Set current value explicitly and ramp to 0
+    // CRITICAL: Use cancelAndHoldAtTime to interrupt the envelope wherever it is
+    // This stops attack/decay ramps immediately and holds at current value
+    adsrParam.cancelAndHoldAtTime(now);
+    
+    // Get the current value AFTER canceling (this is where the envelope was interrupted)
+    const currentValue = adsrParam.value;
+    
+    console.log(`[FILTER noteOff] After cancel, currentValue: ${currentValue.toFixed(3)}, scheduling release to 0 over ${(this.releaseTime * 0.8).toFixed(3)}s`);
+    
+    // Now schedule release from the interrupted position
     adsrParam.setValueAtTime(currentValue, now);
-    adsrParam.linearRampToValueAtTime(0, now + this.releaseTime);
+    // Apply 80% speed to filter release to match VCA ADSR behavior
+    const envelopeRelease = this.releaseTime * 0.8;
+    adsrParam.linearRampToValueAtTime(0, now + envelopeRelease);
+    
+    console.log(`[FILTER noteOff] Release scheduled from ${currentValue.toFixed(3)} to 0 ending at ${(now + envelopeRelease).toFixed(3)}s`);
     
     // NOTE: envelopeAmount is NOT scheduled - it remains constant
     // It's a multiplier set by the ADSR knob, not part of the envelope

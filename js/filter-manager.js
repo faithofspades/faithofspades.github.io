@@ -729,28 +729,40 @@ class FilterManager {
   }
   
   noteOff(voiceId, reset = false, isMonoMode = false, heldNotesRemaining = 0) {
-    const filterData = this.voiceFilters.get(voiceId);
-    if (!filterData) return;
+    console.log(`[FilterManager.noteOff] Called for voiceId: ${voiceId}, isMonoMode: ${isMonoMode}, heldNotesRemaining: ${heldNotesRemaining}`);
     
-    // In mono mode, only release if no more notes held
-    if (isMonoMode && heldNotesRemaining > 0) {
+    const filterData = this.voiceFilters.get(voiceId);
+    if (!filterData) {
+      console.log(`[FilterManager.noteOff] No filterData found for voice ${voiceId}`);
       return;
     }
     
+    // In mono mode, only release if no more notes held
+    if (isMonoMode && heldNotesRemaining > 0) {
+      console.log(`[FilterManager.noteOff] Skipping release - mono mode with ${heldNotesRemaining} notes still held`);
+      return;
+    }
+    
+    console.log(`[FilterManager.noteOff] Releasing filters for voice ${voiceId}...`);
+    
     // Release all filters
     if (filterData.lp24Filter) {
+      console.log(`[FilterManager.noteOff] Calling lp24Filter.noteOff()`);
       filterData.lp24Filter.noteOff();
     }
     
     if (filterData.lp12Filter) {
+      console.log(`[FilterManager.noteOff] Calling lp12Filter.noteOff()`);
       filterData.lp12Filter.noteOff();
     }
     
     if (filterData.lh12Filter) {
+      console.log(`[FilterManager.noteOff] Calling lh12Filter.noteOff()`);
       filterData.lh12Filter.noteOff();
     }
     
     if (filterData.lh18Filter) {
+      console.log(`[FilterManager.noteOff] Calling lh18Filter.noteOff()`);
       filterData.lh18Filter.noteOff();
     }
     
