@@ -386,9 +386,10 @@ process(inputs, outputs, parameters) {
       let actualCutoff = cutoff.length > 1 ? cutoff[i] : cutoff[0];
       
       // STEP 1: Apply keytracking first (sets the base frequency for this note)
+      // OPTIMIZED: Combine the two Math.pow calls into one
       if (keytrackAmount !== 0) {
-        const noteFreqRatio = Math.pow(2, (currentMidiNote - 69) / 12);
-        actualCutoff *= Math.pow(noteFreqRatio, keytrackAmount);
+        const keytrackExponent = ((currentMidiNote - 69) / 12) * keytrackAmount;
+        actualCutoff *= Math.pow(2, keytrackExponent);
       }
       
       // STEP 2: Apply envelope modulation ON TOP of keytracked frequency
@@ -466,7 +467,8 @@ process(inputs, outputs, parameters) {
       actualCutoff = Math.exp(logFreq);
     } else {
       // Original behavior for moderate negative envelope amounts
-      actualCutoff *= Math.pow(10, envValue * 0.8);
+      // OPTIMIZED: Math.pow(10, x) = Math.exp(x * Math.LN10)
+      actualCutoff *= Math.exp(envValue * 0.8 * Math.LN10);
     }
   }
 }
