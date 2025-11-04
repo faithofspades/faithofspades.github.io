@@ -819,8 +819,7 @@ class LH18FilterProcessor extends AudioWorkletProcessor {
         
         // Debug logging every 1000 samples (about 20 times per second at 48kHz)
         if (channel === 0 && i === 0 && this._driveDebugCounter % 1000 === 0) {
-          console.log(`LH18 Drive Debug: raw=${driveAmount.toFixed(3)}, normalized=${normalizedDrive.toFixed(3)}, preGain=${preGain.toFixed(3)}x, diode=${diodeDrive.toFixed(1)}%`);
-        }
+                  }
         
         // Apply pre-gain first
         filterOutput *= preGain;

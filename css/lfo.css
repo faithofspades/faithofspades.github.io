@@ -294,7 +294,7 @@
   }
   
   .mod-left-column::before {
-    content: "^^MOD^^";
+    content: "▲MOD▲";
     position: absolute;
     top: -10px;
     left: 50%;

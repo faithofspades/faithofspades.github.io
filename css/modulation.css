@@ -21,13 +21,14 @@
     margin-left: 7px;
     margin-right: 15px;
     margin-top: 209px;
+    --notch-color: #35100B; /* Default color, can be overridden */
   }
   
   /* Custom track styling */
   .lfo-destination-range::-webkit-slider-runnable-track,
 .mod-destination-range::-webkit-slider-runnable-track {
     height: 10px; /* Use full height without the calculation */
-    background: #35100B;
+    background: var(--notch-color, #35100B); /* Use CSS variable with fallback */
     border-radius: 8px;
     border: none;
   }
@@ -35,7 +36,7 @@
 .mod-destination-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    background: #35100B;
+    background: var(--notch-color, #35100B); /* Use CSS variable with fallback */
     width: 24px; /* Make it wider than the track */
     height: 26px; /* Make it taller */
     cursor: pointer;

@@ -12,6 +12,10 @@ export function initializeKnob(knob, onChange, knobDefaults) {
     const newKnob = knob.cloneNode(true);
     knob.parentNode.replaceChild(newKnob, knob);
     knob = newKnob; // Use the new clone
+    
+    // DEBUG: Log element identity after cloning
+    console.log(`[initializeKnob] After cloning ${newKnob.id}:`, newKnob);
+    console.log(`[initializeKnob] Is same as getElementById?`, newKnob === document.getElementById(newKnob.id));
 
     // Use default value from knobDefaults if available, otherwise 0.5
     const defaultValue = knobDefaults[knob.id] !== undefined ? knobDefaults[knob.id] : 0.5;
@@ -90,6 +94,25 @@ export function initializeKnob(knob, onChange, knobDefaults) {
         }
         lastInteractionTime = now;
 
+        // Sync rotation from DOM before starting drag
+        // This ensures external rotation changes (e.g., from recallDepthForDestination) are respected
+        const currentTransform = knob.style.transform;
+        console.log(`[mousedown] knob ID: ${knob.id}, transform: ${currentTransform}, internal rotation before: ${rotation}`);
+        const match = currentTransform.match(/rotate\((-?\d+\.?\d*)deg\)/);
+        if (match) {
+            const domRotation = parseFloat(match[1]);
+            console.log(`[mousedown] Parsed DOM rotation: ${domRotation}deg, internal rotation: ${rotation}deg, diff: ${Math.abs(domRotation - rotation)}`);
+            if (Math.abs(domRotation - rotation) > 1) { // Only sync if significantly different
+                console.log(`[mousedown] SYNCING: ${rotation}deg → ${domRotation}deg`);
+                rotation = domRotation;
+            } else {
+                console.log(`[mousedown] No sync needed (diff < 1deg)`);
+            }
+        } else {
+            console.log(`[mousedown] Could not parse transform!`);
+        }
+        console.log(`[mousedown] Final rotation: ${rotation}deg`);
+
         // Alt-click check removed, double-click handles reset
         isDragging = true;
         initialMovement = true; // Reset flag on new drag
@@ -122,6 +145,18 @@ export function initializeKnob(knob, onChange, knobDefaults) {
         }
         lastInteractionTime = now;
 
+        // Sync rotation from DOM before starting drag
+        // This ensures external rotation changes (e.g., from recallDepthForDestination) are respected
+        const currentTransform = knob.style.transform;
+        const match = currentTransform.match(/rotate\((-?\d+\.?\d*)deg\)/);
+        if (match) {
+            const domRotation = parseFloat(match[1]);
+            if (Math.abs(domRotation - rotation) > 1) { // Only log if significantly different
+                console.log(`[controls.js touchstart] Synced rotation from DOM: ${domRotation}deg (was ${rotation}deg)`);
+                rotation = domRotation;
+            }
+        }
+
         if (e.touches.length === 1) {
             isDragging = true;
             initialMovement = true;
@@ -148,6 +183,14 @@ export function initializeKnob(knob, onChange, knobDefaults) {
     }
 
     // Attach listeners
+    console.log(`[initializeKnob] Attaching mousedown to ${knob.id}:`, knob);
+    console.log(`[initializeKnob] Element matches getElementById?`, knob === document.getElementById(knob.id));
+    
+    // Test if element receives clicks at all
+    knob.addEventListener('click', (e) => {
+        console.log(`[CLICK TEST] ${knob.id} was clicked!`, e);
+    });
+    
     knob.addEventListener('mousedown', handleMouseDown);
     // Use passive: false for touchstart to allow preventDefault
     knob.addEventListener('touchstart', handleTouchStart, { passive: false });

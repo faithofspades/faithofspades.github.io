@@ -832,7 +832,6 @@ masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
 let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
 let currentMonoSamplerVoice = null;
 let isEmuModeOn = false;
-let currentModSource = 'lfo';
 let isSampleKeyTrackingOn = true;
 let mediaRecorder = null;
 let isSampleReversed = false;
@@ -892,6 +891,69 @@ let glideTime = 0.0; // seconds
 let heldNotes = []; // Keep track of held notes in mono mode
 let nodeMonitorInterval = null; // To store the interval ID
 const activeSynthTimers = new Set(); // <<< ADD: Track active setTimeout IDs
+
+// --- Modulation Routing System ---
+// Combined list of all 26 destinations (13 from each slider)
+const modulationDestinations = [
+  // First slider (LFO destinations)
+  'Sampler Pitch',
+  'Osc 1 Pitch',
+  'Osc 2 Pitch',
+  'Sampler Gain',
+  'Osc 1 Gain',
+  'Osc 2 Gain',
+  'Osc 1 PWM',
+  'Osc 2 PWM',
+  'Osc 1 Quant',
+  'Osc 2 Quant',
+  'Osc 1 FM',
+  'Osc 2 FM',
+  'Overload',
+  // Second slider (additional destinations) - MUST MATCH HTML EXACTLY
+  'Lo-Fi',
+  'Speed',
+  'Jump',
+  'Filter',
+  'Stutter',
+  'Pitch',
+  'Delay Time',
+  'Warp',
+  'Feedback',
+  'Cutoff',
+  'Variant',
+  'Resonance',
+  'Lo-Fi Amt'
+];
+
+let currentModSource = null; // 'MOD', 'LFO', '1', '2', '3', '4' - initially none selected
+let currentDestinationIndex = 0; // 0-25 matching combined slider positions
+let currentDestinationName = 'Sampler Pitch'; // Track the actual destination name
+let destinationConnections = {}; // Format: { 'Sampler Pitch': 'MOD', 'Osc 1 Pitch': 'LFO', ... }
+let destinationDepths = {}; // Format: { 'Sampler Pitch': 0.5, 'Osc 1 Pitch': 0.8, ... } - stores depth for each destination
+
+// Store reference to the depth knob control for programmatic updates
+let matrixDepthKnobControl = null;
+
+// Macro knob values (0-1 range)
+let macroValues = {
+  '1': 0.5,
+  '2': 0.5,
+  '3': 0.5,
+  '4': 0.5
+};
+
+// Store the current modulation amount for each destination (bipolar -1 to +1)
+let destinationModulations = {};
+
+// Initialize - each destination can be connected to one source at a time
+function initializeModulationConnections() {
+  modulationDestinations.forEach(dest => {
+    destinationConnections[dest] = null; // null means no connection
+    destinationDepths[dest] = 0.5; // Default depth to 50% (middle position)
+    destinationModulations[dest] = 0; // Default modulation is 0 (no modulation)
+  });
+}
+
 let sampleSource = null;
 let isPlaying = false;
 let filterManager = null;
@@ -1958,6 +2020,358 @@ function noteToFrequency(noteNumber, octaveOffset = 0, detuneCents = 0) {
     return frequency;
 }
 
+// --- Modulation Routing System Functions ---
+
+/**
+ * Updates the visual state of the select button based on the current connection
+ */
+function updateSelectButtonState() {
+  const selectButton = document.getElementById('lfo-select-button');
+  if (!selectButton) {
+    console.error('Select button not found!');
+    return;
+  }
+  
+  // Check if current destination is connected to current source
+  const connectedSource = destinationConnections[currentDestinationName];
+  // CRITICAL FIX: Only light up if both are non-null AND match
+  const isConnected = (connectedSource !== null && connectedSource === currentModSource);
+  
+  console.log(`UPDATE SELECT BUTTON: destination="${currentDestinationName}", connectedSource="${connectedSource}", currentModSource="${currentModSource}", isConnected=${isConnected}`);
+  
+  // Force remove then re-add to trigger visual update
+  selectButton.classList.remove('active');
+  
+  if (isConnected) {
+    // Force a reflow to ensure the browser processes the removal before adding
+    void selectButton.offsetHeight; // Trigger reflow
+    selectButton.classList.add('active');
+    console.log('Added "active" class to select button');
+  } else {
+    console.log('Removed "active" class from select button');
+  }
+}
+
+/**
+ * Updates visual states of source buttons based on current destination's connection
+ */
+function updateSourceButtonStates() {
+  const allButtons = document.querySelectorAll('.matrix-button');
+  const connectedSource = destinationConnections[currentDestinationName];
+  
+  console.log(`updateSourceButtonStates: destination="${currentDestinationName}", connectedSource="${connectedSource}", currentModSource="${currentModSource}"`);
+  
+  allButtons.forEach(btn => {
+    const btnText = btn.textContent.trim();
+    if (btnText === connectedSource) {
+      btn.classList.add('active');
+      console.log(`  Lit up source button: ${btnText}`);
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+  
+  // CRITICAL FIX: Always update currentModSource to match the destination's connection
+  // If the destination has a connection, set currentModSource to it
+  // If no connection, set to null to show no source is selected
+  currentModSource = connectedSource;
+  console.log(`  Updated currentModSource to: ${currentModSource}`);
+}
+
+/**
+ * Handles source button clicks (MOD/LFO/1/2/3/4)
+ */
+window.handleSourceButtonClick = function handleSourceButtonClick(source) {
+  // Trim whitespace from source
+  const trimmedSource = source.trim();
+  
+  console.log(`=== SOURCE BUTTON CLICKED: "${trimmedSource}" ===`);
+  console.log(`BEFORE: currentModSource="${currentModSource}"`);
+  
+  // Update current source
+  currentModSource = trimmedSource;
+  
+  console.log(`AFTER: currentModSource="${currentModSource}"`);
+  
+  // Update visual states of source buttons
+  const allButtons = document.querySelectorAll('.matrix-button');
+  allButtons.forEach(btn => {
+    const btnText = btn.textContent.trim();
+    if (btnText === trimmedSource) {
+      btn.classList.add('active');
+      console.log(`  Highlighted source button: ${btnText}`);
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+  
+  // Update select button state for new source
+  updateSelectButtonState();
+  
+  console.log(`=== SOURCE CHANGE COMPLETE ===`);
+}
+
+/**
+ * Handles destination slider changes
+ */
+function handleDestinationChange(sliderIndex, sliderNumber) {
+  // sliderNumber: 1 for first slider (0-12), 2 for second slider (0-12)
+  // CRITICAL FIX: Invert the slider index because slider is rotated 270deg
+  // Slider value 0 = bottom = last item in list (12)
+  // Slider value 12 = top = first item in list (0)
+  const invertedIndex = 12 - parseInt(sliderIndex);
+  
+  // Convert to combined index (0-25)
+  const combinedIndex = sliderNumber === 1 ? invertedIndex : 13 + invertedIndex;
+  
+  currentDestinationIndex = combinedIndex;
+  currentDestinationName = modulationDestinations[combinedIndex];
+  
+  // Highlight the current destination tick label
+  const allTickLabels = document.querySelectorAll('.tick-label');
+  allTickLabels.forEach((label) => {
+    if (label.textContent.trim() === currentDestinationName) {
+      // This is the active destination - highlight it
+      label.style.color = '#CF814D';
+    } else {
+      // Reset other labels to default color
+      label.style.color = '#35100B';
+    }
+  });
+  
+  // Recall the saved depth for this destination
+  recallDepthForDestination();
+  
+  // Update source button states to show which source this destination is connected to
+  updateSourceButtonStates();
+  
+  // Update select button state
+  updateSelectButtonState();
+  
+  console.log(`Destination changed to: ${currentDestinationName} (index ${currentDestinationIndex})`);
+}
+
+/**
+ * Recalls and sets the depth knob to the saved value for the current destination
+ */
+function recallDepthForDestination() {
+  const savedDepth = destinationDepths[currentDestinationName];
+  
+  console.log(`Recalling depth for "${currentDestinationName}": ${savedDepth.toFixed(2)}`);
+  
+  // Always get the fresh DOM element (don't trust stored references as knob may have been re-cloned)
+  const depthKnob = document.getElementById('matrix-depth-knob');
+  console.log(`[recallDepth] Got element via getElementById:`, depthKnob);
+  console.log(`[recallDepth] Comparing to current DOM element?`, depthKnob === document.getElementById('matrix-depth-knob'));
+  
+  if (depthKnob) {
+    const rotation = -150 + (savedDepth * 300);
+    depthKnob.style.transform = `rotate(${rotation}deg)`;
+    console.log(`Set knob rotation to ${rotation}deg for depth ${savedDepth.toFixed(2)}`);
+  } else {
+    console.error('Matrix depth knob element not found');
+  }
+}
+
+/**
+ * Saves the depth value for the current destination
+ */
+function saveDepthForDestination(depthValue) {
+  destinationDepths[currentDestinationName] = depthValue;
+  console.log(`Saved depth for "${currentDestinationName}": ${depthValue.toFixed(2)}`);
+  
+  // If the current destination is connected to a macro source (1-4), re-apply that macro's modulation
+  const connectedSource = destinationConnections[currentDestinationName];
+  if (connectedSource && ['1', '2', '3', '4'].includes(connectedSource)) {
+    applyMacroModulation(connectedSource, macroValues[connectedSource]);
+  }
+}
+
+/**
+ * Applies macro modulation from a specific source to all its connected destinations
+ * @param {string} macroSource - The macro source ('1', '2', '3', or '4')
+ * @param {number} macroValue - The macro knob value (0-1)
+ */
+function applyMacroModulation(macroSource, macroValue) {
+  console.log(`=== Applying Macro ${macroSource} modulation: ${(macroValue * 100).toFixed(0)}% ===`);
+  
+  // Convert macro value to bipolar multiplier (-1 to +1, with 0.5 being center/unity)
+  // At 0.5 (center): multiplier = 1 (no change)
+  // At 1.0 (max): multiplier = 2 (double)
+  // At 0.0 (min): multiplier = 0 (silence/zero)
+  const multiplier = macroValue * 2; // 0 to 2
+  
+  // Find all destinations connected to this macro source
+  modulationDestinations.forEach(destination => {
+    const connectedSource = destinationConnections[destination];
+    
+    if (connectedSource === macroSource) {
+      const depth = destinationDepths[destination];
+      
+      // Depth scales the modulation: 100% depth = full multiplier effect, 0% depth = no multiplier (stays at 1.0)
+      // scaledMultiplier ranges from 1.0 (no effect) to the full multiplier
+      const scaledMultiplier = 1.0 + ((multiplier - 1.0) * depth);
+      
+      console.log(`  ${destination}: macro=${(macroValue * 100).toFixed(0)}%, depth=${(depth * 100).toFixed(0)}%, multiplier=${scaledMultiplier.toFixed(2)}`);
+      
+      // Apply the modulation based on the destination type
+      applyModulationToDestination(destination, scaledMultiplier);
+    }
+  });
+}
+
+/**
+ * Mapping of destination names to their corresponding knob IDs
+ */
+const destinationToKnobMap = {
+  'Sampler Pitch': 'sample-pitch-knob',
+  'Osc 1 Pitch': 'osc1-pitch-knob',
+  'Osc 2 Pitch': 'osc2-pitch-knob',
+  'Sampler Gain': 'sample-volume-knob',
+  'Osc 1 Gain': 'osc1-gain-knob',
+  'Osc 2 Gain': 'osc2-gain-knob',
+  'Osc 1 PWM': 'osc1-pwm-knob',
+  'Osc 2 PWM': 'osc2-pwm-knob',
+  'Osc 1 Quant': 'osc1-quantize-knob',
+  'Osc 2 Quant': 'osc2-quantize-knob',
+  'Osc 1 FM': 'osc1-fm-knob',
+  'Osc 2 FM': 'osc2-fm-knob',
+  // Add more mappings as needed
+};
+
+/**
+ * Reverse mapping: knob IDs to destination names
+ * Used by knob callbacks to find their corresponding modulation destination
+ */
+const knobToDestinationMap = {};
+Object.keys(destinationToKnobMap).forEach(dest => {
+  knobToDestinationMap[destinationToKnobMap[dest]] = dest;
+});
+
+/**
+ * Applies a modulation value to a specific destination parameter
+ * Stores the modulation amount and triggers the knob callback to update in real-time
+ * @param {string} destination - The destination name
+ * @param {number} modulation - The modulation amount (-1 to +1, bipolar, scaled by depth)
+ */
+function applyModulationToDestination(destination, modulation) {
+  // Store the modulation amount - don't move knobs visually
+  destinationModulations[destination] = modulation;
+  
+  console.log(`    -> ${destination}: Stored modulation ${(modulation * 100).toFixed(0)}%`);
+  
+  // Find the corresponding knob and trigger its callback to apply the modulation in real-time
+  const knobId = destinationToKnobMap[destination];
+  if (knobId) {
+    const knobElement = document.getElementById(knobId);
+    if (knobElement) {
+      // Extract the current knob rotation (user-set position)
+      const transform = knobElement.style.transform;
+      const match = transform.match(/rotate\((-?\d+\.?\d*)deg\)/);
+      if (match) {
+        const rotation = parseFloat(match[1]);
+        const baseValue = (rotation + 150) / 300; // Convert rotation to 0-1 value
+        
+        // Trigger the knob's callback with the base value
+        const callback = knobInitializations[knobId];
+        if (callback) {
+          callback(baseValue);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Handles select button toggle
+ */
+function handleSelectButtonToggle() {
+  console.log(`=== SELECT BUTTON CLICKED ===`);
+  console.log(`BEFORE: currentDestinationName="${currentDestinationName}", currentModSource="${currentModSource}"`);
+  console.log(`BEFORE: destinationConnections[${currentDestinationName}]="${destinationConnections[currentDestinationName]}"`);
+  
+  const currentConnection = destinationConnections[currentDestinationName];
+  
+  if (currentConnection === currentModSource) {
+    // Disconnect - destination is already connected to this source
+    destinationConnections[currentDestinationName] = null;
+    console.log(`AFTER DISCONNECT: destinationConnections[${currentDestinationName}]="${destinationConnections[currentDestinationName]}"`);
+  } else {
+    // Connect - destination either not connected or connected to different source
+    if (currentConnection) {
+      console.log(`OVERWRITING previous connection: ${currentDestinationName} was connected to "${currentConnection}", now connecting to "${currentModSource}"`);
+    }
+    destinationConnections[currentDestinationName] = currentModSource;
+    console.log(`AFTER CONNECT: destinationConnections[${currentDestinationName}]="${destinationConnections[currentDestinationName]}"`);
+  }
+  
+  console.log(`About to call updateSelectButtonState()...`);
+  
+  // Force visual update using requestAnimationFrame to ensure it happens in next render cycle
+  requestAnimationFrame(() => {
+    console.log(`=== INSIDE requestAnimationFrame ===`);
+    console.log(`  currentModSource="${currentModSource}"`);
+    console.log(`  destinationConnections[${currentDestinationName}]="${destinationConnections[currentDestinationName]}"`);
+    updateSelectButtonState();
+    updateSourceButtonStates();
+    console.log(`  AFTER updates: currentModSource="${currentModSource}"`);
+  });
+  
+  console.log(`=== SELECT BUTTON TOGGLE COMPLETE ===`);
+}
+
+/**
+ * Initializes the modulation routing system
+ */
+function initializeModulationRouting() {
+  // Initialize all connections to null
+  initializeModulationConnections();
+  
+  // Set up source button click handlers
+  const matrixButtons = document.querySelectorAll('.matrix-button');
+  console.log(`Found ${matrixButtons.length} matrix buttons`);
+  matrixButtons.forEach((button, index) => {
+    console.log(`  Button ${index}: "${button.textContent.trim()}"`);
+    button.addEventListener('click', () => {
+      const source = button.textContent.trim(); // Trim whitespace
+      console.log(`Matrix button clicked: "${source}"`);
+      handleSourceButtonClick(source);
+    });
+  });
+  
+  // Set up destination slider listeners for BOTH sliders
+  const destSliders = document.querySelectorAll('.lfo-destination-range');
+  destSliders.forEach((slider, index) => {
+    const sliderNumber = index + 1; // 1 or 2
+    slider.addEventListener('input', (e) => {
+      handleDestinationChange(e.target.value, sliderNumber);
+    });
+  });
+  
+  // Set up select button click handler
+  const selectButton = document.getElementById('lfo-select-button');
+  if (selectButton) {
+    selectButton.addEventListener('click', handleSelectButtonToggle);
+  }
+  
+  // Initialize to default: slider starts at value 0, which inverts to index 12 = "Overload"
+  // The slider value 0 (bottom position) = inverted index 12 = 13th item in first slider
+  currentDestinationIndex = 12;
+  currentDestinationName = modulationDestinations[12];
+  
+  // Highlight the initial destination
+  const allTickLabels = document.querySelectorAll('.tick-label');
+  allTickLabels.forEach((label) => {
+    if (label.textContent.trim() === currentDestinationName) {
+      label.style.color = '#CF814D';
+    } else {
+      label.style.color = '#35100B';
+    }
+  });
+  
+  console.log(`Modulation routing system initialized - starting at: ${currentDestinationName}`);
+}
+
 // Initialize for all mobile devices to be safe
 if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
 // Use DOMContentLoaded for more reliable initialization
@@ -2255,6 +2669,60 @@ button.click();
 
 // Knob initializations (only one set)
 const knobInitializations = {
+    'macro1-knob': (value) => {
+        const tooltip = createTooltipForKnob('macro1-knob', value);
+        tooltip.textContent = `Macro 1: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        
+        // Update macro value and apply modulation to all connected destinations
+        macroValues['1'] = value;
+        applyMacroModulation('1', value);
+        
+        console.log('Macro 1:', value.toFixed(2));
+    },
+    'macro2-knob': (value) => {
+        const tooltip = createTooltipForKnob('macro2-knob', value);
+        tooltip.textContent = `Macro 2: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        
+        // Update macro value and apply modulation to all connected destinations
+        macroValues['2'] = value;
+        applyMacroModulation('2', value);
+        
+        console.log('Macro 2:', value.toFixed(2));
+    },
+    'macro3-knob': (value) => {
+        const tooltip = createTooltipForKnob('macro3-knob', value);
+        tooltip.textContent = `Macro 3: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        
+        // Update macro value and apply modulation to all connected destinations
+        macroValues['3'] = value;
+        applyMacroModulation('3', value);
+        
+        console.log('Macro 3:', value.toFixed(2));
+    },
+    'macro4-knob': (value) => {
+        const tooltip = createTooltipForKnob('macro4-knob', value);
+        tooltip.textContent = `Macro 4: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        
+        // Update macro value and apply modulation to all connected destinations
+        macroValues['4'] = value;
+        applyMacroModulation('4', value);
+        
+        console.log('Macro 4:', value.toFixed(2));
+    },
+    'matrix-depth-knob': (value) => {
+        const tooltip = createTooltipForKnob('matrix-depth-knob', value);
+        tooltip.textContent = `Depth: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        
+        // Save the depth for the current destination
+        saveDepthForDestination(value);
+        
+        console.log('Matrix Depth:', value.toFixed(2));
+    },
     'master-volume-knob': (value) => {
         const tooltip = createTooltipForKnob('master-volume-knob', value);
         tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
@@ -2319,24 +2787,56 @@ const knobInitializations = {
     console.log('Filter Keytrack Amount:', bipolarValue.toFixed(2));
 },
     'sample-volume-knob': (value) => {
+        // Check if this knob has active macro modulation
+        const destination = knobToDestinationMap['sample-volume-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range (ceiling)
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Sampler Gain modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
         const tooltip = createTooltipForKnob('sample-volume-knob', value);
         
-        if (value === 0) {
+        if (finalValue === 0) {
             tooltip.textContent = 'MUTED';
         } else {
-            tooltip.textContent = `Sampler: ${(value * 100).toFixed(0)}%`;
+            tooltip.textContent = `Sampler: ${(finalValue * 100).toFixed(0)}%`;
         }
         tooltip.style.opacity = '1';
         
-        // Update the samplerMasterGain instead of individual sample nodes
-        samplerMasterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
+        // Update the samplerMasterGain with modulated value
+        samplerMasterGain.gain.setTargetAtTime(finalValue, audioCtx.currentTime, 0.01);
         
-        console.log('Sampler Master Volume:', value === 0 ? 'MUTED' : `${(value * 100).toFixed(0)}%`);
+        console.log('Sampler Master Volume:', finalValue === 0 ? 'MUTED' : `${(finalValue * 100).toFixed(0)}%`);
     },
 
 'sample-pitch-knob': (value) => {
-    // Convert 0-1 range to -1200 to +1200 cents
-    currentSampleDetune = (value * 2400) - 1200;
+    // Check if this knob has active macro modulation
+    const destination = knobToDestinationMap['sample-pitch-knob'];
+    let finalValue = value;
+    
+    if (destination && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier directly to the knob value
+        finalValue = value * multiplier;
+        
+        // Clamp to 0-1 range (ceiling)
+        finalValue = Math.max(0, Math.min(1, finalValue));
+        
+        console.log(`Sampler Pitch modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+    }
+    
+    // Convert 0-1 range to -1200 to +1200 cents using modulated value
+    currentSampleDetune = (finalValue * 2400) - 1200;
     const now = audioCtx.currentTime;
 
     // Show and update tooltip
@@ -2385,10 +2885,26 @@ const knobInitializations = {
     console.log('Sample Pitch:', currentSampleDetune.toFixed(0) + ' cents');
 },
     'osc1-gain-knob': (value) => {
+        // Check if this knob has active macro modulation
+        const destination = knobToDestinationMap['osc1-gain-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range (ceiling)
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Osc1 Gain modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
         const tooltip = createTooltipForKnob('osc1-gain-knob', value);
-        tooltip.textContent = `Gain: ${(value * 100).toFixed(0)}%`;
+        tooltip.textContent = `Gain: ${(finalValue * 100).toFixed(0)}%`;
         tooltip.style.opacity = '1';
-        osc1GainValue = value; // Update the global gain value
+        osc1GainValue = finalValue; // Update the global gain value with modulated value
 
         // --- REAL-TIME UPDATE FOR ACTIVE NOTES (Control levelNode) ---
         const now = audioCtx.currentTime;
@@ -2403,11 +2919,27 @@ const knobInitializations = {
         // <<< END CHANGE >>>
         // --- END REAL-TIME UPDATE ---
 
-        console.log('Osc1 Gain:', value.toFixed(2));
+        console.log('Osc1 Gain:', finalValue.toFixed(2));
     },
     'osc1-pitch-knob': (value) => {
-        // Calculate detune value (e.g., -100 to +100 cents)
-        osc1Detune = (value - 0.5) * 200; // Example mapping
+        // Check if this knob has active macro modulation
+        const destination = knobToDestinationMap['osc1-pitch-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range (ceiling)
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Osc1 Pitch modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
+        // Calculate detune value (e.g., -100 to +100 cents) using modulated value
+        osc1Detune = (finalValue - 0.5) * 200; // Example mapping
 
         const tooltip = createTooltipForKnob('osc1-pitch-knob', value);
         tooltip.textContent = `Detune: ${osc1Detune.toFixed(0)}c`;
@@ -2728,9 +3260,25 @@ const knobInitializations = {
     console.log(`Osc1 Quantize: ${value.toFixed(2)}`);
 },
     'osc2-gain-knob': (value) => {
-        osc2GainValue = value;
+        // Check if this knob has active macro modulation
+        const destination = knobToDestinationMap['osc2-gain-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range (ceiling)
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Osc2 Gain modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
+        osc2GainValue = finalValue;
         const tooltip = createTooltipForKnob('osc2-gain-knob', value);
-        tooltip.textContent = `Gain: ${Math.round(value * 100)}%`;
+        tooltip.textContent = `Gain: ${Math.round(finalValue * 100)}%`;
         tooltip.style.opacity = '1';
         // Update active Osc2 notes
         // <<< CHANGE: Iterate over voicePool >>>
@@ -2740,11 +3288,27 @@ const knobInitializations = {
             }
         });
         // <<< END CHANGE >>>
-        console.log(`Osc2 Gain set to: ${value.toFixed(2)}`);
+        console.log(`Osc2 Gain set to: ${finalValue.toFixed(2)}`);
     },
     'osc2-pitch-knob': (value) => {
-        // Map 0-1 to -100 to +100 cents (adjust range as needed)
-        osc2Detune = (value - 0.5) * 200;
+        // Check if this knob has active macro modulation
+        const destination = knobToDestinationMap['osc2-pitch-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range (ceiling)
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Osc2 Pitch modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
+        // Map 0-1 to -100 to +100 cents using modulated value
+        osc2Detune = (finalValue - 0.5) * 200;
         const tooltip = createTooltipForKnob('osc2-pitch-knob', value);
         tooltip.textContent = `Pitch: ${osc2Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
@@ -3123,7 +3687,17 @@ Object.entries(knobInitializations).forEach(([id, callback]) => {
 const knob = D(id);
 if (knob) {
 const defaultValue = knobDefaults[id] !== undefined ? knobDefaults[id] : 0.5;
+console.log(`[DOMContentLoaded] Initializing knob: ${id}, element:`, knob);
 const control = initializeKnob(knob, callback, knobDefaults);
+
+// Store reference to matrix-depth-knob control for programmatic updates
+if (id === 'matrix-depth-knob') {
+    matrixDepthKnobControl = control;
+    console.log(`[DOMContentLoaded] Stored matrix-depth-knob control:`, control);
+    // Verify the knob element after initialization
+    const verifyKnob = document.getElementById('matrix-depth-knob');
+    console.log(`[DOMContentLoaded] Verified matrix-depth-knob element after init:`, verifyKnob);
+}
 }
 });
 
@@ -3718,6 +4292,26 @@ document.querySelectorAll('.tooltip').forEach(tooltip => {
 tooltip.style.opacity = '0';
 });
 });
+
+// DEBUG: Global click listener to see what's being clicked
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'matrix-depth-knob' || e.target.closest('#matrix-depth-knob')) {
+        console.log('[GLOBAL CLICK] matrix-depth-knob clicked!', e.target);
+    }
+}, true); // Use capture phase to catch it early
+
+// DEBUG: Check what element is at the knob's position
+window.checkDepthKnobClickability = function() {
+    const knob = document.getElementById('matrix-depth-knob');
+    const rect = knob.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const elementAtCenter = document.elementFromPoint(centerX, centerY);
+    console.log('[CLICKABILITY CHECK] Element at knob center:', elementAtCenter);
+    console.log('[CLICKABILITY CHECK] Is it the knob?', elementAtCenter === knob);
+    console.log('[CLICKABILITY CHECK] Knob z-index:', window.getComputedStyle(knob).zIndex);
+    console.log('[CLICKABILITY CHECK] Knob pointer-events:', window.getComputedStyle(knob).pointerEvents);
+};
 
 /**
  * Filter cutoff slider with non-linear mapping and precision control
@@ -6093,6 +6687,7 @@ updateADSRVisualization();
 // Initialize Keyboard Module
 initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool);
 initializeFilterControls();
+initializeModulationRouting();
 // Set filter defaults
   if (filterManager) {
     // Set default filter values
@@ -6112,8 +6707,8 @@ initializeFilterControls();
       classicModeEnabled
     );
   }
-// Initialize controls
-fixAllKnobs(knobInitializations, knobDefaults); // <-- Add this line, passing dependencies
+// Initialize controls - REMOVED fixAllKnobs as initializeKnob already handles all knobs properly
+// fixAllKnobs(knobInitializations, knobDefaults); // <-- COMMENTED OUT - was re-cloning knobs and destroying event listeners
 // CRITICAL FIX: Initialize FM sources AFTER knobs are set up
     // This ensures osc1FMAmount and osc2FMAmount have their correct values from the knobs
     setTimeout(() => {
@@ -6418,7 +7013,10 @@ if (modModeSelector) {
     });
 
     // Set initial active button based on the default global variable
-    setActiveModSource(currentModSource); // Initialize with the default
+    // Only initialize if there's already a default source set
+    if (currentModSource) {
+        setActiveModSource(currentModSource);
+    }
 
 } else {
     console.warn("Modulation mode selector container (.mod-mode-selector) not found.");

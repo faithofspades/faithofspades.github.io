@@ -190,7 +190,7 @@ console.log('LFO Delay:', delaySlider.value);
         button.parentNode.replaceChild(newButton, button);
 
         newButton.addEventListener('click', function() {
-            if (newButton.classList.contains('active')) return;
+            // Don't return early - let both handlers run
             matrixButtons.forEach(btn => {
                 // Access the potentially replaced node via querySelectorAll again inside handler
                 document.querySelectorAll('.matrix-buttons-container .matrix-button')
@@ -198,12 +198,19 @@ console.log('LFO Delay:', delaySlider.value);
             });
             newButton.classList.add('active');
             console.log(`Matrix button ${index + 1} activated`);
+            
+            // Call the modulation routing handler
+            const source = newButton.textContent.trim();
+            if (typeof handleSourceButtonClick === 'function') {
+                handleSourceButtonClick(source);
+            }
         });
     });
-    if (matrixButtons.length > 0) {
-         // Access the potentially replaced node via querySelectorAll again
-        document.querySelectorAll('.matrix-buttons-container .matrix-button')[0].classList.add('active');
-    }
+    // Don't auto-activate the first button - let user choose
+    // if (matrixButtons.length > 0) {
+    //      // Access the potentially replaced node via querySelectorAll again
+    //     document.querySelectorAll('.matrix-buttons-container .matrix-button')[0].classList.add('active');
+    // }
 
     // ----------------------------------------
     //  Looper Buttons & Knob
