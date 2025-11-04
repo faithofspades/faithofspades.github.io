@@ -95,6 +95,12 @@ class FilterManager {
   const now = this.audioCtx.currentTime;
   
   this.voiceFilters.forEach((filterData, voiceId) => {
+    // Cancel any pending cleanup timeout for this voice
+    if (filterData.cleanupTimeoutId) {
+      clearTimeout(filterData.cleanupTimeoutId);
+      filterData.cleanupTimeoutId = null;
+    }
+    
     if (filterData && filterData.lp12Filter && filterData.lp24Filter && filterData.lh12Filter && filterData.lh18Filter && filterData.lh24Filter) {
       try {
         // Get the input and output nodes
@@ -182,7 +188,7 @@ class FilterManager {
         });
         
         // AFTER crossfade completes + delay, disconnect inactive filters to save CPU
-        setTimeout(() => {
+        filterData.cleanupTimeoutId = setTimeout(() => {
           allGains.forEach(({ filter, active }) => {
             if (!active) {
               try {
@@ -193,6 +199,7 @@ class FilterManager {
             }
           });
           console.log(`Disconnected inactive filters for ${voiceId} (CPU optimized)`);
+          filterData.cleanupTimeoutId = null; // Clear the timeout ID
         }, (crossfadeDuration + disconnectDelay) * 1000);
         
         filterData.activeFilter = activeFilterNode;
