@@ -2221,6 +2221,12 @@ function saveDepthForDestination(depthValue) {
  * @param {number} macroValue - The macro knob value (0-1)
  */
 function applyMacroModulation(macroSource, macroValue) {
+  // Early exit: Check if this macro source has ANY connections at all
+  const hasAnyConnections = Object.values(destinationConnections).some(source => source === macroSource);
+  if (!hasAnyConnections) {
+    return; // No connections, skip all processing
+  }
+  
   console.log(`=== Applying Macro ${macroSource} modulation: ${(macroValue * 100).toFixed(0)}% ===`);
   
   // Convert macro value to bipolar multiplier (-1 to +1, with 0.5 being center/unity)
