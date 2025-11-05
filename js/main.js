@@ -974,11 +974,12 @@ let macroValues = {
 let lfoOscillator = null;
 let lfoGain = null;
 let lfoRate = 1.0; // Hz
-let lfoFade = 0.0; // 0-1 fade-in time
-let lfoDepth = 0.5; // 0-1 global depth
+let lfoFade = 0.0; // 0-1 fade-in time (0=instant, 1=5 seconds) - applied per-voice
+let lfoDepth = 1.0; // 0-1 polarity control: 0=negative, 0.5=off, 1=positive
 window.lfoShape = 0; // 0=triangle, 1=square, 2=random, 3=sine, 4=saw (global for uiPlaceholders.js)
 let lfoValue = 0.5; // Current LFO output value (0-1)
 let lfoUpdateInterval = null;
+// Note: lfoFadeStartTime is now tracked per-voice in the voice pool
 
 // Store the current modulation amount for each destination (bipolar -1 to +1)
 let destinationModulations = {};
@@ -1024,7 +1025,7 @@ function restartLFO() {
 }
 
 /**
- * Apply LFO modulation to all connected destinations
+ * Apply LFO modulation to all connected destinations (per-voice fade-in)
  */
 function applyLFOModulation() {
   // Check if LFO source has ANY connections
@@ -1033,7 +1034,7 @@ function applyLFOModulation() {
     return; // No connections, skip processing
   }
   
-  // Calculate LFO value (0-1 range)
+  // Calculate LFO value (0-1 range) - shared across all voices
   const now = audioCtx.currentTime;
   const phase = (now * lfoRate) % 1.0;
   
@@ -1072,16 +1073,87 @@ function applyLFOModulation() {
   
   lfoValue = rawValue;
   
-  // Convert to multiplier (same as macro system)
-  const multiplier = lfoValue * 2; // 0 to 2
+  // Calculate per-voice fade multipliers and use their average
+  // This allows each voice to have independent fade-in while sharing one LFO
+  let totalFadeMultiplier = 0;
+  let activeVoiceCount = 0;
+  
+  if (lfoFade > 0) {
+    const maxFadeTime = 5.0; // 5 seconds at fade = 1.0
+    const fadeTime = lfoFade * maxFadeTime;
+    
+    // Check all oscillator voices
+    voicePool.forEach(voice => {
+      if (voice.state === 'active' && voice.lfoFadeStartTime !== null) {
+        activeVoiceCount++;
+        const elapsedTime = now - voice.lfoFadeStartTime;
+        
+        if (elapsedTime < fadeTime) {
+          // Exponential fade-in: starts slow, speeds up towards the end
+          // Using x^3 curve for increasingly exponential behavior
+          const linearProgress = elapsedTime / fadeTime; // 0 to 1
+          const voiceFadeMultiplier = linearProgress * linearProgress * linearProgress; // cubic curve
+          totalFadeMultiplier += voiceFadeMultiplier;
+        } else {
+          // This voice has completed its fade
+          totalFadeMultiplier += 1.0;
+        }
+      }
+    });
+    
+    // Also check sampler voices
+    samplerVoicePool.forEach(voice => {
+      if (voice.state === 'playing' && voice.lfoFadeStartTime !== null) {
+        activeVoiceCount++;
+        const elapsedTime = now - voice.lfoFadeStartTime;
+        
+        if (elapsedTime < fadeTime) {
+          const linearProgress = elapsedTime / fadeTime;
+          const voiceFadeMultiplier = linearProgress * linearProgress * linearProgress;
+          totalFadeMultiplier += voiceFadeMultiplier;
+        } else {
+          totalFadeMultiplier += 1.0;
+        }
+      }
+    });
+  }
+  
+  // Calculate average fade multiplier across all active voices
+  const fadeMultiplier = activeVoiceCount > 0 ? totalFadeMultiplier / activeVoiceCount : 1.0;
+  
+  // Apply LFO Depth as polarity control:
+  // lfoDepth = 0.0 -> negative polarity (inverted)
+  // lfoDepth = 0.5 -> no modulation (centered)
+  // lfoDepth = 1.0 -> positive polarity (normal)
+  
+  // Convert lfoDepth (0-1) to polarity (-1 to +1, with 0 at 0.5)
+  const polarity = (lfoDepth - 0.5) * 2; // -1 to +1
+  
+  // Apply fade multiplier to polarity (fade affects the strength of modulation)
+  const fadedPolarity = polarity * fadeMultiplier;
+  
+  // Apply polarity to LFO value
+  // When fadedPolarity = 0, output stays at 1.0 (no modulation)
+  // When fadedPolarity = +1, output ranges 0-2
+  // When fadedPolarity = -1, output ranges 2-0 (inverted)
+  let polarizedValue;
+  if (fadedPolarity >= 0) {
+    // Positive polarity: fade from 1.0 (no mod) to full modulation
+    polarizedValue = 1.0 + (lfoValue - 0.5) * 2 * fadedPolarity;
+  } else {
+    // Negative polarity: invert the LFO
+    polarizedValue = 1.0 - (lfoValue - 0.5) * 2 * Math.abs(fadedPolarity);
+  }
   
   // Apply modulation to all connected destinations
   modulationDestinations.forEach(destination => {
     const connectedSource = destinationConnections[destination];
     
     if (connectedSource === 'LFO') {
-      const depth = destinationDepths[destination];
-      const scaledMultiplier = 1.0 + ((multiplier - 1.0) * depth);
+      const matrixDepth = destinationDepths[destination];
+      
+      // Matrix depth scales the polarized modulation amount
+      const scaledMultiplier = 1.0 + ((polarizedValue - 1.0) * matrixDepth);
       
       // Use the same applyModulationToDestination function that macros use
       // This handles both knobs and sliders uniformly
@@ -1134,6 +1206,7 @@ const knobDefaults = {
 'osc2-pwm-knob': 0.0, // Default: 50% duty cycle / minimal shape distortion
 'osc2-quantize-knob': 0.0, // <<< ADD: Default quantize amount
 'osc2-fm-knob': 0.0, // <<< ADD: Default FM amount
+'mod-depth-knob': 1.0, // LFO Depth: 1.0 = positive polarity (default)
 // ADD FILTER KNOBS
     'adsr-knob': 0.5, // 50% = unity
     'keytrack-knob': 0.5, // 50% = unity
@@ -1418,7 +1491,9 @@ function createVoice(ctx, index) {
     envelopeState: 'idle', // 'idle', 'attack', 'decay', 'sustain', 'release'
     envelopeStartTime: 0,
     attackEndTime: 0,
-    decayEndTime: 0
+    decayEndTime: 0,
+    // ADD: Per-voice LFO fade tracking
+    lfoFadeStartTime: null // Time when this voice was triggered (for per-voice LFO fade-in)
   };
 
   // --- Create Sampler Nodes ---
@@ -2911,13 +2986,24 @@ const knobInitializations = {
     },
     'mod-depth-knob': (value) => {
         const tooltip = createTooltipForKnob('mod-depth-knob', value);
-        tooltip.textContent = `LFO Depth: ${(value * 100).toFixed(0)}%`;
+        
+        // Display polarity: 0=negative, 0.5=off, 1=positive
+        let polarityText;
+        if (value < 0.48) {
+            polarityText = `Negative ${((0.5 - value) * 200).toFixed(0)}%`;
+        } else if (value > 0.52) {
+            polarityText = `Positive ${((value - 0.5) * 200).toFixed(0)}%`;
+        } else {
+            polarityText = 'Off';
+        }
+        
+        tooltip.textContent = `LFO: ${polarityText}`;
         tooltip.style.opacity = '1';
         
-        // Update global LFO depth
+        // Update global LFO depth (polarity control)
         lfoDepth = value;
         
-        console.log('LFO Depth:', value.toFixed(2));
+        console.log('LFO Depth (Polarity):', value.toFixed(2), polarityText);
     },
     // NOTE: mod-shape-knob is handled separately in uiPlaceholders.js with discrete positions
     'master-volume-knob': (value) => {
@@ -5884,6 +5970,12 @@ setMasterClockRate(1, noteNumber, osc1Detune);
     voice.state = 'active';
     voice.currentReleaseId = null;
     voice.wasStolen = false;
+    
+    // Set per-voice LFO fade start time
+    if (lfoFade > 0) {
+        voice.lfoFadeStartTime = now;
+    }
+    
     if (voice) {
     const fmUpdateTime = now + 0.01; // Small delay to ensure everything is connected
     
@@ -6296,6 +6388,11 @@ if (samplerVoice && filterManager) {
     samplerVoice.startTime = now;
     samplerVoice.state = 'playing';
     
+    // Set per-voice LFO fade start time for sampler voice
+    if (lfoFade > 0) {
+        samplerVoice.lfoFadeStartTime = now;
+    }
+    
     console.log(`Sampler note ${samplerNote.id} configured for note ${noteNumber}, rate=${newPlaybackRate.toFixed(3)}`);
 }
 
@@ -6360,16 +6457,18 @@ if (samplerVoice && filterManager) {
         osc1.workletNode.parameters.get('gate').setValueAtTime(1, now);
         
 // SOPHISTICATED OSC1 ENVELOPE
-// CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
-osc1.gainNode.gain.cancelScheduledValues(now);
-
-// FIX: Define currentGain outside any conditional blocks to ensure it exists
+// CRITICAL FIX: Read the gain BEFORE canceling to get accurate current value
 const currentGain = wasActive ? osc1.gainNode.gain.value : 0;
 
+// Cancel scheduled values first
+osc1.gainNode.gain.cancelScheduledValues(now);
+
 if (legatoTransition && osc1.state === 'playing') {
-    // LEGATO MODE
+    // LEGATO MODE - lock in current gain
+    osc1.gainNode.gain.setValueAtTime(currentGain, now);
+    
     if (wasInAttack || wasInDecay) {
-        osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        // Already set currentGain above
         
         if (wasInAttack) {
             // Continue attack
@@ -6385,50 +6484,66 @@ if (legatoTransition && osc1.state === 'playing') {
             console.log(`Legato osc1: Continuing decay from ${currentGain.toFixed(3)}`);
         }
     } else {
-        osc1.gainNode.gain.setValueAtTime(sustain, now);
+        // Already set currentGain above
         console.log(`Legato osc1: Reset to sustain ${sustain.toFixed(3)}`);
     }
 } else if (!isMonoMode && wasActive) {
-    // MULTI MODE
-    // CRITICAL FIX: Check if we're stealing from a RELEASING voice
-    const stealingFromRelease = voice.state === 'releasing' || previousEnvelopeState === 'release';
+    // MULTI MODE - already set currentGain above
+    // Use wasReleasing instead of checking voice.state (which was already updated to 'active')
+    const stealingFromRelease = wasReleasing;
     
     if (stealingFromRelease) {
-        osc1.gainNode.gain.setValueAtTime(0, now);
-        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        // Smoothly ramp from current gain to 0, then attack back up (always 5ms)
+        const fadeOutTime = 0.005; // Fixed 5ms fade
+        osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
         
-        console.log(`Multi osc1: Fresh attack from 0 (stolen from release)`);
+        console.log(`Multi osc1: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack (stolen from release)`);
     } else if (wasInAttack) {
-        // CRITICAL FIX: Calculate remaining attack time
+        // CRITICAL FIX: Calculate remaining attack time - lock in current gain first
+        osc1.gainNode.gain.setValueAtTime(currentGain, now);
         const remainingAttackTime = attack * (1.0 - currentGain);
         
-        osc1.gainNode.gain.setValueAtTime(currentGain, now);
         osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
         osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
         
         console.log(`Multi osc1: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining`);
     } else if (wasInDecay) {
-        // Start from current gain
+        // Start from current gain - lock it in first
         osc1.gainNode.gain.setValueAtTime(currentGain, now);
         osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
         console.log(`Multi osc1: Reset from decay (gain ${currentGain.toFixed(3)}) to attack`);
     } else if (wasInSustain) {
+        // Jump to sustain then new envelope
         osc1.gainNode.gain.setValueAtTime(sustain, now);
         osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
         console.log(`Multi osc1: From sustain, new envelope`);
     } else {
+        // Lock in current gain first
         osc1.gainNode.gain.setValueAtTime(currentGain, now);
         osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
     }
 } else {
-    // Fresh note
-    osc1.gainNode.gain.setValueAtTime(currentGain, now);
-    osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-    osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    // Mono mode (non-legato) OR fresh note
+    if (isMonoMode && wasReleasing) {
+        // Mono mode stealing from release - smooth 5ms fade like poly
+        const fadeOutTime = 0.005;
+        osc1.gainNode.gain.setValueAtTime(currentGain, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
+        console.log(`Mono osc1: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack`);
+    } else {
+        // Fresh note - start from 0
+        osc1.gainNode.gain.setValueAtTime(0, now);
+        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    }
 }
 
 osc1.levelNode.gain.setValueAtTime(osc1GainValue, now);
@@ -6489,15 +6604,18 @@ if (voice.osc2Note && voice.osc2Note.workletNode) {
     console.log(`OSC2 gate opened for voice ${voice.id}`);
     
 // SOPHISTICATED OSC2 ENVELOPE
-// CRITICAL FIX: Cancel scheduled values FIRST, then read the gain
-osc2.gainNode.gain.cancelScheduledValues(now);
-
-// FIX: Define currentGain outside any conditional blocks to ensure it exists
+// CRITICAL FIX: Read the gain BEFORE canceling to get accurate current value
 const currentGain = wasActive ? osc2.gainNode.gain.value : 0;
 
+// Cancel scheduled values first
+osc2.gainNode.gain.cancelScheduledValues(now);
+
 if (legatoTransition && osc2.state === 'playing') {
+    // LEGATO MODE - lock in current gain
+    osc2.gainNode.gain.setValueAtTime(currentGain, now);
+    
     if (wasInAttack || wasInDecay) {
-        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        // Already set currentGain above
         
         if (wasInAttack) {
             const remainingAttackTime = attack * (1.0 - currentGain);
@@ -6509,41 +6627,62 @@ if (legatoTransition && osc2.state === 'playing') {
             osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingDecayTime);
         }
     } else {
+        // Jump to sustain
         osc2.gainNode.gain.setValueAtTime(sustain, now);
     }
 } else if (!isMonoMode && wasActive) {
-    // CRITICAL FIX: Check if we're stealing from a RELEASING voice
-    const stealingFromRelease = voice.state === 'releasing' || previousEnvelopeState === 'release';
+    // MULTI MODE - currentGain already set above
+    // Use wasReleasing instead of checking voice.state (which was already updated to 'active')
+    const stealingFromRelease = wasReleasing;
     
     if (stealingFromRelease) {
-        osc2.gainNode.gain.setValueAtTime(0, now);
-        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        // Smoothly ramp from current gain to 0, then attack back up (always 5ms)
+        const fadeOutTime = 0.005; // Fixed 5ms fade
+        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
+        
+        console.log(`Multi osc2: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack (stolen from release)`);
     } else if (wasInAttack) {
+        // Lock in current gain first
+        osc2.gainNode.gain.setValueAtTime(currentGain, now);
         const remainingAttackTime = attack * (1.0 - currentGain);
         
-        osc2.gainNode.gain.setValueAtTime(currentGain, now);
         osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
         osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
     } else if (wasInDecay) {
-        // Start from current gain
+        // Start from current gain - lock it in first
         osc2.gainNode.gain.setValueAtTime(currentGain, now);
         osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
     } else if (wasInSustain) {
+        // Jump to sustain then new envelope
         osc2.gainNode.gain.setValueAtTime(sustain, now);
         osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
     } else {
+        // Lock in current gain first
         osc2.gainNode.gain.setValueAtTime(currentGain, now);
         osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
     }
 } else {
-    // Cancel any pending envelope ramps (critical for voice stealing during release)
-    osc2.gainNode.gain.setValueAtTime(currentGain, now);
-    osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-    osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    // Mono mode (non-legato) OR fresh note
+    if (isMonoMode && wasReleasing) {
+        // Mono mode stealing from release - smooth 5ms fade like poly
+        const fadeOutTime = 0.005;
+        osc2.gainNode.gain.setValueAtTime(currentGain, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
+        console.log(`Mono osc2: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack`);
+    } else {
+        // Fresh note - start from 0
+        osc2.gainNode.gain.setValueAtTime(0, now);
+        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+    }
 }
 
 osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
