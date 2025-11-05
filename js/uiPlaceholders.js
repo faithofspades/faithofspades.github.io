@@ -349,7 +349,36 @@ console.log('LFO Delay:', delaySlider.value);
                 if (Math.abs(accumulatedDelta) >= positionChangeThreshold) {
                     const direction = accumulatedDelta > 0 ? 1 : -1;
                     let newPosition = (currentPosition + direction + 5) % 5; // Wrap around 0-4
-                    if (newPosition !== currentPosition) { currentPosition = newPosition; updateShapeKnobPosition(); console.log(`Shape position changed to: ${currentPosition}`); }
+                    if (newPosition !== currentPosition) { 
+                        currentPosition = newPosition; 
+                        updateShapeKnobPosition(); 
+                        
+                        // Update LFO shape
+                        const shapeNames = ['Triangle', 'Square', 'Random', 'Sine', 'Sawtooth'];
+                        if (typeof window.lfoShape !== 'undefined') {
+                            window.lfoShape = currentPosition;
+                            if (typeof restartLFO === 'function') {
+                                restartLFO();
+                            }
+                        }
+                        
+                        console.log(`LFO Shape changed to: ${shapeNames[currentPosition]}`);
+                        
+                        // Show tooltip using the same system as other knobs
+                        const tooltip = document.getElementById('mod-shape-knob-tooltip') || (() => {
+                            const newTooltip = document.createElement('div');
+                            newTooltip.id = 'mod-shape-knob-tooltip';
+                            newTooltip.className = 'tooltip';
+                            document.body.appendChild(newTooltip);
+                            const knobRect = shapeKnob.getBoundingClientRect();
+                            newTooltip.style.left = `${knobRect.left + knobRect.width + 5}px`;
+                            newTooltip.style.top = `${knobRect.top + (knobRect.height / 2) - 10}px`;
+                            return newTooltip;
+                        })();
+                        tooltip.textContent = `LFO: ${shapeNames[currentPosition]}`;
+                        tooltip.style.opacity = '1';
+                        setTimeout(() => { tooltip.style.opacity = '0'; }, 1500);
+                    }
                     accumulatedDelta = 0;
                 }
             }
@@ -368,7 +397,36 @@ console.log('LFO Delay:', delaySlider.value);
                 accumulatedDelta += deltaY;
                 if (Math.abs(accumulatedDelta) >= positionChangeThreshold) {
                     const direction = accumulatedDelta > 0 ? 1 : -1; let newPosition = (currentPosition + direction + 5) % 5;
-                    if (newPosition !== currentPosition) { currentPosition = newPosition; updateShapeKnobPosition(); console.log(`Shape position changed to: ${currentPosition}`); }
+                    if (newPosition !== currentPosition) { 
+                        currentPosition = newPosition; 
+                        updateShapeKnobPosition(); 
+                        
+                        // Update LFO shape
+                        const shapeNames = ['Triangle', 'Square', 'Random', 'Sine', 'Sawtooth'];
+                        if (typeof lfoShape !== 'undefined') {
+                            lfoShape = currentPosition;
+                            if (typeof restartLFO === 'function') {
+                                restartLFO();
+                            }
+                        }
+                        
+                        console.log(`LFO Shape changed to: ${shapeNames[currentPosition]}`);
+                        
+                        // Show tooltip directly
+                        let tooltip = document.querySelector('.knob-tooltip[data-knob="mod-shape-knob"]');
+                        if (!tooltip) {
+                            tooltip = document.createElement('div');
+                            tooltip.className = 'knob-tooltip';
+                            tooltip.setAttribute('data-knob', 'mod-shape-knob');
+                            document.body.appendChild(tooltip);
+                        }
+                        tooltip.textContent = `LFO: ${shapeNames[currentPosition]}`;
+                        const rect = shapeKnob.getBoundingClientRect();
+                        tooltip.style.left = rect.left + rect.width / 2 + 'px';
+                        tooltip.style.top = rect.top - 10 + 'px';
+                        tooltip.style.opacity = '1';
+                        setTimeout(() => { tooltip.style.opacity = '0'; }, 1000);
+                    }
                     accumulatedDelta = 0;
                 }
             }

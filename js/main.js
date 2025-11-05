@@ -970,6 +970,16 @@ let macroValues = {
   '4': 0.5
 };
 
+// LFO System
+let lfoOscillator = null;
+let lfoGain = null;
+let lfoRate = 1.0; // Hz
+let lfoFade = 0.0; // 0-1 fade-in time
+let lfoDepth = 0.5; // 0-1 global depth
+window.lfoShape = 0; // 0=triangle, 1=square, 2=random, 3=sine, 4=saw (global for uiPlaceholders.js)
+let lfoValue = 0.5; // Current LFO output value (0-1)
+let lfoUpdateInterval = null;
+
 // Store the current modulation amount for each destination (bipolar -1 to +1)
 let destinationModulations = {};
 
@@ -979,6 +989,104 @@ function initializeModulationConnections() {
     destinationConnections[dest] = null; // null means no connection
     destinationDepths[dest] = 0.5; // Default depth to 50% (middle position)
     destinationModulations[dest] = 0; // Default modulation is 0 (no modulation)
+  });
+}
+
+/**
+ * Initialize the global LFO oscillator
+ */
+function initializeLFO() {
+  // Create LFO oscillator and gain
+  lfoGain = audioCtx.createGain();
+  lfoGain.gain.value = lfoDepth;
+  
+  // Start the LFO
+  restartLFO();
+  
+  // Start update loop using requestAnimationFrame (more efficient than setInterval)
+  function lfoUpdate() {
+    applyLFOModulation();
+    lfoUpdateInterval = requestAnimationFrame(lfoUpdate);
+  }
+  lfoUpdate();
+  
+  console.log('LFO initialized');
+}
+
+/**
+ * Restart the LFO with current shape and rate
+ */
+function restartLFO() {
+  // Note: We don't actually use Web Audio oscillators here
+  // The LFO is calculated mathematically in applyLFOModulation()
+  // This function exists for future implementation with AudioWorklet
+  console.log(`LFO restarted: shape=${lfoShape}, rate=${lfoRate.toFixed(2)} Hz`);
+}
+
+/**
+ * Apply LFO modulation to all connected destinations
+ */
+function applyLFOModulation() {
+  // Check if LFO source has ANY connections
+  const hasAnyConnections = Object.values(destinationConnections).some(source => source === 'LFO');
+  if (!hasAnyConnections) {
+    return; // No connections, skip processing
+  }
+  
+  // Calculate LFO value (0-1 range)
+  const now = audioCtx.currentTime;
+  const phase = (now * lfoRate) % 1.0;
+  
+  // Debug: Log shape periodically
+  if (!applyLFOModulation.lastLog || now - applyLFOModulation.lastLog > 1.0) {
+    const shapeNames = ['Triangle', 'Square', 'Random', 'Sine', 'Sawtooth'];
+    console.log(`LFO: shape=${shapeNames[window.lfoShape]}, rate=${lfoRate.toFixed(2)}Hz, phase=${phase.toFixed(2)}`);
+    applyLFOModulation.lastLog = now;
+  }
+  
+  // Calculate waveform value based on shape
+  let rawValue;
+  switch (window.lfoShape) {
+    case 0: // Triangle
+      rawValue = phase < 0.5 ? phase * 2 : 2 - (phase * 2);
+      break;
+    case 1: // Square
+      rawValue = phase < 0.5 ? 0 : 1;
+      break;
+    case 2: // Random (sample & hold)
+      // Random changes once per cycle
+      if (Math.floor(now * lfoRate) !== Math.floor((now - 0.02) * lfoRate)) {
+        lfoValue = Math.random();
+      }
+      rawValue = lfoValue;
+      break;
+    case 3: // Sine
+      rawValue = (Math.sin(phase * Math.PI * 2) + 1) / 2;
+      break;
+    case 4: // Sawtooth
+      rawValue = phase;
+      break;
+    default:
+      rawValue = 0.5;
+  }
+  
+  lfoValue = rawValue;
+  
+  // Convert to multiplier (same as macro system)
+  const multiplier = lfoValue * 2; // 0 to 2
+  
+  // Apply modulation to all connected destinations
+  modulationDestinations.forEach(destination => {
+    const connectedSource = destinationConnections[destination];
+    
+    if (connectedSource === 'LFO') {
+      const depth = destinationDepths[destination];
+      const scaledMultiplier = 1.0 + ((multiplier - 1.0) * depth);
+      
+      // Use the same applyModulationToDestination function that macros use
+      // This handles both knobs and sliders uniformly
+      applyModulationToDestination(destination, scaledMultiplier);
+    }
   });
 }
 
@@ -2801,6 +2909,17 @@ const knobInitializations = {
         
         console.log('Matrix Depth:', value.toFixed(2));
     },
+    'mod-depth-knob': (value) => {
+        const tooltip = createTooltipForKnob('mod-depth-knob', value);
+        tooltip.textContent = `LFO Depth: ${(value * 100).toFixed(0)}%`;
+        tooltip.style.opacity = '1';
+        
+        // Update global LFO depth
+        lfoDepth = value;
+        
+        console.log('LFO Depth:', value.toFixed(2));
+    },
+    // NOTE: mod-shape-knob is handled separately in uiPlaceholders.js with discrete positions
     'master-volume-knob': (value) => {
         const tooltip = createTooltipForKnob('master-volume-knob', value);
         tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
@@ -6874,6 +6993,32 @@ initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool);
 setupNonLinearFilterSlider(); // Set up non-linear cutoff mapping BEFORE filter controls
 initializeFilterControls();
 initializeModulationRouting();
+
+// Initialize LFO system
+initializeLFO();
+
+// Add LFO rate slider handler
+const rateSlider = document.querySelector('.rate-slider-range');
+if (rateSlider) {
+  rateSlider.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+    // Map 0-1 to 0.1-20 Hz (logarithmic)
+    lfoRate = 0.1 * Math.pow(200, value); // 0.1 Hz to 20 Hz
+    restartLFO();
+    console.log(`LFO Rate: ${lfoRate.toFixed(2)} Hz`);
+  });
+}
+
+// Add LFO fade slider handler  
+const fadeSlider = document.querySelector('.delay-slider-range');
+if (fadeSlider) {
+  fadeSlider.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+    lfoFade = value;
+    console.log(`LFO Fade: ${(lfoFade * 100).toFixed(0)}%`);
+  });
+}
+
 // Set filter defaults
   if (filterManager) {
     // Set default filter values
