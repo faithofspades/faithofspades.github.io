@@ -85,6 +85,7 @@ Tone.setContext(audioCtx);
 // Dual ADSR system state variables
 let adsrMode = 'adsr'; // 'adsr' or 'filter'
 let classicModeEnabled = false; // Only active when adsrMode === 'filter'
+let currentFilterType = 'lp24'; // Track current filter type for dynamic tooltips
 function initializeFilterSystem() {
   // Create filter manager instance
   filterManager = new FilterManager(audioCtx);
@@ -574,15 +575,37 @@ function initializeFilterControls() {
     filterTypeSelector.addEventListener('input', (e) => {
       const value = parseInt(e.target.value);
       let filterType = 'none';
+      let filterLabel = '';
       
       // Map slider position to filter type
       switch (value) {
-        case 4: filterType = 'lp12'; break;
-        case 3: filterType = 'lp24'; break; // Moog filter
-        case 2: filterType = 'lh12'; break;
-        case 1: filterType = 'lh18'; break;
-        case 0: filterType = 'lh24'; break;
+        case 4: 
+          filterType = 'lp12'; 
+          filterLabel = 'Low Pass 12dB';
+          break;
+        case 3: 
+          filterType = 'lp24'; 
+          filterLabel = 'Low Pass 24dB';
+          break;
+        case 2: 
+          filterType = 'lh12'; 
+          filterLabel = 'Low 12 + High 6';
+          break;
+        case 1: 
+          filterType = 'lh18'; 
+          filterLabel = 'Low/High 12dB';
+          break;
+        case 0: 
+          filterType = 'lh24'; 
+          filterLabel = 'Low/High 24dB';
+          break;
       }
+      
+      // Show tooltip on the right
+      createTooltipForSlider(e.target, filterLabel, 'right');
+      
+      // Update global filter type for dynamic tooltips
+      currentFilterType = filterType;
       
       if (filterManager) {
         filterManager.setFilterType(filterType);
@@ -590,6 +613,9 @@ function initializeFilterControls() {
       
       console.log(`Filter type set to: ${filterType}`);
     });
+    
+    filterTypeSelector.addEventListener('mouseup', () => hideTooltipForSlider(filterTypeSelector));
+    filterTypeSelector.addEventListener('touchend', () => hideTooltipForSlider(filterTypeSelector));
   }
   
   // Frequency Slider - Handled by setupNonLinearFilterSlider()
@@ -601,6 +627,9 @@ function initializeFilterControls() {
     resSlider.value = 0.0; // Set to 0%
     resSlider.addEventListener('input', (e) => {
       let value = parseFloat(e.target.value);
+      
+      // Show tooltip on the right
+      createTooltipForSlider(e.target, `${Math.round(value * 100)}%`, 'right');
       
       // Check if this slider has active macro modulation
       const destination = knobToDestinationMap['filter-resonance'];
@@ -620,6 +649,9 @@ function initializeFilterControls() {
         filterManager.setResonance(value);
       }
     });
+    
+    resSlider.addEventListener('mouseup', () => hideTooltipForSlider(resSlider));
+    resSlider.addEventListener('touchend', () => hideTooltipForSlider(resSlider));
   }
   
   // Drive Slider - DEFAULT TO 0%
@@ -628,11 +660,20 @@ if (driveSlider) {
   driveSlider.value = 0.5; // Set to 50% (unity gain)
   driveSlider.addEventListener('input', (e) => {
     const value = parseFloat(e.target.value);
+    
+    // Show tooltip on top
+    createTooltipForSlider(e.target, `Drive: ${Math.round(value * 100)}%`, 'top');
+    
     if (filterManager) {
       // Drive slider controls inputGain for LP24/LP12/LH12, but LH18 needs setDrive
       filterManager.setInputGain(value);
     }
   });
+  
+  // Hide tooltip on release
+  driveSlider.addEventListener('mouseup', () => hideTooltipForSlider(driveSlider));
+  driveSlider.addEventListener('touchend', () => hideTooltipForSlider(driveSlider));
+  
   // Initialize the filter with the default value
   if (filterManager) {
     filterManager.setInputGain(0.5);
@@ -645,6 +686,22 @@ if (driveSlider) {
     variantSlider.value = 1.0; // Set to 100% (maximum)
     variantSlider.addEventListener('input', (e) => {
       let value = parseFloat(e.target.value);
+      
+      // Create dynamic tooltip based on current filter type
+      let tooltipText;
+      if (currentFilterType === 'lp12') {
+        tooltipText = `Diode: ${Math.round(value * 100)}%`;
+      } else if (currentFilterType === 'lp24') {
+        tooltipText = `Bass Compensation: ${Math.round(value * 100)}%`;
+      } else if (currentFilterType.startsWith('lh')) {
+        // For LH filters, show high-pass frequency (16kHz at 0 to 8Hz at 1, logarithmic)
+        const frequency = 16000 * Math.pow(8/16000, value);
+        tooltipText = `High Pass: ${Math.round(frequency)} Hz`;
+      } else {
+        tooltipText = `Variant: ${Math.round(value * 100)}%`;
+      }
+      
+      createTooltipForSlider(e.target, tooltipText, 'top');
       
       // Check if this slider has active macro modulation
       const destination = knobToDestinationMap['filter-variant'];
@@ -664,6 +721,10 @@ if (driveSlider) {
         filterManager.setVariant(value);
       }
     });
+    
+    // Hide tooltip on release
+    variantSlider.addEventListener('mouseup', () => hideTooltipForSlider(variantSlider));
+    variantSlider.addEventListener('touchend', () => hideTooltipForSlider(variantSlider));
   }
   
   // Check if ADSR knob exists, create it if not
@@ -3092,7 +3153,7 @@ const knobInitializations = {
         if (finalValue === 0) {
             tooltip.textContent = 'MUTED';
         } else {
-            tooltip.textContent = `Sampler: ${(finalValue * 100).toFixed(0)}%`;
+            tooltip.textContent = `${(finalValue * 100).toFixed(0)}%`;
         }
         tooltip.style.opacity = '1';
         
@@ -3125,7 +3186,7 @@ const knobInitializations = {
 
     // Show and update tooltip
     const tooltip = createTooltipForKnob('sample-pitch-knob', value);
-    tooltip.textContent = `${currentSampleDetune.toFixed(0)} cents`;
+    tooltip.textContent = `${currentSampleDetune.toFixed(0)}c`;
     tooltip.style.opacity = '1';
 
     // CRITICAL FIX: Update samplerVoicePool, not voicePool
@@ -3186,7 +3247,7 @@ const knobInitializations = {
         }
         
         const tooltip = createTooltipForKnob('osc1-gain-knob', value);
-        tooltip.textContent = `Gain: ${(finalValue * 100).toFixed(0)}%`;
+        tooltip.textContent = `${(finalValue * 100).toFixed(0)}%`;
         tooltip.style.opacity = '1';
         osc1GainValue = finalValue; // Update the global gain value with modulated value
 
@@ -3226,7 +3287,7 @@ const knobInitializations = {
         osc1Detune = (finalValue - 0.5) * 200; // Example mapping
 
         const tooltip = createTooltipForKnob('osc1-pitch-knob', value);
-        tooltip.textContent = `Detune: ${osc1Detune.toFixed(0)}c`;
+        tooltip.textContent = `${osc1Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
 
         const now = audioCtx.currentTime;
@@ -3276,7 +3337,7 @@ const knobInitializations = {
 
         // Update tooltip
         const tooltip = createTooltipForKnob('osc1-fm-knob', value);
-        tooltip.textContent = `FM: ${(scaledDepth).toFixed(0)}Hz`;
+        tooltip.textContent = `${(scaledDepth).toFixed(0)} Hz`;
         tooltip.style.opacity = '1';
 
         // --- UPDATE Per-Voice ---
@@ -3524,10 +3585,10 @@ const knobInitializations = {
     
     // Update display text - show "OFF" when at zero
     if (finalValue === 0) {
-        tooltip.textContent = "PWM: OFF";
+        tooltip.textContent = "OFF";
     } else {
         // FIXED: Show actual 0-95% range
-        tooltip.textContent = `PW: ${Math.round(finalValue * 95)}%`;
+        tooltip.textContent = `${Math.round(finalValue * 95)}%`;
     }
     tooltip.style.opacity = '1';
     
@@ -3578,7 +3639,7 @@ const knobInitializations = {
     osc1QuantizeValue = finalValue;
     
     const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
-    tooltip.textContent = `Quant: ${Math.round(finalValue * 100)}%`;
+    tooltip.textContent = `${Math.round(finalValue * 100)}%`;
     tooltip.style.opacity = '1';
     
     // Update active notes
@@ -3615,7 +3676,7 @@ const knobInitializations = {
         
         osc2GainValue = finalValue;
         const tooltip = createTooltipForKnob('osc2-gain-knob', value);
-        tooltip.textContent = `Gain: ${Math.round(finalValue * 100)}%`;
+        tooltip.textContent = `${Math.round(finalValue * 100)}%`;
         tooltip.style.opacity = '1';
         // Update active Osc2 notes
         // <<< CHANGE: Iterate over voicePool >>>
@@ -3647,7 +3708,7 @@ const knobInitializations = {
         // Map 0-1 to -100 to +100 cents using modulated value
         osc2Detune = (finalValue - 0.5) * 200;
         const tooltip = createTooltipForKnob('osc2-pitch-knob', value);
-        tooltip.textContent = `Pitch: ${osc2Detune.toFixed(0)}c`;
+        tooltip.textContent = `${osc2Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
         const now = audioCtx.currentTime;
         // Update active Osc2 notes
@@ -3691,10 +3752,10 @@ const knobInitializations = {
     
     // Update display text - show "OFF" when at zero
     if (finalValue === 0) {
-        tooltip.textContent = "PWM: OFF";
+        tooltip.textContent = "OFF";
     } else {
         // FIXED: Show actual 0-95% range
-        tooltip.textContent = `PW: ${Math.round(finalValue * 95)}%`;
+        tooltip.textContent = `${Math.round(finalValue * 95)}%`;
     }
     tooltip.style.opacity = '1';
     
@@ -3745,7 +3806,7 @@ const knobInitializations = {
     osc2QuantizeValue = finalValue;
     
     const tooltip = createTooltipForKnob('osc2-quantize-knob', value);
-    tooltip.textContent = `Quant: ${Math.round(finalValue * 100)}%`;
+    tooltip.textContent = `${Math.round(finalValue * 100)}%`;
     tooltip.style.opacity = '1';
     
     // Update active notes
@@ -3793,7 +3854,7 @@ const knobInitializations = {
 
         // Update tooltip
         const tooltip = createTooltipForKnob('osc2-fm-knob', value);
-        tooltip.textContent = `FM: ${(scaledDepth).toFixed(0)}Hz`;
+        tooltip.textContent = `${(scaledDepth).toFixed(0)} Hz`;
         tooltip.style.opacity = '1';
 
         // --- UPDATE Per-Voice ---
@@ -4676,6 +4737,46 @@ return newTooltip;
 return tooltip;
 }
 
+// Create tooltip for sliders
+function createTooltipForSlider(slider, text, position = 'top') {
+    const sliderId = slider.id || slider.className;
+    let tooltip = document.getElementById(`${sliderId}-tooltip`);
+    
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = `${sliderId}-tooltip`;
+        tooltip.className = 'tooltip';
+        document.body.appendChild(tooltip);
+    }
+    
+    // Position tooltip near slider
+    const sliderRect = slider.getBoundingClientRect();
+    
+    if (position === 'right') {
+        tooltip.style.left = `${sliderRect.right + 10}px`;
+        tooltip.style.top = `${sliderRect.top + sliderRect.height / 2 - 10}px`;
+    } else {
+        // top position
+        tooltip.style.left = `${sliderRect.left + sliderRect.width / 2 - 30}px`;
+        tooltip.style.top = `${sliderRect.top - 30}px`;
+    }
+    
+    tooltip.textContent = text;
+    tooltip.style.display = 'block';
+    tooltip.style.opacity = '1';
+    
+    return tooltip;
+}
+
+function hideTooltipForSlider(slider) {
+    const sliderId = slider.id || slider.className;
+    const tooltip = document.getElementById(`${sliderId}-tooltip`);
+    if (tooltip) {
+        tooltip.style.opacity = '0';
+        setTimeout(() => { tooltip.style.display = 'none'; }, 200);
+    }
+}
+
 // Update the document mouseup handler to hide all tooltips
 document.addEventListener('mouseup', () => {
 document.querySelectorAll('.tooltip').forEach(tooltip => {
@@ -4774,12 +4875,24 @@ function initializeFilterPrecisionSlider(slider) {
     // Map position to frequency using non-linear mapping
     const frequency = positionToFrequency(position);
     
+    // Show tooltip on the right
+    createTooltipForSlider(this, `${Math.round(frequency)} Hz`, 'right');
+    
     // Update filter cutoff
     if (filterManager) {
       filterManager.setCutoff(frequency);
     }
     
     console.log(`Filter: sliderValue=${this.value}, position=${position.toFixed(4)}, frequency=${frequency}Hz`);
+  });
+  
+  // Hide tooltip on mouseup/touchend
+  newSlider.addEventListener('mouseup', function() {
+    hideTooltipForSlider(this);
+  });
+  
+  newSlider.addEventListener('touchend', function() {
+    hideTooltipForSlider(this);
   });
   
   // Initialize with maximum frequency (16000Hz)
@@ -7143,9 +7256,16 @@ if (rateSlider) {
     const value = parseFloat(e.target.value);
     // Map 0-1 to 0.1-20 Hz (logarithmic)
     lfoRate = 0.1 * Math.pow(200, value); // 0.1 Hz to 20 Hz
+    
+    // Show tooltip on the right
+    createTooltipForSlider(e.target, `${lfoRate.toFixed(2)} Hz`, 'right');
+    
     restartLFO();
     console.log(`LFO Rate: ${lfoRate.toFixed(2)} Hz`);
   });
+  
+  rateSlider.addEventListener('mouseup', () => hideTooltipForSlider(rateSlider));
+  rateSlider.addEventListener('touchend', () => hideTooltipForSlider(rateSlider));
 }
 
 // Add LFO fade slider handler  
@@ -7154,8 +7274,16 @@ if (fadeSlider) {
   fadeSlider.addEventListener('input', (e) => {
     const value = parseFloat(e.target.value);
     lfoFade = value;
+    
+    // Show tooltip on the right
+    const fadeTime = value * 5; // Max 5 seconds
+    createTooltipForSlider(e.target, `${fadeTime.toFixed(2)}s`, 'right');
+    
     console.log(`LFO Fade: ${(lfoFade * 100).toFixed(0)}%`);
   });
+  
+  fadeSlider.addEventListener('mouseup', () => hideTooltipForSlider(fadeSlider));
+  fadeSlider.addEventListener('touchend', () => hideTooltipForSlider(fadeSlider));
 }
 
 // Set filter defaults
@@ -7353,7 +7481,11 @@ if (osc1OctaveSelector) {
 
         // Map slider value (0, 1, 2, 3, 4) to octave offset (-2, -1, 0, 1, 2)
         const octaveOffsetMap = [-2, -1, 0, 1, 2];
+        const octaveLabels = ['-2 Octaves', '-1 Octave', '0 Octave', '+1 Octave', '+2 Octaves'];
         osc1OctaveOffset = octaveOffsetMap[sliderValue] || 0; // Default to 0 if mapping fails
+
+        // Show tooltip on top
+        createTooltipForSlider(event.target, octaveLabels[sliderValue], 'top');
 
         console.log(`Osc1 Octave Selector value: ${sliderValue}, Offset set to: ${osc1OctaveOffset}`);
 
@@ -7404,11 +7536,17 @@ function updatePWMKnobState() {
 if (osc1WaveSelector) {
     // Set initial waveform
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    const waveformLabels = ['Sine', 'Saw', 'Triangle', 'Square', 'Pulse'];
     osc1Waveform = waveformMap[parseInt(osc1WaveSelector.value)];
     
     // Change from 'change' to 'input' event for immediate updates
     osc1WaveSelector.addEventListener('input', (e) => {
-        osc1Waveform = waveformMap[parseInt(e.target.value)];
+        const waveIndex = parseInt(e.target.value);
+        osc1Waveform = waveformMap[waveIndex];
+        
+        // Show tooltip on top
+        createTooltipForSlider(e.target, waveformLabels[waveIndex], 'top');
+        
         console.log(`Osc1 waveform changed to: ${osc1Waveform}`);
         
         // Update all active Osc1 notes with new waveform
@@ -7424,7 +7562,18 @@ if (osc1WaveSelector) {
         
         updatePWMKnobState(); // Update PWM knob visibility/state
     });
+    
+    // Hide tooltips on release
+    osc1WaveSelector.addEventListener('mouseup', () => hideTooltipForSlider(osc1WaveSelector));
+    osc1WaveSelector.addEventListener('touchend', () => hideTooltipForSlider(osc1WaveSelector));
 }
+
+// Hide tooltips for OSC1 octave selector
+if (osc1OctaveSelector) {
+    osc1OctaveSelector.addEventListener('mouseup', () => hideTooltipForSlider(osc1OctaveSelector));
+    osc1OctaveSelector.addEventListener('touchend', () => hideTooltipForSlider(osc1OctaveSelector));
+}
+
 // Replace your existing sample auto-loading code with this:
 // document.addEventListener('DOMContentLoaded', function() {
 //     // Add a listener for user interaction before loading sample
@@ -7751,7 +7900,11 @@ if (osc2OctaveSelector) {
     osc2OctaveSelector.addEventListener('input', (event) => {
         const sliderValue = parseInt(event.target.value, 10);
         const octaveOffsetMap = [-2, -1, 0, 1, 2];
+        const octaveLabels = ['-2 Octaves', '-1 Octave', '0 Octave', '+1 Octave', '+2 Octaves'];
         osc2OctaveOffset = octaveOffsetMap[sliderValue] || 0;
+        
+        // Show tooltip on top
+        createTooltipForSlider(event.target, octaveLabels[sliderValue], 'top');
         
         // CRITICAL FIX: Add +1 to the offset for the permanent octave shift
         const adjustedOsc2Offset = osc2OctaveOffset + 1;
@@ -7785,11 +7938,17 @@ const osc2WaveSelector = D('osc2-wave-selector');
 if (osc2WaveSelector) {
     // Set initial waveform
     const waveformMap = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+    const waveformLabels = ['Sine', 'Saw', 'Triangle', 'Square', 'Pulse'];
     osc2Waveform = waveformMap[parseInt(osc2WaveSelector.value)];
     
     // Change from 'change' to 'input' event for immediate updates
     osc2WaveSelector.addEventListener('input', (e) => {
-        osc2Waveform = waveformMap[parseInt(e.target.value)];
+        const waveIndex = parseInt(e.target.value);
+        osc2Waveform = waveformMap[waveIndex];
+        
+        // Show tooltip on top
+        createTooltipForSlider(e.target, waveformLabels[waveIndex], 'top');
+        
         console.log(`Osc2 waveform changed to: ${osc2Waveform}`);
         
         // Update all active Osc2 notes with new waveform
@@ -7805,7 +7964,18 @@ if (osc2WaveSelector) {
         
         updateOsc2PWMKnobState();
     });
+    
+    // Hide tooltips on release
+    osc2WaveSelector.addEventListener('mouseup', () => hideTooltipForSlider(osc2WaveSelector));
+    osc2WaveSelector.addEventListener('touchend', () => hideTooltipForSlider(osc2WaveSelector));
 }
+
+// Hide tooltips for OSC2 octave selector
+if (osc2OctaveSelector) {
+    osc2OctaveSelector.addEventListener('mouseup', () => hideTooltipForSlider(osc2OctaveSelector));
+    osc2OctaveSelector.addEventListener('touchend', () => hideTooltipForSlider(osc2OctaveSelector));
+}
+
 // Fix the OSC2 FM Source Switch (already exists around line 5350 but needs correction)
 const osc2FmSourceSwitchElement = D('osc2-fm-source-switch');
 if (osc2FmSourceSwitchElement) {
