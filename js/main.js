@@ -224,6 +224,19 @@ function setMasterClockRate(clockNumber, noteNumber, detune = 0) {
         console.log(`Set master clock ${clockNumber} to ${frequency.toFixed(2)} Hz (note ${noteNumber})`);
     }
 }
+// Global helper function to convert visual position (0-1) to frequency
+function filterPositionToFrequency(position) {
+  // logarithmic mapping with 500Hz at midpoint
+  let frequency;
+  if (position <= 0.5) {
+    frequency = 8 * Math.pow(500/8, position*2); // 0-0.5 maps to 8-500Hz
+  } else {
+    frequency = 500 * Math.pow(16000/500, (position-0.5)*2); // 0.5-1 maps to 500-16000Hz
+  }
+  // Round to nearest whole Hz to avoid fractional frequencies
+  return Math.round(frequency);
+}
+
 function setupNonLinearFilterSlider() {
   const slider = document.querySelector('.freq-slider-range');
   if (!slider) return;
@@ -239,19 +252,6 @@ function setupNonLinearFilterSlider() {
   const newSlider = slider.cloneNode(true);
   slider.parentNode.replaceChild(newSlider, slider);
   
-  // Function to convert visual position (0-1) to frequency
-  function positionToFrequency(position) {
-    // logarithmic mapping with 500Hz at midpoint
-    let frequency;
-    if (position <= 0.5) {
-      frequency = 8 * Math.pow(500/8, position*2); // 0-0.5 maps to 8-500Hz
-    } else {
-      frequency = 500 * Math.pow(16000/500, (position-0.5)*2); // 0.5-1 maps to 500-16000Hz
-    }
-    // Round to nearest whole Hz to avoid fractional frequencies
-    return Math.round(frequency);
-  }
-  
   // Function to convert frequency to visual position
   function frequencyToPosition(freq) {
     if (freq <= 500) {
@@ -264,17 +264,29 @@ function setupNonLinearFilterSlider() {
   // Update filter cutoff when slider is moved
   newSlider.oninput = function(e) {
     // Calculate visual position based on slider physical position
-    const visualPosition = parseInt(this.value) / (parseInt(this.max) - parseInt(this.min));
+    let visualPosition = parseInt(this.value) / (parseInt(this.max) - parseInt(this.min));
+    
+    // Check if this slider has active macro modulation
+    const destination = knobToDestinationMap['filter-cutoff'];
+    if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+      const multiplier = destinationModulations[destination];
+      
+      // Apply multiplier to position (0-1 range)
+      visualPosition = visualPosition * multiplier;
+      
+      // Clamp to 0-1 range
+      visualPosition = Math.max(0, Math.min(1, visualPosition));
+      
+      console.log(`Filter cutoff modulated: base=${(parseInt(this.value) / (parseInt(this.max) - parseInt(this.min))).toFixed(2)}, multiplier=${multiplier.toFixed(2)}, final=${visualPosition.toFixed(2)}`);
+    }
     
     // Convert to frequency using our mapping (already rounded to whole Hz)
-    const frequency = positionToFrequency(visualPosition);
+    const frequency = filterPositionToFrequency(visualPosition);
     
     // Update filter
     if (filterManager) {
       filterManager.setCutoff(frequency);
     }
-    
-    console.log(`Filter slider: position=${visualPosition.toFixed(2)}, frequency=${frequency}Hz`);
   };
   
   // Initialize with correct frequency (500Hz at midpoint)
@@ -580,29 +592,30 @@ function initializeFilterControls() {
     });
   }
   
-  // Frequency Slider - DEFAULT TO 16000Hz (max, no filtering)
-  const freqSlider = document.querySelector('.freq-slider-range');
-  if (freqSlider) {
-    freqSlider.value = 16000; // Set to max frequency (16000 Hz)
-    freqSlider.addEventListener('input', (e) => {
-      const frequency = parseFloat(e.target.value);
-      if (filterManager) {
-        filterManager.setCutoff(frequency);
-      }
-    });
-    
-    // Initialize the filter with max cutoff
-    if (filterManager) {
-      filterManager.setCutoff(16000);
-    }
-  }
+  // Frequency Slider - Handled by setupNonLinearFilterSlider()
+  // DO NOT add event listener here - it conflicts with the non-linear mapping setup
   
   // Resonance Slider - DEFAULT TO 0%%
   const resSlider = document.querySelector('.res-slider-range');
   if (resSlider) {
     resSlider.value = 0.0; // Set to 0%
     resSlider.addEventListener('input', (e) => {
-      const value = parseFloat(e.target.value);
+      let value = parseFloat(e.target.value);
+      
+      // Check if this slider has active macro modulation
+      const destination = knobToDestinationMap['filter-resonance'];
+      if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier
+        value = value * multiplier;
+        
+        // Clamp to 0-1 range
+        value = Math.max(0, Math.min(1, value));
+        
+        console.log(`Filter resonance modulated: multiplier=${multiplier.toFixed(2)}, final=${value.toFixed(2)}`);
+      }
+      
       if (filterManager) {
         filterManager.setResonance(value);
       }
@@ -631,7 +644,22 @@ if (driveSlider) {
   if (variantSlider) {
     variantSlider.value = 1.0; // Set to 100% (maximum)
     variantSlider.addEventListener('input', (e) => {
-      const value = parseFloat(e.target.value);
+      let value = parseFloat(e.target.value);
+      
+      // Check if this slider has active macro modulation
+      const destination = knobToDestinationMap['filter-variant'];
+      if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier
+        value = value * multiplier;
+        
+        // Clamp to 0-1 range
+        value = Math.max(0, Math.min(1, value));
+        
+        console.log(`Filter variant modulated: multiplier=${multiplier.toFixed(2)}, final=${value.toFixed(2)}`);
+      }
+      
       if (filterManager) {
         filterManager.setVariant(value);
       }
@@ -2236,6 +2264,9 @@ const destinationToKnobMap = {
   'Osc 2 Quant': 'osc2-quantize-knob',
   'Osc 1 FM': 'osc1-fm-knob',
   'Osc 2 FM': 'osc2-fm-knob',
+  'Cutoff': 'filter-cutoff',
+  'Resonance': 'filter-resonance',
+  'Variant': 'filter-variant',
   // Add more mappings as needed
 };
 
@@ -2260,12 +2291,13 @@ function applyModulationToDestination(destination, modulation) {
   
   console.log(`    -> ${destination}: Stored modulation ${(modulation * 100).toFixed(0)}%`);
   
-  // Find the corresponding knob and trigger its callback to apply the modulation in real-time
-  const knobId = destinationToKnobMap[destination];
-  if (knobId) {
-    const knobElement = document.getElementById(knobId);
-    if (knobElement) {
-      // Extract the current knob rotation (user-set position)
+  // Find the corresponding element and trigger its callback to apply the modulation in real-time
+  const elementId = destinationToKnobMap[destination];
+  if (elementId) {
+    // Try as a knob first
+    let knobElement = document.getElementById(elementId);
+    if (knobElement && knobElement.classList.contains('knob')) {
+      // It's a knob - extract rotation
       const transform = knobElement.style.transform;
       const match = transform.match(/rotate\((-?\d+\.?\d*)deg\)/);
       if (match) {
@@ -2273,9 +2305,49 @@ function applyModulationToDestination(destination, modulation) {
         const baseValue = (rotation + 150) / 300; // Convert rotation to 0-1 value
         
         // Trigger the knob's callback with the base value
-        const callback = knobInitializations[knobId];
+        const callback = knobInitializations[elementId];
         if (callback) {
           callback(baseValue);
+        }
+      }
+    } else {
+      // It's a slider - handle filter sliders directly
+      if (elementId === 'filter-cutoff') {
+        const sliderElement = document.querySelector('.freq-slider-range');
+        if (sliderElement && filterManager) {
+          // Get current slider position (0-1)
+          const sliderValue = parseInt(sliderElement.value);
+          const sliderMin = parseInt(sliderElement.min);
+          const sliderMax = parseInt(sliderElement.max);
+          let position = sliderValue / (sliderMax - sliderMin);
+          
+          // Apply modulation
+          position = position * modulation;
+          position = Math.max(0, Math.min(1, position));
+          
+          // Convert to frequency and apply
+          const frequency = filterPositionToFrequency(position);
+          filterManager.setCutoff(frequency);
+          
+          console.log(`    -> Filter cutoff: position=${position.toFixed(2)}, frequency=${frequency}Hz`);
+        }
+      } else if (elementId === 'filter-resonance') {
+        const sliderElement = document.querySelector('.res-slider-range');
+        if (sliderElement && filterManager) {
+          let value = parseFloat(sliderElement.value);
+          value = value * modulation;
+          value = Math.max(0, Math.min(1, value));
+          filterManager.setResonance(value);
+          console.log(`    -> Filter resonance: ${value.toFixed(2)}`);
+        }
+      } else if (elementId === 'filter-variant') {
+        const sliderElement = document.querySelector('.variant-slider-range');
+        if (sliderElement && filterManager) {
+          let value = parseFloat(sliderElement.value);
+          value = value * modulation;
+          value = Math.max(0, Math.min(1, value));
+          filterManager.setVariant(value);
+          console.log(`    -> Filter variant: ${value.toFixed(2)}`);
         }
       }
     }
@@ -2791,7 +2863,8 @@ const knobInitializations = {
         const destination = knobToDestinationMap['sample-volume-knob'];
         let finalValue = value;
         
-        if (destination && destinationModulations[destination] !== undefined) {
+        // Only apply modulation if destination has a connected source AND a valid multiplier
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
             const multiplier = destinationModulations[destination];
             
             // Apply multiplier directly to the knob value
@@ -2823,7 +2896,7 @@ const knobInitializations = {
     const destination = knobToDestinationMap['sample-pitch-knob'];
     let finalValue = value;
     
-    if (destination && destinationModulations[destination] !== undefined) {
+    if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
         const multiplier = destinationModulations[destination];
         
         // Apply multiplier directly to the knob value
@@ -2889,7 +2962,7 @@ const knobInitializations = {
         const destination = knobToDestinationMap['osc1-gain-knob'];
         let finalValue = value;
         
-        if (destination && destinationModulations[destination] !== undefined) {
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
             const multiplier = destinationModulations[destination];
             
             // Apply multiplier directly to the knob value
@@ -2926,7 +2999,7 @@ const knobInitializations = {
         const destination = knobToDestinationMap['osc1-pitch-knob'];
         let finalValue = value;
         
-        if (destination && destinationModulations[destination] !== undefined) {
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
             const multiplier = destinationModulations[destination];
             
             // Apply multiplier directly to the knob value
@@ -2963,8 +3036,24 @@ const knobInitializations = {
         console.log('Osc1 Detune:', osc1Detune.toFixed(2));
     },
     'osc1-fm-knob': (value) => {
-        // Apply exponential curve
-        const curvedValue = value * value;
+        // Check if this knob has active macro modulation
+        const destination = knobToDestinationMap['osc1-fm-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range (ceiling)
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Osc1 FM modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
+        // Apply exponential curve to modulated value
+        const curvedValue = finalValue * finalValue;
         const prevFMAmount = osc1FMAmount; // Store previous amount
         osc1FMAmount = curvedValue; // Update global curved value
 
@@ -3201,17 +3290,33 @@ const knobInitializations = {
     // Update the PWM knob callbacks to work with the new system
 // In knobInitializations object:
 'osc1-pwm-knob': (value) => {
-    // Always update the global value first
-    osc1PWMValue = value;
+    // Check if this knob has active macro modulation
+    const destination = knobToDestinationMap['osc1-pwm-knob'];
+    let finalValue = value;
+    
+    if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier directly to the knob value
+        finalValue = value * multiplier;
+        
+        // Clamp to 0-1 range (ceiling)
+        finalValue = Math.max(0, Math.min(1, finalValue));
+        
+        console.log(`Osc1 PWM modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+    }
+    
+    // Always update the global value with modulated value
+    osc1PWMValue = finalValue;
     
     const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
     
     // Update display text - show "OFF" when at zero
-    if (value === 0) {
+    if (finalValue === 0) {
         tooltip.textContent = "PWM: OFF";
     } else {
         // FIXED: Show actual 0-95% range
-        tooltip.textContent = `PW: ${Math.round(value * 95)}%`;
+        tooltip.textContent = `PW: ${Math.round(finalValue * 95)}%`;
     }
     tooltip.style.opacity = '1';
     
@@ -3220,10 +3325,15 @@ const knobInitializations = {
     voicePool.forEach(voice => {
         if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
             // FIXED: When value is 0, PWM is OFF (use waveform default)
-            // Otherwise map 0.01-1.0 to 0.01-0.95
-            const pulseWidth = (value === 0) ? 
-                getJunoWaveformParams(osc1Waveform).pulseWidth : 
-                (value * 0.95);
+            // Otherwise map to 0.05-0.95 range (valid pulse width range)
+            let pulseWidth;
+            if (finalValue === 0) {
+                pulseWidth = getJunoWaveformParams(osc1Waveform).pulseWidth;
+            } else {
+                // Map 0.01-1.0 to 0.05-0.95 range to stay within valid bounds
+                pulseWidth = 0.05 + (finalValue * 0.90); // 0.05 to 0.95
+                pulseWidth = Math.max(0.05, Math.min(0.95, pulseWidth)); // Extra safety clamp
+            }
             
             // Apply to the current waveform
             setJunoWaveform(voice.osc1Note.workletNode, osc1Waveform, pulseWidth);
@@ -3231,17 +3341,33 @@ const knobInitializations = {
     });
     
     // Log with special case for OFF state
-    if (value === 0) {
+    if (finalValue === 0) {
         console.log(`Osc1 PWM: OFF (using default for ${osc1Waveform})`);
     } else {
-        console.log(`Osc1 PWM: ${value.toFixed(2)}, Actual PW: ${(value * 0.95).toFixed(2)}`);
+        console.log(`Osc1 PWM: ${finalValue.toFixed(2)}, Actual PW: ${(finalValue * 0.95).toFixed(2)}`);
     }
 },
     'osc1-quantize-knob': (value) => {
-    osc1QuantizeValue = value;
+    // Check if this knob has active macro modulation
+    const destination = knobToDestinationMap['osc1-quantize-knob'];
+    let finalValue = value;
+    
+    if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier directly to the knob value
+        finalValue = value * multiplier;
+        
+        // Clamp to 0-1 range (ceiling)
+        finalValue = Math.max(0, Math.min(1, finalValue));
+        
+        console.log(`Osc1 Quantize modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+    }
+    
+    osc1QuantizeValue = finalValue;
     
     const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
-    tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
+    tooltip.textContent = `Quant: ${Math.round(finalValue * 100)}%`;
     tooltip.style.opacity = '1';
     
     // Update active notes
@@ -3251,20 +3377,20 @@ const knobInitializations = {
             // Get worklet parameter
             const quantizeParam = voice.osc1Note.workletNode.parameters.get('quantizeAmount');
             if (quantizeParam) {
-                // Set parameter smoothly
-                quantizeParam.setTargetAtTime(value, now, 0.01);
+                // Set parameter smoothly using FINAL modulated value
+                quantizeParam.setTargetAtTime(finalValue, now, 0.01);
             }
         }
     });
     
-    console.log(`Osc1 Quantize: ${value.toFixed(2)}`);
+    console.log(`Osc1 Quantize: ${finalValue.toFixed(2)}`);
 },
     'osc2-gain-knob': (value) => {
         // Check if this knob has active macro modulation
         const destination = knobToDestinationMap['osc2-gain-knob'];
         let finalValue = value;
         
-        if (destination && destinationModulations[destination] !== undefined) {
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
             const multiplier = destinationModulations[destination];
             
             // Apply multiplier directly to the knob value
@@ -3295,7 +3421,7 @@ const knobInitializations = {
         const destination = knobToDestinationMap['osc2-pitch-knob'];
         let finalValue = value;
         
-        if (destination && destinationModulations[destination] !== undefined) {
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
             const multiplier = destinationModulations[destination];
             
             // Apply multiplier directly to the knob value
@@ -3331,17 +3457,33 @@ const knobInitializations = {
         console.log(`Osc2 Detune set to: ${osc2Detune.toFixed(1)} cents`);
     },
     'osc2-pwm-knob': (value) => {
-    // Always update the global value first
-    osc2PWMValue = value;
+    // Check if this knob has active macro modulation
+    const destination = knobToDestinationMap['osc2-pwm-knob'];
+    let finalValue = value;
+    
+    if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier directly to the knob value
+        finalValue = value * multiplier;
+        
+        // Clamp to 0-1 range (ceiling)
+        finalValue = Math.max(0, Math.min(1, finalValue));
+        
+        console.log(`Osc2 PWM modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+    }
+    
+    // Always update the global value with modulated value
+    osc2PWMValue = finalValue;
     
     const tooltip = createTooltipForKnob('osc2-pwm-knob', value);
     
     // Update display text - show "OFF" when at zero
-    if (value === 0) {
+    if (finalValue === 0) {
         tooltip.textContent = "PWM: OFF";
     } else {
         // FIXED: Show actual 0-95% range
-        tooltip.textContent = `PW: ${Math.round(value * 95)}%`;
+        tooltip.textContent = `PW: ${Math.round(finalValue * 95)}%`;
     }
     tooltip.style.opacity = '1';
     
@@ -3350,10 +3492,15 @@ const knobInitializations = {
     voicePool.forEach(voice => {
         if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
             // FIXED: When value is 0, PWM is OFF (use waveform default)
-            // Otherwise map 0.01-1.0 to 0.01-0.95
-            const pulseWidth = (value === 0) ? 
-                getJunoWaveformParams(osc2Waveform).pulseWidth : 
-                (value * 0.95);
+            // Otherwise map to 0.05-0.95 range (valid pulse width range)
+            let pulseWidth;
+            if (finalValue === 0) {
+                pulseWidth = getJunoWaveformParams(osc2Waveform).pulseWidth;
+            } else {
+                // Map 0.01-1.0 to 0.05-0.95 range to stay within valid bounds
+                pulseWidth = 0.05 + (finalValue * 0.90); // 0.05 to 0.95
+                pulseWidth = Math.max(0.05, Math.min(0.95, pulseWidth)); // Extra safety clamp
+            }
             
             // Apply to the current waveform
             setJunoWaveform(voice.osc2Note.workletNode, osc2Waveform, pulseWidth);
@@ -3361,17 +3508,33 @@ const knobInitializations = {
     });
     
     // Log with special case for OFF state
-    if (value === 0) {
+    if (finalValue === 0) {
         console.log(`Osc2 PWM: OFF (using default for ${osc2Waveform})`);
     } else {
-        console.log(`Osc2 PWM: ${value.toFixed(2)}, Actual PW: ${(value * 0.95).toFixed(2)}`);
+        console.log(`Osc2 PWM: ${finalValue.toFixed(2)}, Actual PW: ${(finalValue * 0.95).toFixed(2)}`);
     }
 },
     'osc2-quantize-knob': (value) => {
-    osc2QuantizeValue = value;
+    // Check if this knob has active macro modulation
+    const destination = knobToDestinationMap['osc2-quantize-knob'];
+    let finalValue = value;
+    
+    if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier directly to the knob value
+        finalValue = value * multiplier;
+        
+        // Clamp to 0-1 range (ceiling)
+        finalValue = Math.max(0, Math.min(1, finalValue));
+        
+        console.log(`Osc2 Quantize modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+    }
+    
+    osc2QuantizeValue = finalValue;
     
     const tooltip = createTooltipForKnob('osc2-quantize-knob', value);
-    tooltip.textContent = `Quant: ${Math.round(value * 100)}%`;
+    tooltip.textContent = `Quant: ${Math.round(finalValue * 100)}%`;
     tooltip.style.opacity = '1';
     
     // Update active notes
@@ -3381,17 +3544,33 @@ const knobInitializations = {
             // Get worklet parameter
             const quantizeParam = voice.osc2Note.workletNode.parameters.get('quantizeAmount');
             if (quantizeParam) {
-                // Set parameter smoothly
-                quantizeParam.setTargetAtTime(value, now, 0.01);
+                // Set parameter smoothly using FINAL modulated value
+                quantizeParam.setTargetAtTime(finalValue, now, 0.01);
             }
         }
     });
     
-    console.log(`Osc2 Quantize: ${value.toFixed(2)}`);
+    console.log(`Osc2 Quantize: ${finalValue.toFixed(2)}`);
 },
     'osc2-fm-knob': (value) => {
-        // Apply exponential curve
-        const curvedValue = value * value;
+        // Check if this knob has active macro modulation
+        const destination = knobToDestinationMap['osc2-fm-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range (ceiling)
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Osc2 FM modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
+        // Apply exponential curve to modulated value
+        const curvedValue = finalValue * finalValue;
         const prevFMAmount = osc2FMAmount; // <<< Store previous amount
         osc2FMAmount = curvedValue; // Store curved value
 
@@ -6686,6 +6865,7 @@ updateADSRVisualization();
 
 // Initialize Keyboard Module
 initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool);
+setupNonLinearFilterSlider(); // Set up non-linear cutoff mapping BEFORE filter controls
 initializeFilterControls();
 initializeModulationRouting();
 // Set filter defaults
