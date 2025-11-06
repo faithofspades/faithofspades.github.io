@@ -1240,6 +1240,8 @@ function initializeModCanvasModulation() {
       applyMODCanvasModulation();
     } else if (modCanvasMode === 'env') {
       applyMODCanvasEnvelopeModulation();
+    } else if (modCanvasMode === 'trig') {
+      applyMODCanvasTrigModulation();
     }
     modCanvasUpdateInterval = requestAnimationFrame(modCanvasUpdate);
   }
@@ -1477,6 +1479,119 @@ function applyMODCanvasEnvelopeModulation() {
   
   // Sample the canvas waveform at this phase
   modCanvasValue = sampleCanvasWaveform(envelopePhase);
+  
+  // Convert 0-1 value to bipolar modulation (0 to 2 as multiplier)
+  const polarizedValue = modCanvasValue * 2.0;
+  
+  // Apply modulation to all connected destinations
+  modulationDestinations.forEach(destination => {
+    const connectedSource = destinationConnections[destination];
+    
+    if (connectedSource === 'MOD') {
+      const matrixDepth = destinationDepths[destination];
+      
+      // Matrix depth scales the polarized modulation amount
+      const scaledMultiplier = 1.0 + ((polarizedValue - 1.0) * matrixDepth);
+      
+      // Apply modulation to destination
+      applyModulationToDestination(destination, scaledMultiplier);
+    }
+  });
+}
+
+/**
+ * Apply MOD canvas modulation to all connected destinations (TRIG mode - retriggerable looping envelope)
+ * TRIG mode combines features of ENV and LFO:
+ * - Resets phase to 0 on each keypress (like ENV)
+ * - Loops continuously at the set rate (like LFO)
+ * - Newest voice controls modulation (like ENV)
+ */
+function applyMODCanvasTrigModulation() {
+  // Check if MOD source has ANY connections
+  const hasAnyConnections = Object.values(destinationConnections).some(source => source === 'MOD');
+  if (!hasAnyConnections) {
+    return; // No connections, skip processing
+  }
+  
+  const now = audioCtx.currentTime;
+  
+  // Find the MOST RECENTLY STARTED voice, prioritizing 'active' over 'releasing'
+  let newestActiveVoicePhase = null;
+  let newestActiveVoiceStartTime = -Infinity;
+  let newestReleasingVoicePhase = null;
+  let newestReleasingVoiceStartTime = -Infinity;
+  let hasActiveVoice = false;
+  let hasReleasingVoice = false;
+  
+  // Process oscillator voices
+  voicePool.forEach(voice => {
+    if (voice.modCanvasTrigStartTime !== null) {
+      // Calculate phase for this voice - loops continuously
+      const elapsedTime = now - voice.modCanvasTrigStartTime;
+      const trigDuration = 1.0 / modCanvasRate;
+      
+      // Calculate looping phase (0-1, wraps around)
+      let phase = (elapsedTime / trigDuration) % 1.0;
+      voice.modCanvasTrigPhase = phase;
+      
+      // Track newest voice by state priority
+      if (voice.state === 'active') {
+        hasActiveVoice = true;
+        if (voice.modCanvasTrigStartTime > newestActiveVoiceStartTime) {
+          newestActiveVoiceStartTime = voice.modCanvasTrigStartTime;
+          newestActiveVoicePhase = phase;
+        }
+      } else if (voice.state === 'releasing') {
+        hasReleasingVoice = true;
+        if (voice.modCanvasTrigStartTime > newestReleasingVoiceStartTime) {
+          newestReleasingVoiceStartTime = voice.modCanvasTrigStartTime;
+          newestReleasingVoicePhase = phase;
+        }
+      }
+    }
+  });
+  
+  // Process sampler voices
+  samplerVoicePool.forEach(voice => {
+    if (voice.modCanvasTrigStartTime !== null) {
+      // Calculate phase for this voice - loops continuously
+      const elapsedTime = now - voice.modCanvasTrigStartTime;
+      const trigDuration = 1.0 / modCanvasRate;
+      
+      // Calculate looping phase (0-1, wraps around)
+      let phase = (elapsedTime / trigDuration) % 1.0;
+      voice.modCanvasTrigPhase = phase;
+      
+      // Track newest voice by state priority
+      if (voice.state === 'active' || voice.state === 'playing') {
+        hasActiveVoice = true;
+        if (voice.modCanvasTrigStartTime > newestActiveVoiceStartTime) {
+          newestActiveVoiceStartTime = voice.modCanvasTrigStartTime;
+          newestActiveVoicePhase = phase;
+        }
+      } else if (voice.state === 'releasing') {
+        hasReleasingVoice = true;
+        if (voice.modCanvasTrigStartTime > newestReleasingVoiceStartTime) {
+          newestReleasingVoiceStartTime = voice.modCanvasTrigStartTime;
+          newestReleasingVoicePhase = phase;
+        }
+      }
+    }
+  });
+  
+  // Determine which phase to use: prioritize active voices, fall back to releasing
+  let trigPhase;
+  if (hasActiveVoice && newestActiveVoicePhase !== null) {
+    trigPhase = newestActiveVoicePhase;
+  } else if (hasReleasingVoice && newestReleasingVoicePhase !== null) {
+    trigPhase = newestReleasingVoicePhase;
+  } else {
+    // No voices at all - hold at last phase
+    return;
+  }
+  
+  // Sample the canvas waveform at this phase
+  modCanvasValue = sampleCanvasWaveform(trigPhase);
   
   // Convert 0-1 value to bipolar modulation (0 to 2 as multiplier)
   const polarizedValue = modCanvasValue * 2.0;
@@ -3498,7 +3613,8 @@ const knobInitializations = {
 
     // Update playback rate for active sampler notes
     samplerVoicePool.forEach(voice => {
-      if (voice.state === 'playing' && voice.samplerNote && voice.samplerNote.source) {
+      if ((voice.state === 'playing' || voice.state === 'releasing') && voice.samplerNote && voice.samplerNote.source) {
+        voice.samplerNote.source.detune.cancelScheduledValues(now);
         voice.samplerNote.source.detune.setValueAtTime(currentSampleDetune, now);
       }
     });
@@ -5946,6 +6062,10 @@ function killSamplerNote(note) {
         voice.modCanvasEnvPhase = 0.0;
         voice.modCanvasEnvComplete = false;
         
+        // Reset MOD canvas TRIG state
+        voice.modCanvasTrigStartTime = null;
+        voice.modCanvasTrigPhase = 0.0;
+        
         // Remove safety period completely - allow immediate reuse
         // voice.safeUntil = undefined;
 
@@ -6041,6 +6161,10 @@ function killOsc1Note(note) {
             voice.modCanvasEnvStartTime = null;
             voice.modCanvasEnvPhase = 0.0;
             voice.modCanvasEnvComplete = false;
+            
+            // Reset MOD canvas TRIG state
+            voice.modCanvasTrigStartTime = null;
+            voice.modCanvasTrigPhase = 0.0;
             
             if (isMonoMode && currentMonoVoice === voice) {
                 currentMonoVoice = null;
@@ -6145,6 +6269,10 @@ function killOsc2Note(note) {
             voice.modCanvasEnvStartTime = null;
             voice.modCanvasEnvPhase = 0.0;
             voice.modCanvasEnvComplete = false;
+            
+            // Reset MOD canvas TRIG state
+            voice.modCanvasTrigStartTime = null;
+            voice.modCanvasTrigPhase = 0.0;
             
             if (isMonoMode && currentMonoVoice === voice) {
                 currentMonoVoice = null;
@@ -6413,6 +6541,12 @@ setMasterClockRate(1, noteNumber, osc1Detune);
         voice.modCanvasEnvStartTime = now;
         voice.modCanvasEnvPhase = 0.0;
         voice.modCanvasEnvComplete = false;
+    }
+    
+    // Set per-voice MOD canvas TRIG start time (TRIG mode)
+    if (modCanvasMode === 'trig') {
+        voice.modCanvasTrigStartTime = now;
+        voice.modCanvasTrigPhase = 0.0;
     }
     
     if (voice) {
@@ -6837,6 +6971,12 @@ if (samplerVoice && filterManager) {
         samplerVoice.modCanvasEnvStartTime = now;
         samplerVoice.modCanvasEnvPhase = 0.0;
         samplerVoice.modCanvasEnvComplete = false;
+    }
+    
+    // Set per-voice MOD canvas TRIG start time (TRIG mode)
+    if (modCanvasMode === 'trig') {
+        samplerVoice.modCanvasTrigStartTime = now;
+        samplerVoice.modCanvasTrigPhase = 0.0;
     }
     
     console.log(`Sampler note ${samplerNote.id} configured for note ${noteNumber}, rate=${newPlaybackRate.toFixed(3)}`);
@@ -7968,6 +8108,16 @@ if (modModeSelector) {
                 voice.modCanvasEnvStartTime = null;
                 voice.modCanvasEnvPhase = 0.0;
                 voice.modCanvasEnvComplete = false;
+            });
+        } else if (modeName === 'trig') {
+            // Entering TRIG mode - reset all TRIG states
+            voicePool.forEach(voice => {
+                voice.modCanvasTrigStartTime = null;
+                voice.modCanvasTrigPhase = 0.0;
+            });
+            samplerVoicePool.forEach(voice => {
+                voice.modCanvasTrigStartTime = null;
+                voice.modCanvasTrigPhase = 0.0;
             });
         }
     }
