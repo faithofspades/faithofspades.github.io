@@ -110,7 +110,7 @@ box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 display: flex;
 flex-direction: row;
 gap: 2px;
-overflow-x: auto; /* Horizontal scroll only for modules */
+overflow-x: visible; /* Remove horizontal scroll since layout is fixed */
 align-items: stretch; /* Ensures same height for all modules */
 flex-shrink: 0; /* Prevent shrinking */
 }
