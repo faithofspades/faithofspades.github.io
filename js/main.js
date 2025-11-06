@@ -1223,6 +1223,280 @@ function applyLFOModulation() {
   });
 }
 
+// --- MOD Canvas Modulation System ---
+let modCanvasMode = 'lfo'; // 'env', 'lfo', or 'trig'
+let modCanvasRate = 1.0; // Hz for LFO mode
+let modCanvasValue = 0.5; // Current canvas output value (0-1)
+let modCanvasPhase = 0.0; // Current phase (0-1) for LFO mode
+let modCanvasUpdateInterval = null;
+
+/**
+ * Initialize the MOD canvas modulation system
+ */
+function initializeModCanvasModulation() {
+  // Start update loop for MOD canvas
+  function modCanvasUpdate() {
+    if (modCanvasMode === 'lfo') {
+      applyMODCanvasModulation();
+    } else if (modCanvasMode === 'env') {
+      applyMODCanvasEnvelopeModulation();
+    }
+    modCanvasUpdateInterval = requestAnimationFrame(modCanvasUpdate);
+  }
+  modCanvasUpdate();
+  
+  console.log('MOD Canvas modulation system initialized');
+}
+
+/**
+ * Sample the canvas waveform at a specific X position (0-1)
+ * Returns Y value normalized to 0-1 range (0 = top, 1 = bottom)
+ */
+function sampleCanvasWaveform(xPosition) {
+  const points = getModulationPoints();
+  if (!points || points.length < 2) {
+    return 0.5; // Default to middle if no points
+  }
+  
+  // Get canvas dimensions from the first point's context
+  const modCanvasElement = document.getElementById('mod-canvas');
+  if (!modCanvasElement) return 0.5;
+  
+  const canvasWidth = modCanvasElement.width;
+  const canvasHeight = modCanvasElement.height;
+  
+  // Convert xPosition (0-1) to canvas X coordinate
+  const targetX = xPosition * canvasWidth;
+  
+  // Find the two points that bracket targetX
+  let startPoint = null;
+  let endPoint = null;
+  
+  for (let i = 0; i < points.length - 1; i++) {
+    if (targetX >= points[i].x && targetX <= points[i + 1].x) {
+      startPoint = points[i];
+      endPoint = points[i + 1];
+      break;
+    }
+  }
+  
+  // If targetX is beyond the last point, use the last segment
+  if (!startPoint && points.length >= 2) {
+    startPoint = points[points.length - 2];
+    endPoint = points[points.length - 1];
+  }
+  
+  if (!startPoint || !endPoint) {
+    return 0.5;
+  }
+  
+  // Calculate Y value based on curve type
+  let yValue;
+  
+  if (startPoint.noCurve) {
+    // Linear interpolation
+    const t = (targetX - startPoint.x) / (endPoint.x - startPoint.x);
+    yValue = startPoint.y + t * (endPoint.y - startPoint.y);
+  } else {
+    // Quadratic bezier curve interpolation
+    const cpX = startPoint.curveX || (startPoint.x + endPoint.x) / 2;
+    const cpY = startPoint.curveY || (startPoint.y + endPoint.y) / 2;
+    
+    // Solve for t using quadratic formula (approximate)
+    const t = (targetX - startPoint.x) / (endPoint.x - startPoint.x);
+    
+    // Calculate Y using bezier formula
+    yValue = Math.pow(1 - t, 2) * startPoint.y + 
+             2 * (1 - t) * t * cpY + 
+             Math.pow(t, 2) * endPoint.y;
+  }
+  
+  // Normalize Y to 0-1 range (invert because canvas Y is top-down)
+  // Account for 1px padding: Y ranges from 1 to (height - 1)
+  const padding = 1;
+  const effectiveHeight = canvasHeight - (2 * padding);
+  const adjustedY = yValue - padding;
+  const normalizedValue = 1.0 - (adjustedY / effectiveHeight);
+  
+  // Clamp to 0-1 range
+  return Math.max(0, Math.min(1, normalizedValue));
+}
+
+/**
+ * Apply MOD canvas modulation to all connected destinations (LFO mode)
+ */
+function applyMODCanvasModulation() {
+  // Check if MOD source has ANY connections
+  const hasAnyConnections = Object.values(destinationConnections).some(source => source === 'MOD');
+  if (!hasAnyConnections) {
+    return; // No connections, skip processing
+  }
+  
+  // Only process in LFO mode
+  if (modCanvasMode !== 'lfo') {
+    return;
+  }
+  
+  // Update phase based on rate
+  const now = audioCtx.currentTime;
+  const deltaTime = 1 / 60; // Assuming 60 FPS
+  modCanvasPhase = (modCanvasPhase + (modCanvasRate * deltaTime)) % 1.0;
+  
+  // Sample the canvas waveform at current phase
+  modCanvasValue = sampleCanvasWaveform(modCanvasPhase);
+  
+  // Convert 0-1 value to bipolar modulation (-1 to +1 becomes 0 to 2 as multiplier)
+  // modCanvasValue 0 = minimum (multiplier 0)
+  // modCanvasValue 0.5 = no modulation (multiplier 1.0)
+  // modCanvasValue 1 = maximum (multiplier 2.0)
+  const polarizedValue = modCanvasValue * 2.0;
+  
+  // Apply modulation to all connected destinations
+  modulationDestinations.forEach(destination => {
+    const connectedSource = destinationConnections[destination];
+    
+    if (connectedSource === 'MOD') {
+      const matrixDepth = destinationDepths[destination];
+      
+      // Matrix depth scales the polarized modulation amount
+      const scaledMultiplier = 1.0 + ((polarizedValue - 1.0) * matrixDepth);
+      
+      // Apply modulation to destination
+      applyModulationToDestination(destination, scaledMultiplier);
+    }
+  });
+}
+
+/**
+ * Apply MOD canvas modulation to all connected destinations (ENV mode - per-voice envelope)
+ */
+function applyMODCanvasEnvelopeModulation() {
+  // Check if MOD source has ANY connections
+  const hasAnyConnections = Object.values(destinationConnections).some(source => source === 'MOD');
+  if (!hasAnyConnections) {
+    return; // No connections, skip processing
+  }
+  
+  const now = audioCtx.currentTime;
+  
+  // Find the MOST RECENTLY STARTED voice, prioritizing 'active' over 'releasing'
+  // This ensures new notes control the modulation, but releasing notes continue if no active notes
+  let newestActiveVoicePhase = null;
+  let newestActiveVoiceStartTime = -Infinity;
+  let newestReleasingVoicePhase = null;
+  let newestReleasingVoiceStartTime = -Infinity;
+  let hasActiveVoice = false;
+  let hasReleasingVoice = false;
+  
+  // Process oscillator voices
+  voicePool.forEach(voice => {
+    if (voice.modCanvasEnvStartTime !== null) {
+      // Calculate phase for this voice
+      let phase;
+      if (voice.modCanvasEnvComplete) {
+        phase = voice.modCanvasEnvPhase;
+      } else {
+        const elapsedTime = now - voice.modCanvasEnvStartTime;
+        const envelopeDuration = 1.0 / modCanvasRate;
+        phase = elapsedTime / envelopeDuration;
+        
+        if (phase >= 1.0) {
+          voice.modCanvasEnvPhase = 1.0;
+          voice.modCanvasEnvComplete = true;
+          phase = 1.0;
+        } else {
+          voice.modCanvasEnvPhase = phase;
+        }
+      }
+      
+      // Track newest voice by state priority
+      if (voice.state === 'active') {
+        hasActiveVoice = true;
+        if (voice.modCanvasEnvStartTime > newestActiveVoiceStartTime) {
+          newestActiveVoiceStartTime = voice.modCanvasEnvStartTime;
+          newestActiveVoicePhase = phase;
+        }
+      } else if (voice.state === 'releasing') {
+        hasReleasingVoice = true;
+        if (voice.modCanvasEnvStartTime > newestReleasingVoiceStartTime) {
+          newestReleasingVoiceStartTime = voice.modCanvasEnvStartTime;
+          newestReleasingVoicePhase = phase;
+        }
+      }
+    }
+  });
+  
+  // Process sampler voices
+  samplerVoicePool.forEach(voice => {
+    if (voice.modCanvasEnvStartTime !== null) {
+      // Calculate phase for this voice
+      let phase;
+      if (voice.modCanvasEnvComplete) {
+        phase = voice.modCanvasEnvPhase;
+      } else {
+        const elapsedTime = now - voice.modCanvasEnvStartTime;
+        const envelopeDuration = 1.0 / modCanvasRate;
+        phase = elapsedTime / envelopeDuration;
+        
+        if (phase >= 1.0) {
+          voice.modCanvasEnvPhase = 1.0;
+          voice.modCanvasEnvComplete = true;
+          phase = 1.0;
+        } else {
+          voice.modCanvasEnvPhase = phase;
+        }
+      }
+      
+      // Track newest voice by state priority
+      if (voice.state === 'active' || voice.state === 'playing') {
+        hasActiveVoice = true;
+        if (voice.modCanvasEnvStartTime > newestActiveVoiceStartTime) {
+          newestActiveVoiceStartTime = voice.modCanvasEnvStartTime;
+          newestActiveVoicePhase = phase;
+        }
+      } else if (voice.state === 'releasing') {
+        hasReleasingVoice = true;
+        if (voice.modCanvasEnvStartTime > newestReleasingVoiceStartTime) {
+          newestReleasingVoiceStartTime = voice.modCanvasEnvStartTime;
+          newestReleasingVoicePhase = phase;
+        }
+      }
+    }
+  });
+  
+  // Determine which phase to use: prioritize active voices, fall back to releasing
+  let envelopePhase;
+  if (hasActiveVoice && newestActiveVoicePhase !== null) {
+    envelopePhase = newestActiveVoicePhase;
+  } else if (hasReleasingVoice && newestReleasingVoicePhase !== null) {
+    envelopePhase = newestReleasingVoicePhase;
+  } else {
+    // No voices at all - hold at last envelope phase to prevent ramping on retrigger
+    return;
+  }
+  
+  // Sample the canvas waveform at this phase
+  modCanvasValue = sampleCanvasWaveform(envelopePhase);
+  
+  // Convert 0-1 value to bipolar modulation (0 to 2 as multiplier)
+  const polarizedValue = modCanvasValue * 2.0;
+  
+  // Apply modulation to all connected destinations
+  modulationDestinations.forEach(destination => {
+    const connectedSource = destinationConnections[destination];
+    
+    if (connectedSource === 'MOD') {
+      const matrixDepth = destinationDepths[destination];
+      
+      // Matrix depth scales the polarized modulation amount
+      const scaledMultiplier = 1.0 + ((polarizedValue - 1.0) * matrixDepth);
+      
+      // Apply modulation to destination
+      applyModulationToDestination(destination, scaledMultiplier);
+    }
+  });
+}
+
 let sampleSource = null;
 let isPlaying = false;
 let filterManager = null;
@@ -1268,6 +1542,7 @@ const knobDefaults = {
 'osc2-quantize-knob': 0.0, // <<< ADD: Default quantize amount
 'osc2-fm-knob': 0.0, // <<< ADD: Default FM amount
 'mod-depth-knob': 1.0, // LFO Depth: 1.0 = positive polarity (default)
+'mod-rate-knob': 0.5, // MOD Canvas Rate: 1 Hz (middle position)
 // ADD FILTER KNOBS
     'adsr-knob': 0.5, // 50% = unity
     'keytrack-knob': 0.5, // 50% = unity
@@ -1554,7 +1829,11 @@ function createVoice(ctx, index) {
     attackEndTime: 0,
     decayEndTime: 0,
     // ADD: Per-voice LFO fade tracking
-    lfoFadeStartTime: null // Time when this voice was triggered (for per-voice LFO fade-in)
+    lfoFadeStartTime: null, // Time when this voice was triggered (for per-voice LFO fade-in)
+    // ADD: Per-voice MOD canvas envelope tracking
+    modCanvasEnvStartTime: null, // Time when envelope was triggered
+    modCanvasEnvPhase: 0.0, // Current phase in envelope (0-1)
+    modCanvasEnvComplete: false // Whether envelope has finished playing
   };
 
   // --- Create Sampler Nodes ---
@@ -3066,6 +3345,17 @@ const knobInitializations = {
         
         console.log('LFO Depth (Polarity):', value.toFixed(2), polarityText);
     },
+    'mod-rate-knob': (value) => {
+        const tooltip = createTooltipForKnob('mod-rate-knob', value);
+        
+        // Map 0-1 to 0.1-20 Hz (logarithmic) - same as LFO rate slider
+        modCanvasRate = 0.1 * Math.pow(200, value);
+        
+        tooltip.textContent = `${modCanvasRate.toFixed(2)} Hz`;
+        tooltip.style.opacity = '1';
+        
+        console.log('MOD Canvas Rate:', modCanvasRate.toFixed(2), 'Hz');
+    },
     // NOTE: mod-shape-knob is handled separately in uiPlaceholders.js with discrete positions
     'master-volume-knob': (value) => {
         const tooltip = createTooltipForKnob('master-volume-knob', value);
@@ -3258,7 +3548,8 @@ const knobInitializations = {
             // Check if the voice is active and the specific osc1 levelNode exist
             if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.levelNode) {
                 const levelNode = voice.osc1Note.levelNode;
-                levelNode.gain.setTargetAtTime(osc1GainValue, now, 0.015);
+                levelNode.gain.cancelScheduledValues(now);
+                levelNode.gain.setValueAtTime(osc1GainValue, now);
             }
         });
         // <<< END CHANGE >>>
@@ -3296,11 +3587,14 @@ const knobInitializations = {
             if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.workletNode) {
                 const oscDetuneParam = voice.osc1Note.workletNode.parameters.get('detune');
                 if (oscDetuneParam) {
-                    oscDetuneParam.setTargetAtTime(osc1Detune, now, 0.01);
+                    // Cancel any scheduled changes and set value instantly
+                    oscDetuneParam.cancelScheduledValues(now);
+                    oscDetuneParam.setValueAtTime(osc1Detune, now);
                 }
                 // <<< ADD: Update Osc1 FM source if it's Osc2 >>>
                 if (osc2FMSource === 'osc1' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof OscillatorNode) {
-                    voice.osc2Note.fmModulatorSource.detune.setTargetAtTime(osc1Detune, now, 0.01);
+                    voice.osc2Note.fmModulatorSource.detune.cancelScheduledValues(now);
+                    voice.osc2Note.fmModulatorSource.detune.setValueAtTime(osc1Detune, now);
                 }
             }
         });
@@ -3346,9 +3640,9 @@ const knobInitializations = {
             if (voice.state !== 'inactive' && voice.osc1Note) {
                 // Check if the fmDepthGain node exists for this voice.
                 if (voice.osc1Note.fmDepthGain) {
-                    // <<< Node exists: Just update gain smoothly >>>
-                    const timeConstant = 0.020; // 20ms time constant
-                    voice.osc1Note.fmDepthGain.gain.setTargetAtTime(scaledDepth, now, timeConstant);
+                    // <<< Node exists: Just update gain instantly >>>
+                    voice.osc1Note.fmDepthGain.gain.cancelScheduledValues(now);
+                    voice.osc1Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
                 } else if (isNowOn) {
                     // <<< Node MISSING, but FM should be ON now >>>
                     // This happens if the note started while FM knob was at 0.
@@ -3356,7 +3650,7 @@ const knobInitializations = {
                     console.log(`osc1-fm-knob: FM turned on for note ${voice.osc1Note.id}. Initializing FM nodes.`);
                     updateOsc1FmModulatorParameters(voice.osc1Note, now, voice);
                     // updateOsc1FmModulatorParameters sets the initial gain,
-                    // so no need to setTargetAtTime immediately after.
+                    // so no need to set it again immediately after.
                 }
                 // <<< If !isNowOn and node missing, do nothing (FM is off) >>>
                 // <<< If !isNowOn and node exists, the gain ramp above will handle turning it down >>>
@@ -3649,8 +3943,9 @@ const knobInitializations = {
             // Get worklet parameter
             const quantizeParam = voice.osc1Note.workletNode.parameters.get('quantizeAmount');
             if (quantizeParam) {
-                // Set parameter smoothly using FINAL modulated value
-                quantizeParam.setTargetAtTime(finalValue, now, 0.01);
+                // Cancel scheduled values and set instantly using FINAL modulated value
+                quantizeParam.cancelScheduledValues(now);
+                quantizeParam.setValueAtTime(finalValue, now);
             }
         }
     });
@@ -3682,7 +3977,8 @@ const knobInitializations = {
         // <<< CHANGE: Iterate over voicePool >>>
         voicePool.forEach(voice => {
             if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.levelNode) {
-                voice.osc2Note.levelNode.gain.setTargetAtTime(osc2GainValue, audioCtx.currentTime, 0.01);
+                voice.osc2Note.levelNode.gain.cancelScheduledValues(audioCtx.currentTime);
+                voice.osc2Note.levelNode.gain.setValueAtTime(osc2GainValue, audioCtx.currentTime);
             }
         });
         // <<< END CHANGE >>>
@@ -3717,11 +4013,13 @@ const knobInitializations = {
             if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.workletNode) {
                 const detuneParam = voice.osc2Note.workletNode.parameters.get('detune');
                 if (detuneParam) {
-                    detuneParam.setTargetAtTime(osc2Detune, now, 0.01);
+                    detuneParam.cancelScheduledValues(now);
+                    detuneParam.setValueAtTime(osc2Detune, now);
                 }
                 // <<< ADD: Update Osc2 FM source if it's Osc1 >>>
                 if (osc1FMSource === 'osc2' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof OscillatorNode) {
-                    voice.osc1Note.fmModulatorSource.detune.setTargetAtTime(osc2Detune, now, 0.01);
+                    voice.osc1Note.fmModulatorSource.detune.cancelScheduledValues(now);
+                    voice.osc1Note.fmModulatorSource.detune.setValueAtTime(osc2Detune, now);
                 }
             }
         });
@@ -3816,8 +4114,9 @@ const knobInitializations = {
             // Get worklet parameter
             const quantizeParam = voice.osc2Note.workletNode.parameters.get('quantizeAmount');
             if (quantizeParam) {
-                // Set parameter smoothly using FINAL modulated value
-                quantizeParam.setTargetAtTime(finalValue, now, 0.01);
+                // Cancel scheduled values and set instantly using FINAL modulated value
+                quantizeParam.cancelScheduledValues(now);
+                quantizeParam.setValueAtTime(finalValue, now);
             }
         }
     });
@@ -3863,9 +4162,9 @@ const knobInitializations = {
             if (voice.state !== 'inactive' && voice.osc2Note) {
                 // Check if the fmDepthGain node exists for this voice.
                 if (voice.osc2Note.fmDepthGain) {
-                    // <<< Node exists: Just update gain smoothly >>>
-                    const timeConstant = 0.020; // 20ms time constant
-                    voice.osc2Note.fmDepthGain.gain.setTargetAtTime(scaledDepth, now, timeConstant);
+                    // <<< Node exists: Just update gain instantly >>>
+                    voice.osc2Note.fmDepthGain.gain.cancelScheduledValues(now);
+                    voice.osc2Note.fmDepthGain.gain.setValueAtTime(scaledDepth, now);
                 } else if (isNowOn) { // <<< Check if FM is ON now >>>
                     // <<< Node MISSING, but FM should be ON now >>>
                     // This happens if the note started while FM knob was at 0.
@@ -3874,7 +4173,7 @@ const knobInitializations = {
                     // <<< Pass the 'voice' object >>>
                     updateOsc2FmModulatorParameters(voice.osc2Note, now, voice);
                     // updateOsc2FmModulatorParameters sets the initial gain,
-                    // so no need to setTargetAtTime immediately after.
+                    // so no need to set it again immediately after.
                 }
                 // <<< If !isNowOn and node missing, do nothing (FM is off) >>>
                 // <<< If !isNowOn and node exists, the gain ramp above will handle turning it down >>>
@@ -4190,7 +4489,12 @@ function createSamplerVoice(ctx, index) {
     envelopeState: 'idle', // 'idle', 'attack', 'decay', 'sustain', 'release'
     envelopeStartTime: 0,
     attackEndTime: 0,
-    decayEndTime: 0
+    decayEndTime: 0,
+    // ADD: Per-voice LFO and MOD canvas tracking
+    lfoFadeStartTime: null,
+    modCanvasEnvStartTime: null,
+    modCanvasEnvPhase: 0.0,
+    modCanvasEnvComplete: false
   };
 
   const samplerGainNode = ctx.createGain();
@@ -5637,6 +5941,11 @@ function killSamplerNote(note) {
         voice.noteNumber = null;
         voice.startTime = 0;
         
+        // Reset MOD canvas envelope state
+        voice.modCanvasEnvStartTime = null;
+        voice.modCanvasEnvPhase = 0.0;
+        voice.modCanvasEnvComplete = false;
+        
         // Remove safety period completely - allow immediate reuse
         // voice.safeUntil = undefined;
 
@@ -5727,6 +6036,11 @@ function killOsc1Note(note) {
             voice.state = 'inactive';
             voice.noteNumber = null;
             voice.startTime = 0;
+            
+            // Reset MOD canvas envelope state
+            voice.modCanvasEnvStartTime = null;
+            voice.modCanvasEnvPhase = 0.0;
+            voice.modCanvasEnvComplete = false;
             
             if (isMonoMode && currentMonoVoice === voice) {
                 currentMonoVoice = null;
@@ -5826,6 +6140,11 @@ function killOsc2Note(note) {
             voice.state = 'inactive';
             voice.noteNumber = null;
             voice.startTime = 0;
+            
+            // Reset MOD canvas envelope state
+            voice.modCanvasEnvStartTime = null;
+            voice.modCanvasEnvPhase = 0.0;
+            voice.modCanvasEnvComplete = false;
             
             if (isMonoMode && currentMonoVoice === voice) {
                 currentMonoVoice = null;
@@ -6087,6 +6406,13 @@ setMasterClockRate(1, noteNumber, osc1Detune);
     // Set per-voice LFO fade start time
     if (lfoFade > 0) {
         voice.lfoFadeStartTime = now;
+    }
+    
+    // Set per-voice MOD canvas envelope start time (ENV mode)
+    if (modCanvasMode === 'env') {
+        voice.modCanvasEnvStartTime = now;
+        voice.modCanvasEnvPhase = 0.0;
+        voice.modCanvasEnvComplete = false;
     }
     
     if (voice) {
@@ -6504,6 +6830,13 @@ if (samplerVoice && filterManager) {
     // Set per-voice LFO fade start time for sampler voice
     if (lfoFade > 0) {
         samplerVoice.lfoFadeStartTime = now;
+    }
+    
+    // Set per-voice MOD canvas envelope start time (ENV mode)
+    if (modCanvasMode === 'env') {
+        samplerVoice.modCanvasEnvStartTime = now;
+        samplerVoice.modCanvasEnvPhase = 0.0;
+        samplerVoice.modCanvasEnvComplete = false;
     }
     
     console.log(`Sampler note ${samplerNote.id} configured for note ${noteNumber}, rate=${newPlaybackRate.toFixed(3)}`);
@@ -7249,6 +7582,9 @@ initializeModulationRouting();
 // Initialize LFO system
 initializeLFO();
 
+// Initialize MOD Canvas modulation system
+initializeModCanvasModulation();
+
 // Add LFO rate slider handler
 const rateSlider = document.querySelector('.rate-slider-range');
 if (rateSlider) {
@@ -7600,42 +7936,54 @@ const modModeSelector = document.querySelector('.mod-mode-selector'); // Get the
 if (modModeSelector) {
     const modOptions = modModeSelector.querySelectorAll('.mode-option');
 
-    // Function to update button states and global variable
-    function setActiveModSource(sourceName) {
-        currentModSource = sourceName; // Update global state
-
+    // Function to update button states and mode
+    function setActiveModMode(modeName) {
+        modCanvasMode = modeName; // Update global canvas mode
+        
         // Deactivate all options within this selector
         modOptions.forEach(option => {
             option.classList.remove('active');
         });
 
         // Activate the selected option
-        const activeOption = modModeSelector.querySelector(`.mode-option[data-mode="${sourceName}"]`);
+        const activeOption = modModeSelector.querySelector(`.mode-option[data-mode="${modeName}"]`);
         if (activeOption) {
             activeOption.classList.add('active');
         }
 
-        console.log(`Modulation source set to: ${currentModSource}`);
-        // TODO: Add logic here to show/hide relevant controls based on currentModSource
-        // e.g., updateModCanvasDisplay(currentModSource);
-        // e.g., showModControls(currentModSource);
+        console.log(`MOD Canvas mode set to: ${modCanvasMode}`);
+        
+        // Reset phase when switching modes
+        modCanvasPhase = 0.0;
+        
+        // Reset all voice envelope states when switching to/from ENV mode
+        if (modeName === 'env') {
+            // Entering ENV mode - reset all envelope states
+            voicePool.forEach(voice => {
+                voice.modCanvasEnvStartTime = null;
+                voice.modCanvasEnvPhase = 0.0;
+                voice.modCanvasEnvComplete = false;
+            });
+            samplerVoicePool.forEach(voice => {
+                voice.modCanvasEnvStartTime = null;
+                voice.modCanvasEnvPhase = 0.0;
+                voice.modCanvasEnvComplete = false;
+            });
+        }
     }
 
     // Add click listeners to each option
     modOptions.forEach(option => {
         option.addEventListener('click', () => {
-            const sourceName = option.getAttribute('data-mode');
-            if (sourceName) {
-                setActiveModSource(sourceName);
+            const modeName = option.getAttribute('data-mode');
+            if (modeName) {
+                setActiveModMode(modeName);
             }
         });
     });
 
-    // Set initial active button based on the default global variable
-    // Only initialize if there's already a default source set
-    if (currentModSource) {
-        setActiveModSource(currentModSource);
-    }
+    // Set initial mode to 'lfo' (default)
+    setActiveModMode('lfo');
 
 } else {
     console.warn("Modulation mode selector container (.mod-mode-selector) not found.");
