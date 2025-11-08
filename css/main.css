@@ -120,16 +120,16 @@ flex-shrink: 0; /* Prevent shrinking */
 display: flex;
 flex-direction: column;
 background-color: #f2eed3;
-border: 1px solid #35100B;
+/* border: 1px solid #35100B; */
 border-radius: 10px;
 gap: 0; /* No gap between parts */
 }
 
 /* Top horizontal bar of L-shape (full width) */
 .sequencer-top-bar {
-width: 100%;
-height: 80px;
-min-height: 80px;
+width: 98.846%;
+height: 45px;
+min-height: 45px;
 padding: 10px;
 }
 
@@ -144,16 +144,17 @@ padding-bottom: 0px;
 
 /* Left vertical part of L-shape */
 .sequencer-vertical {
-flex: 0 0 19.5%; /* ~20% width */
-min-height: 190px;
-height: 190px;
+flex: 0 0 16.5%; /* ~20% width */
+min-height: 199px;
+height: 199px;
+
 }
 
 /* Keyboard inside L-shape */
 .sequencer-bottom-row .keyboard {
-flex: 0 0 80.4%; /* ~80% width */
-border-bottom: none;
-border-right: none;
+flex: 0 0 83.4%; /* ~80% width */
+/* border-bottom: none; */
+/* border-right: none; */
 }
   
   .module {
