@@ -127,10 +127,28 @@ gap: 0; /* No gap between parts */
 
 /* Top horizontal bar of L-shape (full width) */
 .sequencer-top-bar {
-width: 98.846%;
+width: 99.422%;
 height: 45px;
 min-height: 45px;
 padding: 10px;
+padding-left: 0px;
+display: flex;
+align-items: center;
+gap: 0;
+}
+
+.polyhymn-logo {
+height: 65px;
+width: auto;
+}
+
+.polyhymn-title {
+font-family: 'ofelia-text', sans-serif;
+font-weight: 600;
+font-size: 32px;
+line-height: 65px;
+color: #35100B;
+letter-spacing: 0;
 }
 
 /* Bottom section containing vertical sequencer part and keyboard */
