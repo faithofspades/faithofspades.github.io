@@ -10,9 +10,8 @@ font-style: normal;
       display: flex;
       flex-direction: column;
       align-items: center;
-      overflow-x: auto; /* Allow horizontal scrolling */
+      overflow: auto; /* Allow scrolling in both directions */
       -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
-      touch-action: manipulation; /* Improve touch responsiveness */
   }
   
   .container {
@@ -84,9 +83,9 @@ margin: 0 auto; /* Center the container */
 }
 
 /* Extra scaling for very small screens like iPhone 13 mini */
-@media (max-width: 400px) {
+@media (max-width: 430px) {
   .container {
-    transform: scale(0.42);
+    transform: scale(0.38);
   }
   
   body {
@@ -94,9 +93,23 @@ margin: 0 auto; /* Center the container */
   }
 }
 
+@media (max-width: 380px) {
+  .container {
+    transform: scale(0.35);
+  }
+  
+  body {
+    padding: 8px;
+  }
+}
+
 @media (max-width: 350px) {
   .container {
-    transform: scale(0.38);
+    transform: scale(0.32);
+  }
+  
+  body {
+    padding: 5px;
   }
 }
   
@@ -122,6 +135,7 @@ border-radius: 5px;
 padding: 15px;
 margin-bottom: 20px;
 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+overflow: visible; /* Allow child elements to scroll */
 }
 
 /* New row container for modules */
@@ -129,7 +143,8 @@ box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 display: flex;
 flex-direction: row;
 gap: 2px;
-overflow-x: visible; /* Remove horizontal scroll since layout is fixed */
+overflow-x: auto; /* Restore horizontal scroll for touch devices */
+-webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 align-items: stretch; /* Ensures same height for all modules */
 flex-shrink: 0; /* Prevent shrinking */
 }
