@@ -16,24 +16,26 @@ export function createiOSStartupOverlay(audioCtx) {
     overlay.style.justifyContent = 'center';
     overlay.style.alignItems = 'center';
     overlay.style.textAlign = 'center';
+    overlay.style.padding = '20px';
 
     // Logo image
     const logo = document.createElement('img');
     logo.src = 'my-favicon/favicon.svg';
     logo.alt = 'PolyHymn Logo';
-    logo.style.height = '190px';
+    logo.style.height = 'min(190px, 25vw)';
     logo.style.width = 'auto';
     logo.style.marginBottom = '0';
+    logo.style.maxWidth = '90vw';
 
     const heading = document.createElement('h2');
     heading.textContent = 'POLYHYMN';
     heading.style.fontFamily = "'ofelia-text', sans-serif";
     heading.style.fontWeight = '600';
-    heading.style.fontSize = '120px';
-    heading.style.lineHeight = '120px';
+    heading.style.fontSize = 'min(120px, 20vw)';
+    heading.style.lineHeight = '1';
     heading.style.color = '#35100B';
     heading.style.margin = '0';
-    heading.style.marginBottom = '40px';
+    heading.style.marginBottom = 'min(40px, 5vw)';
 
     const message = document.createElement('p');
     message.textContent = 'Tap anywhere to enable audio';
