@@ -11,7 +11,8 @@ font-style: normal;
       flex-direction: column;
       align-items: center;
       overflow-x: auto; /* Allow horizontal scrolling */
-      touch-action: pan-x pan-y; /* Allow panning in both directions */
+      -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+      touch-action: manipulation; /* Improve touch responsiveness */
   }
   
   .container {
@@ -79,6 +80,23 @@ margin: 0 auto; /* Center the container */
 @media (max-width: 900px) {
   .container {
     transform: scale(0.5);
+  }
+}
+
+/* Extra scaling for very small screens like iPhone 13 mini */
+@media (max-width: 400px) {
+  .container {
+    transform: scale(0.42);
+  }
+  
+  body {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 350px) {
+  .container {
+    transform: scale(0.38);
   }
 }
   

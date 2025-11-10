@@ -17,25 +17,28 @@ export function createiOSStartupOverlay(audioCtx) {
     overlay.style.alignItems = 'center';
     overlay.style.textAlign = 'center';
     overlay.style.padding = '20px';
+    overlay.style.boxSizing = 'border-box';
 
-    // Logo image
+    // Logo image - much smaller for tiny screens
     const logo = document.createElement('img');
     logo.src = 'my-favicon/favicon.svg';
     logo.alt = 'PolyHymn Logo';
-    logo.style.height = 'min(190px, 25vw)';
+    logo.style.height = 'clamp(60px, 15vw, 150px)';
     logo.style.width = 'auto';
-    logo.style.marginBottom = '0';
-    logo.style.maxWidth = '90vw';
+    logo.style.marginBottom = '10px';
+    logo.style.maxWidth = '80vw';
 
     const heading = document.createElement('h2');
     heading.textContent = 'POLYHYMN';
     heading.style.fontFamily = "'ofelia-text', sans-serif";
     heading.style.fontWeight = '600';
-    heading.style.fontSize = 'min(120px, 20vw)';
-    heading.style.lineHeight = '1';
+    heading.style.fontSize = 'clamp(40px, 12vw, 120px)';
+    heading.style.lineHeight = '1.1';
     heading.style.color = '#35100B';
     heading.style.margin = '0';
-    heading.style.marginBottom = 'min(40px, 5vw)';
+    heading.style.marginBottom = 'clamp(20px, 4vw, 40px)';
+    heading.style.maxWidth = '90vw';
+    heading.style.wordBreak = 'keep-all';
 
     const message = document.createElement('p');
     message.textContent = 'Tap anywhere to enable audio';

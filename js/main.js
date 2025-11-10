@@ -74,7 +74,6 @@ import { initializeModCanvas, getModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
-import { initTouchGestures } from './touch-gestures.js';
 import FilterManager from './filter-manager.js';
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
@@ -3094,7 +3093,6 @@ if (/iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(naviga
 // Use DOMContentLoaded for more reliable initialization
 document.addEventListener('DOMContentLoaded', () => {
 createiOSStartupOverlay(audioCtx);
-initTouchGestures(); // Initialize touch gesture handling
 });
 }
 // Add this function at the beginning of your script
