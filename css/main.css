@@ -353,8 +353,10 @@ margin: 10px 0;
         .radio-option input[type="radio"] {
             margin: 0;
         }
-        body {
-            user-select: none; /* Prevent text selection */
+        
+        /* Prevent text selection on controls only, not body */
+        .knob, .module-title, label, button {
+            user-select: none;
             -webkit-user-select: none;
             -moz-user-select: none;
             -ms-user-select: none;
