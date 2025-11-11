@@ -10,18 +10,15 @@ font-style: normal;
       display: flex;
       flex-direction: column;
       align-items: center;
-      overflow: auto; /* Allow scrolling in both directions */
-      -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
-      min-height: 100vh;
-      height: fit-content; /* Remove extra space below */
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
   }
   
   .container {
-max-width: 1763px; /* Increased from 1200px - 25% wider */
-width: max-content; /* Only take up as much width as content needs */
-transform-origin: top left; /* Scale from top left to prevent cutoff */
-margin: 0 auto; /* Center the container */
-height: fit-content; /* Remove extra space below */
+max-width: 1763px;
+width: max-content;
+transform-origin: top left;
+margin: 0 auto;
 }
 
 /* Media queries for uniform scaling */
@@ -82,11 +79,6 @@ height: fit-content; /* Remove extra space below */
 @media (max-width: 900px) {
   .container {
     transform: scale(0.5);
-  }
-  
-  /* Allow body to scroll properly on mobile */
-  body {
-    align-items: flex-start;
   }
 }
 
@@ -173,6 +165,7 @@ flex-direction: row;
 gap: 2px;
 align-items: stretch; /* Ensures same height for all modules */
 flex-shrink: 0; /* Prevent shrinking */
+overflow-x: auto; /* Enable horizontal scrolling on mobile */
 }
 
 /* L-shaped sequencer container */
@@ -379,12 +372,23 @@ margin: 10px 0;
         .radio-option input[type="radio"] {
             margin: 0;
         }
-        body {
-            user-select: none; /* Prevent text selection */
+        
+        /* Prevent text selection on UI controls, not on body to allow touch gestures */
+        .knob-container,
+        .slider-container,
+        .module h3,
+        .module label,
+        .radio-group,
+        .button-group,
+        .sequencer-grid,
+        .keyboard,
+        .control-label {
+            user-select: none;
             -webkit-user-select: none;
             -moz-user-select: none;
             -ms-user-select: none;
-        }        
+        }
+        
         /* Make ADSR module match LFO/SAMPLER module styling */
 .module[style="grid-column: span 2;"] {
     border: 1px solid #35100B;
