@@ -1,5 +1,5 @@
 {
-  "name": "POLYHYMN",
+  "name": "PolyHymn",
   "short_name": "PolyHymn",
   "icons": [
     {
@@ -16,6 +16,6 @@
     }
   ],
   "theme_color": "#E8E3C4",
-  "background_color": "#f2eed3",
+  "background_color": "#E8E3C4",
   "display": "standalone"
 }

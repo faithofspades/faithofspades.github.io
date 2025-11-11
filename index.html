@@ -31,6 +31,7 @@
     <link rel="stylesheet" href="css/fx.css">
     <link rel="stylesheet" href="css/delay.css">
     <link rel="stylesheet" href="css/master.css">
+    <link rel="stylesheet" href="css/sequencer.css">
   </head>
   <body>
       <div class="container">
@@ -1153,7 +1154,67 @@
               <div class="sequencer-bottom-row">
                   <!-- Left vertical part of L (bottom of sequencer) -->
                   <div class="sequencer-vertical">
-                      <!-- Additional sequencer controls -->
+                      <!-- HOLD Button -->
+                      <div class="seq-button-container">
+                        <div class="seq-hold-button" id="seq-hold-button">
+                          <img src="control icons/HOLD.svg" alt="Hold" class="icon">
+                        </div>
+                        <label for="seq-hold-button">HOLD</label>
+                      </div>
+                      
+                      <!-- Octave Buttons (Split) -->
+                      <div class="seq-button-container">
+                        <div class="seq-octave-buttons">
+                          <div class="seq-octave-down" id="seq-octave-down">−</div>
+                          <div class="seq-octave-up" id="seq-octave-up">+</div>
+                        </div>
+                        <!-- Octave Indicator (5 dots) -->
+                        <div class="seq-dots-container">
+                          <div class="seq-dot active" data-octave="1"></div>
+                          <div class="seq-dot" data-octave="2"></div>
+                          <div class="seq-dot" data-octave="3"></div>
+                          <div class="seq-dot" data-octave="4"></div>
+                          <div class="seq-dot" data-octave="5"></div>
+                        </div>
+                        <label for="seq-octave-buttons">OCTAVE</label>
+                      </div>
+                      
+                      <!-- Direction Button (Split) -->
+                      <div class="seq-button-container">
+                        <div class="seq-direction-buttons">
+                          <div class="seq-direction-down" id="seq-direction-down">
+                            <img src="control icons/LEFT.svg" alt="Down" class="direction-button-icon">
+                          </div>
+                          <div class="seq-direction-up" id="seq-direction-up">
+                            <img src="control icons/RIGHT.svg" alt="Up" class="direction-button-icon">
+                          </div>
+                        </div>
+                        <!-- Direction Indicator (5 dots) -->
+                        <div class="seq-dots-container">
+                          <div class="seq-dot active" data-direction="up"></div>
+                          <div class="seq-dot" data-direction="down"></div>
+                          <div class="seq-dot" data-direction="forward"></div>
+                          <div class="seq-dot" data-direction="updown"></div>
+                          <div class="seq-dot" data-direction="random"></div>
+                        </div>
+                        <label for="seq-direction-buttons">
+                          <div class="seq-direction-label-icons">
+                            <img src="control icons/ARPUP.svg" alt="Up" class="label-icon">
+                            <img src="control icons/ARPDOWN.svg" alt="Down" class="label-icon">
+                            <img src="control icons/ARPFORWARD.svg" alt="Forward" class="label-icon">
+                            <img src="control icons/UPDOWN.svg" alt="Up-Down" class="label-icon">
+                            <img src="control icons/ARPRANDOM.svg" alt="Random" class="label-icon">
+                          </div>
+                        </label>
+                      </div>
+                      
+                      <!-- ARP Button -->
+                      <div class="seq-button-container">
+                        <div class="seq-arp-button" id="seq-arp-button">
+                          <img src="control icons/ARP.svg" alt="ARP" class="icon">
+                        </div>
+                        <label for="seq-arp-button">ARP</label>
+                      </div>
                   </div>
                   
                   <!-- Keyboard on the right -->
