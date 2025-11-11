@@ -12,6 +12,8 @@ font-style: normal;
       align-items: center;
       overflow: auto; /* Allow scrolling in both directions */
       -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+      min-height: 100vh;
+      height: fit-content; /* Remove extra space below */
   }
   
   .container {
@@ -19,6 +21,7 @@ max-width: 1763px; /* Increased from 1200px - 25% wider */
 width: max-content; /* Only take up as much width as content needs */
 transform-origin: top left; /* Scale from top left to prevent cutoff */
 margin: 0 auto; /* Center the container */
+height: fit-content; /* Remove extra space below */
 }
 
 /* Media queries for uniform scaling */
@@ -80,6 +83,11 @@ margin: 0 auto; /* Center the container */
   .container {
     transform: scale(0.5);
   }
+  
+  /* Allow body to scroll properly on mobile */
+  body {
+    align-items: flex-start;
+  }
 }
 
 /* Extra scaling for very small screens like iPhone 13 mini */
@@ -112,6 +120,27 @@ margin: 0 auto; /* Center the container */
     padding: 5px;
   }
 }
+
+/* Landscape mode - maintain same scale as portrait */
+@media (max-height: 500px) and (orientation: landscape) {
+  .container {
+    transform: scale(0.32);
+  }
+  
+  body {
+    padding: 5px;
+  }
+}
+
+@media (min-height: 501px) and (max-height: 700px) and (orientation: landscape) {
+  .container {
+    transform: scale(0.38);
+  }
+  
+  body {
+    padding: 8px;
+  }
+}
   
   h2 {
       color: #8b4513;
@@ -133,9 +162,8 @@ background-color: #f2eed3;
 border: 2px solid #35100B;
 border-radius: 5px;
 padding: 15px;
-margin-bottom: 20px;
+margin-bottom: 0; /* Remove bottom margin to eliminate blank space */
 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-overflow: visible; /* Allow child elements to scroll */
 }
 
 /* New row container for modules */
@@ -143,8 +171,6 @@ overflow: visible; /* Allow child elements to scroll */
 display: flex;
 flex-direction: row;
 gap: 2px;
-overflow-x: auto; /* Restore horizontal scroll for touch devices */
--webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 align-items: stretch; /* Ensures same height for all modules */
 flex-shrink: 0; /* Prevent shrinking */
 }
@@ -353,10 +379,8 @@ margin: 10px 0;
         .radio-option input[type="radio"] {
             margin: 0;
         }
-        
-        /* Prevent text selection on controls only, not body */
-        .knob, .module-title, label, button {
-            user-select: none;
+        body {
+            user-select: none; /* Prevent text selection */
             -webkit-user-select: none;
             -moz-user-select: none;
             -ms-user-select: none;
