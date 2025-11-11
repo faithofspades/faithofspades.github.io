@@ -16,17 +16,12 @@ body {
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
+    touch-action: pan-x pan-y pinch-zoom;
 }  .container {
 max-width: 1763px;
 width: max-content;
 transform-origin: top left;
 margin: 0 auto;
-pointer-events: none; /* Allow touch events to pass through for scrolling */
-}
-
-/* Re-enable pointer events on synth panel */
-.container > * {
-pointer-events: auto;
 }
 
 /* Media queries for uniform scaling */
@@ -164,12 +159,6 @@ border-radius: 5px;
 padding: 15px;
 margin-bottom: 0; /* Remove bottom margin to eliminate blank space */
 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-pointer-events: none; /* Allow touch to pass through panel */
-}
-
-/* Re-enable pointer events on interactive children */
-.synth-panel > * {
-pointer-events: auto;
 }
 
 /* New row container for modules */
@@ -179,13 +168,6 @@ flex-direction: row;
 gap: 2px;
 align-items: stretch; /* Ensures same height for all modules */
 flex-shrink: 0; /* Prevent shrinking */
-overflow-x: visible; /* Don't create scrollable area that blocks touch */
-pointer-events: none; /* Allow touch events to pass through */
-}
-
-/* Re-enable pointer events on child elements */
-.modules-row > * {
-pointer-events: auto;
 }
 
 /* L-shaped sequencer container */
@@ -278,6 +260,7 @@ margin: 10px 0;
     flex-direction: column;
     align-items: center;
     margin: 9px 0; /* Reduced from 10px */
+    touch-action: none; /* Allow drag gestures on knobs */
   }
   .tooltip {
     position: absolute;
@@ -310,6 +293,7 @@ margin: 10px 0;
     cursor: grab;
     transform-origin: center center;
     transition: transform 0.05s ease-out;
+    touch-action: none; /* Allow drag on knobs */
 }
 
 .knob:active {
