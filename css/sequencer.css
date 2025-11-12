@@ -198,7 +198,7 @@
 /* Direction label icons */
 .seq-direction-label-icons {
   display: flex;
-  gap: 2.7px; /* Reduced gap */
+  gap: 2.8px; /* Reduced gap */
   align-items: center;
   justify-content: center;
   width: 44px; /* Match dots container width */
@@ -260,8 +260,319 @@ svg.label-icon {
 /* Adjust spacing for sequencer vertical container */
 .sequencer-vertical {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-start;
+  gap: 10px;
   width: auto;
   min-width: auto;
+}
+
+/* Button column - holds all the buttons vertically */
+.seq-buttons-column {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sequencer Destination Column */
+.seq-destination-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Destination Slider Container - same style as LFO destination */
+.seq-destination-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  margin-bottom: 5px;
+}
+
+.seq-destination-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 129px;
+  height: 10px;
+  background: transparent;
+  transform: rotate(270deg);
+  transform-origin: left top;
+  position: absolute;
+  margin-left: 100px;
+  margin-right: 0;
+  margin-top: 129px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+/* Custom track styling */
+.seq-destination-range::-webkit-slider-runnable-track {
+  height: 10px;
+  background: #35100B;
+  border-radius: 8px;
+  border: none;
+}
+
+.seq-destination-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #35100B;
+  width: 24px;
+  height: 26px;
+  cursor: pointer;
+  border-radius: 5px;
+  margin-top: -8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  background-image: linear-gradient(to top, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.seq-destination-range::-moz-range-track {
+  height: 10px;
+  background: #35100B;
+  border-radius: 8px;
+  border: none;
+}
+
+.seq-destination-range::-moz-range-thumb {
+  background: #35100B;
+  width: 24px;
+  height: 26px;
+  cursor: pointer;
+  border-radius: 5px;
+  border: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  background-image: linear-gradient(to top, #f2eed3 30%, transparent 30%, transparent 70%, #f2eed3 70%);
+  background-size: 2px 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Destination Ticks */
+.seq-destination-ticks {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 129px;
+  margin-left: 40px;
+  margin-bottom: 0px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.seq-destination-ticks .tick-with-label {
+  display: flex;
+  align-items: center;
+  height: calc(100% / 6);
+  margin-left: 10px;
+}
+
+.seq-destination-ticks .tick {
+  width: 5px;
+  height: 1.9px;
+  background-color: #35100B;
+}
+
+.seq-destination-ticks .tick-label {
+
+  font-family: "Nunito", sans-serif;
+  font-size: 9px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  white-space: nowrap;
+}
+
+.seq-dest-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  margin-top: 5px;
+}
+
+/* Select Button - same style as LFO select */
+.seq-select-button-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.seq-select-button {
+  position: relative;
+  width: 41px;
+  height: 41px;
+  background-color: #6B8F53;
+  border: 2.5px solid #35100B;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+
+.seq-select-button:hover {
+  background-color: #729759;
+}
+
+.seq-select-button.active {
+  background-color: #7da263;
+  box-shadow: 0 0 8px #9ec681;
+  transform: scale(0.98);
+}
+
+.seq-select-button .icon {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+  pointer-events: none;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.seq-select-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+
+.seq-select-button .select-led {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: transparent;
+  transition: all 0.3s;
+}
+
+.seq-select-button.active .select-led {
+  background-color: #c52a18;
+  box-shadow: 0 0 4px #ff0000;
+}
+
+.seq-select-button-container label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  margin-top: 1px;
+}
+
+/* Tempo/Metronome Column */
+.seq-tempo-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Metronome Button */
+.seq-metronome-button-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.seq-metronome-button {
+  position: relative;
+  width: 41px;
+  height: 41px;
+  background-color: #6B8F53;
+  border: 2.5px solid #35100B;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+
+.seq-metronome-button:hover {
+  background-color: #729759;
+}
+
+.seq-metronome-button.active {
+  background-color: #7da263;
+  box-shadow: 0 0 8px #9ec681;
+  transform: scale(0.98);
+}
+
+.seq-metronome-button .icon {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+  pointer-events: none;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+.seq-metronome-button.active .icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
+}
+
+.seq-metronome-button .select-led {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: transparent;
+  transition: all 0.3s;
+}
+
+.seq-metronome-button.active .select-led {
+  background-color: #c52a18;
+  box-shadow: 0 0 4px #ff0000;
+}
+
+.seq-metronome-button-container label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.seq-metronome-button-container .tap-label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  margin-top: 1.5px;
+  margin-bottom: 2px;
+}
+
+.seq-metronome-button-container .arrow-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.seq-metronome-button-container .arrow-icon {
+  width: 10px;
+  height: 10px;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
+/* Tempo and Division Knobs use existing .knob-container styling */
+.seq-tempo-column .knob-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.seq-tempo-column .knob-container label {
+  font-family: "Nunito", sans-serif;
+  font-size: 10px;
+  font-variant-caps: all-small-caps;
+  font-weight: 750;
+  color: #35100B;
+  margin-top: 5px;
 }

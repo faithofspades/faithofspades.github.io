@@ -1154,66 +1154,146 @@
               <div class="sequencer-bottom-row">
                   <!-- Left vertical part of L (bottom of sequencer) -->
                   <div class="sequencer-vertical">
-                      <!-- HOLD Button -->
-                      <div class="seq-button-container">
-                        <div class="seq-hold-button" id="seq-hold-button">
-                          <img src="control icons/HOLD.svg" alt="Hold" class="icon">
-                        </div>
-                        <label for="seq-hold-button">HOLD</label>
+                      <!-- Button Column -->
+                      <div class="seq-buttons-column">
+                          <!-- HOLD Button -->
+                          <div class="seq-button-container">
+                            <div class="seq-hold-button" id="seq-hold-button">
+                              <img src="control icons/HOLD.svg" alt="Hold" class="icon">
+                            </div>
+                            <label for="seq-hold-button">HOLD</label>
+                          </div>
+                          
+                          <!-- Octave Buttons (Split) -->
+                          <div class="seq-button-container">
+                            <div class="seq-octave-buttons">
+                              <div class="seq-octave-down" id="seq-octave-down">−</div>
+                              <div class="seq-octave-up" id="seq-octave-up">+</div>
+                            </div>
+                            <!-- Octave Indicator (5 dots) -->
+                            <div class="seq-dots-container">
+                              <div class="seq-dot active" data-octave="1"></div>
+                              <div class="seq-dot" data-octave="2"></div>
+                              <div class="seq-dot" data-octave="3"></div>
+                              <div class="seq-dot" data-octave="4"></div>
+                              <div class="seq-dot" data-octave="5"></div>
+                            </div>
+                            <label for="seq-octave-buttons">OCTAVE</label>
+                          </div>
+                          
+                          <!-- Direction Button (Split) -->
+                          <div class="seq-button-container">
+                            <div class="seq-direction-buttons">
+                              <div class="seq-direction-down" id="seq-direction-down">
+                                <img src="control icons/LEFT.svg" alt="Down" class="direction-button-icon">
+                              </div>
+                              <div class="seq-direction-up" id="seq-direction-up">
+                                <img src="control icons/RIGHT.svg" alt="Up" class="direction-button-icon">
+                              </div>
+                            </div>
+                            <!-- Direction Indicator (5 dots) -->
+                            <div class="seq-dots-container">
+                              <div class="seq-dot active" data-direction="up"></div>
+                              <div class="seq-dot" data-direction="down"></div>
+                              <div class="seq-dot" data-direction="forward"></div>
+                              <div class="seq-dot" data-direction="updown"></div>
+                              <div class="seq-dot" data-direction="random"></div>
+                            </div>
+                            <label for="seq-direction-buttons">
+                              <div class="seq-direction-label-icons">
+                                <img src="control icons/ARPUP.svg" alt="Up" class="label-icon">
+                                <img src="control icons/ARPDOWN.svg" alt="Down" class="label-icon">
+                                <img src="control icons/ARPFORWARD.svg" alt="Forward" class="label-icon">
+                                <img src="control icons/UPDOWN.svg" alt="Up-Down" class="label-icon">
+                                <img src="control icons/ARPRANDOM.svg" alt="Random" class="label-icon">
+                              </div>
+                            </label>
+                          </div>
+                          
+                          <!-- ARP Button -->
+                          <div class="seq-button-container">
+                            <div class="seq-arp-button" id="seq-arp-button">
+                              <img src="control icons/ARP.svg" alt="ARP" class="icon">
+                            </div>
+                            <label for="seq-arp-button">ARP</label>
+                          </div>
                       </div>
                       
-                      <!-- Octave Buttons (Split) -->
-                      <div class="seq-button-container">
-                        <div class="seq-octave-buttons">
-                          <div class="seq-octave-down" id="seq-octave-down">−</div>
-                          <div class="seq-octave-up" id="seq-octave-up">+</div>
-                        </div>
-                        <!-- Octave Indicator (5 dots) -->
-                        <div class="seq-dots-container">
-                          <div class="seq-dot active" data-octave="1"></div>
-                          <div class="seq-dot" data-octave="2"></div>
-                          <div class="seq-dot" data-octave="3"></div>
-                          <div class="seq-dot" data-octave="4"></div>
-                          <div class="seq-dot" data-octave="5"></div>
-                        </div>
-                        <label for="seq-octave-buttons">OCTAVE</label>
+                      <!-- Sequencer Destination Column -->
+                      <div class="seq-destination-column">
+                          <!-- Destination Slider -->
+                          <div class="seq-destination-container">
+                            <input type="range" class="seq-destination-range" min="0" max="5" step="1" value="0" orient="vertical">
+                            
+                            <!-- Tick marks with labels -->
+                            <div class="seq-destination-ticks">
+                              <div class="tick-with-label">
+                                <div class="tick"></div>
+                                <span class="tick-label">ARP</span>
+                              </div>
+                              <div class="tick-with-label">
+                                <div class="tick"></div>
+                                <span class="tick-label">SEQ</span>
+                              </div>
+                              <div class="tick-with-label">
+                                <div class="tick"></div>
+                                <span class="tick-label">LFO</span>
+                              </div>
+                              <div class="tick-with-label">
+                                <div class="tick"></div>
+                                <span class="tick-label">MOD</span>
+                              </div>
+                              <div class="tick-with-label">
+                                <div class="tick"></div>
+                                <span class="tick-label">LOOPER</span>
+                              </div>
+                              <div class="tick-with-label">
+                                <div class="tick"></div>
+                                <span class="tick-label">DELAY</span>
+                              </div>
+                            </div>
+                            <div class="seq-dest-label">Destination</div>
+                          </div>
+                          
+                          <!-- Select Button -->
+                          <div class="seq-select-button-container">
+                            <div class="seq-select-button" id="seq-select-button">
+                              <img src="control%20icons/destination-select.svg" alt="Destination Select" class="icon">
+                              <div class="select-led"></div>
+                            </div>
+                            <label for="seq-select-button">Select</label>
+                          </div>
                       </div>
                       
-                      <!-- Direction Button (Split) -->
-                      <div class="seq-button-container">
-                        <div class="seq-direction-buttons">
-                          <div class="seq-direction-down" id="seq-direction-down">
-                            <img src="control icons/LEFT.svg" alt="Down" class="direction-button-icon">
+                      <!-- Tempo/Metronome Column -->
+                      <div class="seq-tempo-column">
+                          <!-- Metronome Button -->
+                          <div class="seq-metronome-button-container">
+                            <div class="seq-metronome-button" id="seq-metronome-button">
+                              <img src="control%20icons/METRONOME.svg" alt="Metronome" class="icon">
+                              <div class="select-led"></div>
+                            </div>
+                            <label for="seq-metronome-button" class="tap-label">TAP</label>
+                            <div class="arrow-label">
+                              <img src="control%20icons/ARPDOWN.svg" alt="Down Arrow" class="arrow-icon">
+                            </div>
                           </div>
-                          <div class="seq-direction-up" id="seq-direction-up">
-                            <img src="control icons/RIGHT.svg" alt="Up" class="direction-button-icon">
+                          
+                          <!-- Tempo Knob -->
+                          <div class="knob-container" style="
+    margin-bottom: 0px;">
+                            <div class="knob" id="seq-tempo-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B; margin-top: 7px;margin-bottom: 10;"></div>
+                            <label for="seq-tempo-knob" style="
+    margin-top: 0px;
+">Tempo</label>
                           </div>
-                        </div>
-                        <!-- Direction Indicator (5 dots) -->
-                        <div class="seq-dots-container">
-                          <div class="seq-dot active" data-direction="up"></div>
-                          <div class="seq-dot" data-direction="down"></div>
-                          <div class="seq-dot" data-direction="forward"></div>
-                          <div class="seq-dot" data-direction="updown"></div>
-                          <div class="seq-dot" data-direction="random"></div>
-                        </div>
-                        <label for="seq-direction-buttons">
-                          <div class="seq-direction-label-icons">
-                            <img src="control icons/ARPUP.svg" alt="Up" class="label-icon">
-                            <img src="control icons/ARPDOWN.svg" alt="Down" class="label-icon">
-                            <img src="control icons/ARPFORWARD.svg" alt="Forward" class="label-icon">
-                            <img src="control icons/UPDOWN.svg" alt="Up-Down" class="label-icon">
-                            <img src="control icons/ARPRANDOM.svg" alt="Random" class="label-icon">
+                          
+                          <!-- Division Knob -->
+                          <div class="knob-container"style="
+    margin-top: 0px;">
+                            <div class="knob" id="seq-division-knob" style="background-color: #6B8F53;box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;margin-bottom: 1.5;margin-bottom: 1.5;margin-bottom: 2px;"></div>
+                            <label for="seq-division-knob">Division</label>
                           </div>
-                        </label>
-                      </div>
-                      
-                      <!-- ARP Button -->
-                      <div class="seq-button-container">
-                        <div class="seq-arp-button" id="seq-arp-button">
-                          <img src="control icons/ARP.svg" alt="ARP" class="icon">
-                        </div>
-                        <label for="seq-arp-button">ARP</label>
                       </div>
                   </div>
                   
