@@ -214,6 +214,22 @@
   white-space: nowrap;
 }
 
+/* Arrow Icon Between Step Rec and Steps */
+.seq-steps-arrow-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 10px;
+  position: relative;
+  top: 2px;
+}
+
+.seq-steps-arrow-icon .arrow-icon {
+  width: 18px;
+  height: 18px;
+  filter: invert(8%) sepia(12%) saturate(6770%) hue-rotate(338deg) brightness(97%) contrast(99%);
+}
+
 /* Step Buttons Container */
 .seq-steps-container {
   display: flex;
@@ -785,7 +801,6 @@ svg.label-icon {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 10px
 }
 
 .seq-metronome-button {
@@ -863,8 +878,7 @@ svg.label-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  position:absolute;
-  bottom: 153px;
+  margin-top: -2px;
 }
 
 .seq-metronome-button-container .arrow-icon {
