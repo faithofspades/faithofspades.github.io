@@ -1148,6 +1148,63 @@
               <div class="sequencer-top-bar">
                   <img src="my-favicon/favicon.svg" alt="PolyHymn Logo" class="polyhymn-logo">
                   <span class="polyhymn-title">POLYHYMN</span>
+                  
+                  <!-- Transport Controls -->
+                  <div class="seq-transport-controls">
+                      <div class="seq-transport-button" id="seq-play-button">
+                          <img src="control%20icons/PLAY.svg" alt="Play" class="icon small-icon">
+                          <div class="select-led"></div>
+                      </div>
+                      <div class="seq-transport-button" id="seq-pause-button">
+                          <img src="control%20icons/PAUSE.svg" alt="Pause" class="icon small-icon">
+                          <div class="select-led"></div>
+                      </div>
+                      <div class="seq-transport-button-container">
+                          <div class="seq-transport-button" id="seq-motion-button">
+                              <img src="control%20icons/MOTION.svg" alt="Motion" class="icon medium-icon">
+                              <div class="select-led"></div>
+                          </div>
+                          <label for="seq-motion-button">MOD REC</label>
+                      </div>
+                      <div class="seq-transport-button" id="seq-record-button">
+                          <img src="control%20icons/RECORD.svg" alt="Record" class="icon">
+                          <div class="select-led"></div>
+                      </div>
+                  </div>
+                  
+                  <!-- Metronome Knob -->
+                  <div class="seq-top-knob-container">
+                      <div class="knob" id="seq-metronome-vol-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+                      <label for="seq-metronome-vol-knob">METRONOME</label>
+                  </div>
+                  
+                  <!-- Record Button -->
+                  <div class="seq-top-record-container">
+                      <div class="seq-top-record-button" id="seq-top-record-button">
+                          <img src="looper%20button%20icons/record%202.svg" alt="Record" class="icon">
+                      </div>
+                      <label for="seq-top-record-button">STEP REC</label>
+                  </div>
+                  
+                  <!-- Step Buttons Container -->
+                  <div class="seq-steps-container">
+                      <div class="seq-step-button" id="seq-step-1">1</div>
+                      <div class="seq-step-button" id="seq-step-2">2</div>
+                      <div class="seq-step-button" id="seq-step-3">3</div>
+                      <div class="seq-step-button" id="seq-step-4">4</div>
+                      <div class="seq-step-button" id="seq-step-5">5</div>
+                      <div class="seq-step-button" id="seq-step-6">6</div>
+                      <div class="seq-step-button" id="seq-step-7">7</div>
+                      <div class="seq-step-button" id="seq-step-8">8</div>
+                      <div class="seq-step-button" id="seq-step-9">9</div>
+                      <div class="seq-step-button" id="seq-step-10">10</div>
+                      <div class="seq-step-button" id="seq-step-11">11</div>
+                      <div class="seq-step-button" id="seq-step-12">12</div>
+                      <div class="seq-step-button" id="seq-step-13">13</div>
+                      <div class="seq-step-button" id="seq-step-14">14</div>
+                      <div class="seq-step-button" id="seq-step-15">15</div>
+                      <div class="seq-step-button" id="seq-step-16">16</div>
+                  </div>
               </div>
               
               <!-- Bottom section with vertical part and keyboard -->
@@ -1275,24 +1332,58 @@
                             </div>
                             <label for="seq-metronome-button" class="tap-label">TAP</label>
                             <div class="arrow-label">
-                              <img src="control%20icons/ARPDOWN.svg" alt="Down Arrow" class="arrow-icon">
+                              <img src="control%20icons/TAPDOWN.svg" alt="Down Arrow" class="arrow-icon">
                             </div>
                           </div>
                           
                           <!-- Tempo Knob -->
                           <div class="knob-container" style="
     margin-bottom: 0px;">
-                            <div class="knob" id="seq-tempo-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B; margin-top: 7px;margin-bottom: 10;"></div>
+                            <div class="knob" id="seq-tempo-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B; margin-top: 7px;margin-bottom: 10;"></div>
                             <label for="seq-tempo-knob" style="
     margin-top: 0px;
 ">Tempo</label>
                           </div>
                           
-                          <!-- Division Knob -->
-                          <div class="knob-container"style="
+                          <!-- Division Knob with Arrow -->
+                          <div class="seq-division-with-arrow">
+                            <!-- Forward Arrow Icon -->
+                            <div class="seq-forward-icon">
+                              <img src="control%20icons/DIVISIONRIGHT.svg" alt="Forward" class="forward-icon">
+                            </div>
+                            
+                            <!-- Division Knob -->
+                            <div class="knob-container"style="
     margin-top: 0px;">
-                            <div class="knob" id="seq-division-knob" style="background-color: #6B8F53;box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;margin-bottom: 1.5;margin-bottom: 1.5;margin-bottom: 2px;"></div>
-                            <label for="seq-division-knob">Division</label>
+                              <div class="knob" id="seq-division-knob" style="background-color: #BA5446;box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;margin-bottom: 1.5;margin-bottom: 1.5;margin-bottom: 2px;"></div>
+                              <label for="seq-division-knob">Division</label>
+                            </div>
+                          </div>
+                      </div>
+                      
+                      <!-- Pitch Bend Column -->
+                      <div class="seq-pitch-column">
+                          <!-- Octave Buttons (Split) -->
+                          <div class="seq-button-container">
+                            <div class="seq-octave-buttons">
+                              <div class="seq-octave-down" id="seq-keyboard-octave-down">−</div>
+                              <div class="seq-octave-up" id="seq-keyboard-octave-up">+</div>
+                            </div>
+                            <!-- Octave Indicator (5 dots) -->
+                            <div class="seq-dots-container">
+                              <div class="seq-dot" data-octave="1"></div>
+                              <div class="seq-dot" data-octave="2"></div>
+                              <div class="seq-dot active" data-octave="3"></div>
+                              <div class="seq-dot" data-octave="4"></div>
+                              <div class="seq-dot" data-octave="5"></div>
+                            </div>
+                            <label for="seq-keyboard-octave-buttons">OCTAVE</label>
+                          </div>
+                          
+                          <!-- Pitch Bend Slider -->
+                          <div class="seq-pitch-slider-container">
+                            <input type="range" class="seq-pitch-slider" min="-12" max="12" step="0.01" value="0" orient="vertical">
+                            <label for="seq-pitch-slider">PITCH</label>
                           </div>
                       </div>
                   </div>

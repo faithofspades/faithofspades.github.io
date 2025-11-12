@@ -190,17 +190,20 @@ padding-left: 0px;
 display: flex;
 align-items: center;
 gap: 0;
+overflow: visible;
 }
 
 .polyhymn-logo {
-height: 65px;
+height: 55px;
 width: auto;
+margin-left: 5.5px;
+margin-right: 11px;
 }
 
 .polyhymn-title {
 font-family: 'ofelia-text', sans-serif;
 font-weight: 600;
-font-size: 32px;
+font-size: 33.4px;
 line-height: 65px;
 color: #35100B;
 letter-spacing: 0;
