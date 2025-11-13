@@ -1174,7 +1174,7 @@
                   
                   <!-- Metronome Knob -->
                   <div class="seq-top-knob-container">
-                      <div class="knob" id="seq-metronome-vol-knob" style="background-color: #CF814D; box-shadow: 0 0 0 4.2px #CF814D, 0 0 0 6px #35100B;"></div>
+                      <div class="knob" id="seq-metronome-vol-knob" style="background-color: #6B8F53; box-shadow: 0 0 0 4.2px #6B8F53, 0 0 0 6px #35100B;"></div>
                       <label for="seq-metronome-vol-knob">METRONOME</label>
                   </div>
                   
@@ -1209,6 +1209,92 @@
                       <div class="seq-step-button" id="seq-step-14">14</div>
                       <div class="seq-step-button" id="seq-step-15">15</div>
                       <div class="seq-step-button" id="seq-step-16">16</div>
+                  </div>
+                  
+                  <!-- Backward Arrow Icon -->
+                  <div class="seq-page-arrow-icon">
+                      <img src="control%20icons/DIVISIONRIGHT.svg" alt="Backward Arrow" class="arrow-icon" style="transform: rotate(180deg);">
+                  </div>
+                  
+                  <!-- Page Button Container (only buttons - for centering) -->
+                  <div class="seq-page-button-container">
+                      <div class="seq-page-buttons">
+                          <div class="seq-page-down" id="seq-page-down">
+                              <img src="control%20icons/LEFT.svg" alt="Left" class="direction-button-icon">
+                          </div>
+                          <div class="seq-page-up" id="seq-page-up">
+                              <img src="control%20icons/RIGHT.svg" alt="Right" class="direction-button-icon">
+                          </div>
+                      </div>
+                      <!-- Page Indicator and Label (positioned below, doesn't affect centering) -->
+                      <div class="seq-page-bottom">
+                          <div class="seq-page-dots-container">
+                              <div class="seq-dot active" data-page="1"></div>
+                              <div class="seq-dot" data-page="2"></div>
+                              <div class="seq-dot" data-page="3"></div>
+                              <div class="seq-dot" data-page="4"></div>
+                          </div>
+                          <label for="seq-page-buttons">PAGE</label>
+                      </div>
+                  </div>
+                  
+                  <!-- Quantize Knob -->
+                  <div class="seq-top-knob-container">
+                      <div class="knob" id="seq-quantize-knob" style="background-color: #BA5446; box-shadow: 0 0 0 4.2px #BA5446, 0 0 0 6px #35100B;"></div>
+                      <label for="seq-quantize-knob">QUANTIZE</label>
+                  </div>
+                  
+                  <!-- Sequence Save/Load Buttons -->
+                  <div class="seq-sequence-container">
+                      <div class="seq-sequence-buttons">
+                          <div class="seq-sequence-button" id="seq-save-button">SAVE</div>
+                          <div class="seq-sequence-button" id="seq-load-button">LOAD</div>
+                      </div>
+                      <label for="seq-sequence-buttons">SEQUENCE</label>
+                  </div>
+                  
+                  <!-- Spread Knob -->
+                  <div class="seq-top-knob-container">
+                      <div class="knob" id="seq-spread-knob" style="background-color: #E5AB5F; box-shadow: 0 0 0 4.2px #E5AB5F, 0 0 0 6px #35100B;"></div>
+                      <label for="seq-spread-knob">SPREAD</label>
+                  </div>
+                  
+                  <!-- State Save/Load Buttons -->
+                  <div class="seq-sequence-container">
+                      <div class="seq-sequence-buttons">
+                          <div class="seq-sequence-button" id="seq-state-save-button">SAVE</div>
+                          <div class="seq-sequence-button" id="seq-state-load-button">LOAD</div>
+                      </div>
+                      <label for="seq-state-buttons">STATE</label>
+                  </div>
+                  
+                  <!-- Four Chorus-Style Buttons -->
+                  <div class="seq-chorus-button-container">
+                      <div class="seq-chorus-button" id="seq-vel-after-button">
+                          <img src="control%20icons/KEYBOARD.svg" alt="Keyboard" class="seq-chorus-icon">
+                      </div>
+                      <label class="seq-chorus-button-label">VEL / AFTER</label>
+                  </div>
+                  
+                  <div class="seq-chorus-button-container">
+                      <div class="seq-chorus-button" id="seq-tips-button">
+                          <span class="seq-chorus-icon seq-tips-icon">?</span>
+                      </div>
+                      <label class="seq-chorus-button-label">TIPS</label>
+                  </div>
+                  
+                  <div class="seq-chorus-button-container">
+                      <div class="seq-chorus-button" id="seq-precision-button">
+                          <img src="control%20icons/PRECISION.svg" alt="Precision" class="seq-chorus-icon">
+                      </div>
+                      <label class="seq-chorus-button-label">PRECISION</label>
+                  </div>
+                  
+                  <div class="seq-chorus-button-container">
+                      <div class="seq-chorus-button" id="seq-link-params-button">
+                          <img src="control%20icons/MIDI.svg" alt="MIDI" class="seq-chorus-icon">
+                      </div>
+                      <label class="seq-chorus-button-label">LINK PARAMS</label>
                   </div>
               </div>
               
