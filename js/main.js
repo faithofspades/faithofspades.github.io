@@ -284,11 +284,18 @@ function setupNonLinearFilterSlider() {
     // Convert to frequency using our mapping (already rounded to whole Hz)
     const frequency = filterPositionToFrequency(visualPosition);
     
+    // Show tooltip with final modulated frequency
+    createTooltipForSlider(this, `${Math.round(frequency)} Hz`, 'top-right');
+    
     // Update filter
     if (filterManager) {
       filterManager.setCutoff(frequency);
     }
   };
+  
+  // Hide tooltip on release
+  newSlider.addEventListener('mouseup', () => hideTooltipForSlider(newSlider));
+  newSlider.addEventListener('touchend', () => hideTooltipForSlider(newSlider));
   
   // Initialize with correct frequency (500Hz at midpoint)
   const initialFreq = 500; // Hz
@@ -628,9 +635,6 @@ function initializeFilterControls() {
     resSlider.addEventListener('input', (e) => {
       let value = parseFloat(e.target.value);
       
-      // Show tooltip on the right
-      createTooltipForSlider(e.target, `${Math.round(value * 100)}%`, 'right');
-      
       // Check if this slider has active macro modulation
       const destination = knobToDestinationMap['filter-resonance'];
       if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
@@ -644,6 +648,9 @@ function initializeFilterControls() {
         
         console.log(`Filter resonance modulated: multiplier=${multiplier.toFixed(2)}, final=${value.toFixed(2)}`);
       }
+      
+      // Show tooltip on the right with final modulated value
+      createTooltipForSlider(e.target, `${Math.round(value * 100)}%`, 'top-right');
       
       if (filterManager) {
         filterManager.setResonance(value);
@@ -687,7 +694,21 @@ if (driveSlider) {
     variantSlider.addEventListener('input', (e) => {
       let value = parseFloat(e.target.value);
       
-      // Create dynamic tooltip based on current filter type
+      // Check if this slider has active macro modulation FIRST
+      const destination = knobToDestinationMap['filter-variant'];
+      if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+        const multiplier = destinationModulations[destination];
+        
+        // Apply multiplier
+        value = value * multiplier;
+        
+        // Clamp to 0-1 range
+        value = Math.max(0, Math.min(1, value));
+        
+        console.log(`Filter variant modulated: multiplier=${multiplier.toFixed(2)}, final=${value.toFixed(2)}`);
+      }
+      
+      // Create dynamic tooltip based on current filter type and MODULATED value
       let tooltipText;
       if (currentFilterType === 'lp12') {
         tooltipText = `Diode: ${Math.round(value * 100)}%`;
@@ -701,21 +722,7 @@ if (driveSlider) {
         tooltipText = `Variant: ${Math.round(value * 100)}%`;
       }
       
-      createTooltipForSlider(e.target, tooltipText, 'top');
-      
-      // Check if this slider has active macro modulation
-      const destination = knobToDestinationMap['filter-variant'];
-      if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
-        const multiplier = destinationModulations[destination];
-        
-        // Apply multiplier
-        value = value * multiplier;
-        
-        // Clamp to 0-1 range
-        value = Math.max(0, Math.min(1, value));
-        
-        console.log(`Filter variant modulated: multiplier=${multiplier.toFixed(2)}, final=${value.toFixed(2)}`);
-      }
+      createTooltipForSlider(e.target, tooltipText, 'bottom');
       
       if (filterManager) {
         filterManager.setVariant(value);
@@ -2742,6 +2749,35 @@ function updateSourceButtonStates() {
   // If no connection, set to null to show no source is selected
   currentModSource = connectedSource;
   console.log(`  Updated currentModSource to: ${currentModSource}`);
+  
+  // Update routed class for all destination buttons
+  updateDestinationRoutedStates();
+}
+
+/**
+ * Updates the 'routed' class on destination buttons based on active connections
+ */
+function updateDestinationRoutedStates() {
+  const allTickLabels = document.querySelectorAll('.tick-label');
+  
+  console.log(`updateDestinationRoutedStates: Found ${allTickLabels.length} tick labels`);
+  console.log(`destinationConnections:`, destinationConnections);
+  
+  allTickLabels.forEach(label => {
+    const labelText = label.textContent.trim();
+    // Check if this destination has an active connection
+    const hasRouting = destinationConnections[labelText] !== null && destinationConnections[labelText] !== undefined;
+    
+    console.log(`  Label "${labelText}": hasRouting=${hasRouting}, connection="${destinationConnections[labelText]}"`);
+    
+    if (hasRouting) {
+      label.classList.add('routed');
+      console.log(`    Added 'routed' class to "${labelText}"`);
+    } else {
+      label.classList.remove('routed');
+      console.log(`    Removed 'routed' class from "${labelText}"`);
+    }
+  });
 }
 
 /**
@@ -2793,15 +2829,18 @@ function handleDestinationChange(sliderIndex, sliderNumber) {
   currentDestinationIndex = combinedIndex;
   currentDestinationName = modulationDestinations[combinedIndex];
   
-  // Highlight the current destination tick label
+  // Update routed states first
+  updateDestinationRoutedStates();
+  
+  // Then highlight the current destination tick label (orange overrides routed blue)
   const allTickLabels = document.querySelectorAll('.tick-label');
   allTickLabels.forEach((label) => {
     if (label.textContent.trim() === currentDestinationName) {
-      // This is the active destination - highlight it
+      // This is the active destination - highlight it in orange
       label.style.color = '#CF814D';
     } else {
-      // Reset other labels to default color
-      label.style.color = '#35100B';
+      // Clear inline style to let CSS classes take over (routed or default)
+      label.style.color = '';
     }
   });
   
@@ -2973,6 +3012,9 @@ function applyModulationToDestination(destination, modulation) {
           const frequency = filterPositionToFrequency(position);
           filterManager.setCutoff(frequency);
           
+          // Show tooltip with modulated frequency
+          createTooltipForSlider(sliderElement, `${Math.round(frequency)} Hz`, 'top-right');
+          
           console.log(`    -> Filter cutoff: position=${position.toFixed(2)}, frequency=${frequency}Hz`);
         }
       } else if (elementId === 'filter-resonance') {
@@ -2982,6 +3024,10 @@ function applyModulationToDestination(destination, modulation) {
           value = value * modulation;
           value = Math.max(0, Math.min(1, value));
           filterManager.setResonance(value);
+          
+          // Show tooltip with modulated value
+          createTooltipForSlider(sliderElement, `${Math.round(value * 100)}%`, 'top-right');
+          
           console.log(`    -> Filter resonance: ${value.toFixed(2)}`);
         }
       } else if (elementId === 'filter-variant') {
@@ -2991,6 +3037,21 @@ function applyModulationToDestination(destination, modulation) {
           value = value * modulation;
           value = Math.max(0, Math.min(1, value));
           filterManager.setVariant(value);
+          
+          // Show tooltip with modulated value based on filter type
+          let tooltipText;
+          if (currentFilterType === 'lp12') {
+            tooltipText = `Diode: ${Math.round(value * 100)}%`;
+          } else if (currentFilterType === 'lp24') {
+            tooltipText = `Bass Compensation: ${Math.round(value * 100)}%`;
+          } else if (currentFilterType.startsWith('lh')) {
+            const frequency = 16000 * Math.pow(8/16000, value);
+            tooltipText = `High Pass: ${Math.round(frequency)} Hz`;
+          } else {
+            tooltipText = `Variant: ${Math.round(value * 100)}%`;
+          }
+          createTooltipForSlider(sliderElement, tooltipText, 'bottom');
+          
           console.log(`    -> Filter variant: ${value.toFixed(2)}`);
         }
       }
@@ -3030,6 +3091,7 @@ function handleSelectButtonToggle() {
     console.log(`  destinationConnections[${currentDestinationName}]="${destinationConnections[currentDestinationName]}"`);
     updateSelectButtonState();
     updateSourceButtonStates();
+    updateDestinationRoutedStates(); // Update routed states after connection change
     console.log(`  AFTER updates: currentModSource="${currentModSource}"`);
   });
   
@@ -3084,6 +3146,9 @@ function initializeModulationRouting() {
       label.style.color = '#35100B';
     }
   });
+  
+  // Initialize routed states
+  updateDestinationRoutedStates();
   
   console.log(`Modulation routing system initialized - starting at: ${currentDestinationName}`);
 }
@@ -3553,7 +3618,7 @@ const knobInitializations = {
             console.log(`Sampler Gain modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
         }
         
-        const tooltip = createTooltipForKnob('sample-volume-knob', value);
+        const tooltip = createTooltipForKnob('sample-volume-knob', value, 'right');
         
         if (finalValue === 0) {
             tooltip.textContent = 'MUTED';
@@ -3590,7 +3655,7 @@ const knobInitializations = {
     const now = audioCtx.currentTime;
 
     // Show and update tooltip
-    const tooltip = createTooltipForKnob('sample-pitch-knob', value);
+    const tooltip = createTooltipForKnob('sample-pitch-knob', value, 'right');
     tooltip.textContent = `${currentSampleDetune.toFixed(0)}c`;
     tooltip.style.opacity = '1';
 
@@ -3652,8 +3717,8 @@ const knobInitializations = {
             console.log(`Osc1 Gain modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
         }
         
-        const tooltip = createTooltipForKnob('osc1-gain-knob', value);
-        tooltip.textContent = `${(finalValue * 100).toFixed(0)}%`;
+        const tooltip = createTooltipForKnob('osc1-gain-knob', value, 'bottom');
+        tooltip.textContent = `GAIN: ${(finalValue * 100).toFixed(0)}%`;
         tooltip.style.opacity = '1';
         osc1GainValue = finalValue; // Update the global gain value with modulated value
 
@@ -3693,7 +3758,7 @@ const knobInitializations = {
         // Calculate detune value (e.g., -100 to +100 cents) using modulated value
         osc1Detune = (finalValue - 0.5) * 200; // Example mapping
 
-        const tooltip = createTooltipForKnob('osc1-pitch-knob', value);
+        const tooltip = createTooltipForKnob('osc1-pitch-knob', value, 'right');
         tooltip.textContent = `${osc1Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
 
@@ -3991,7 +4056,7 @@ const knobInitializations = {
     // Always update the global value with modulated value
     osc1PWMValue = finalValue;
     
-    const tooltip = createTooltipForKnob('osc1-pwm-knob', value);
+    const tooltip = createTooltipForKnob('osc1-pwm-knob', value, 'right');
     
     // Update display text - show "OFF" when at zero
     if (finalValue === 0) {
@@ -4048,8 +4113,8 @@ const knobInitializations = {
     
     osc1QuantizeValue = finalValue;
     
-    const tooltip = createTooltipForKnob('osc1-quantize-knob', value);
-    tooltip.textContent = `${Math.round(finalValue * 100)}%`;
+    const tooltip = createTooltipForKnob('osc1-quantize-knob', value, 'bottom');
+    tooltip.textContent = `QUANT: ${Math.round(finalValue * 100)}%`;
     tooltip.style.opacity = '1';
     
     // Update active notes
@@ -4086,8 +4151,8 @@ const knobInitializations = {
         }
         
         osc2GainValue = finalValue;
-        const tooltip = createTooltipForKnob('osc2-gain-knob', value);
-        tooltip.textContent = `${Math.round(finalValue * 100)}%`;
+        const tooltip = createTooltipForKnob('osc2-gain-knob', value, 'bottom');
+        tooltip.textContent = `GAIN: ${Math.round(finalValue * 100)}%`;
         tooltip.style.opacity = '1';
         // Update active Osc2 notes
         // <<< CHANGE: Iterate over voicePool >>>
@@ -4119,7 +4184,7 @@ const knobInitializations = {
         
         // Map 0-1 to -100 to +100 cents using modulated value
         osc2Detune = (finalValue - 0.5) * 200;
-        const tooltip = createTooltipForKnob('osc2-pitch-knob', value);
+        const tooltip = createTooltipForKnob('osc2-pitch-knob', value, 'right');
         tooltip.textContent = `${osc2Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
         const now = audioCtx.currentTime;
@@ -4162,7 +4227,7 @@ const knobInitializations = {
     // Always update the global value with modulated value
     osc2PWMValue = finalValue;
     
-    const tooltip = createTooltipForKnob('osc2-pwm-knob', value);
+    const tooltip = createTooltipForKnob('osc2-pwm-knob', value, 'right');
     
     // Update display text - show "OFF" when at zero
     if (finalValue === 0) {
@@ -4219,8 +4284,8 @@ const knobInitializations = {
     
     osc2QuantizeValue = finalValue;
     
-    const tooltip = createTooltipForKnob('osc2-quantize-knob', value);
-    tooltip.textContent = `${Math.round(finalValue * 100)}%`;
+    const tooltip = createTooltipForKnob('osc2-quantize-knob', value, 'bottom');
+    tooltip.textContent = `QUANT: ${Math.round(finalValue * 100)}%`;
     tooltip.style.opacity = '1';
     
     // Update active notes
@@ -5138,18 +5203,34 @@ updateADSRVisualization();
 initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool)
 
 
-function createTooltipForKnob(knobId, value) {
+function createTooltipForKnob(knobId, value, position = 'top') {
 const tooltip = document.getElementById(`${knobId}-tooltip`) || (() => {
 const newTooltip = document.createElement('div');
 newTooltip.id = `${knobId}-tooltip`;
 newTooltip.className = 'tooltip';
-document.body.appendChild(newTooltip);
 
-// Position tooltip near its knob
+// Add position class
+if (position === 'right') {
+    newTooltip.classList.add('tooltip-right');
+} else if (position === 'bottom') {
+    newTooltip.classList.add('tooltip-bottom');
+}
+
+// Find the knob and append tooltip to its parent container
 const knob = D(knobId);
-const knobRect = knob.getBoundingClientRect();
-newTooltip.style.left = `${knobRect.left + knobRect.width + 5}px`;
-newTooltip.style.top = `${knobRect.top + (knobRect.height / 2) - 10}px`;
+const parent = knob.parentElement;
+
+// Ensure parent has position relative
+if (parent && window.getComputedStyle(parent).position === 'static') {
+    parent.style.position = 'relative';
+}
+
+// Append to parent instead of body
+if (parent) {
+    parent.appendChild(newTooltip);
+} else {
+    document.body.appendChild(newTooltip);
+}
 
 return newTooltip;
 })();
@@ -5166,20 +5247,38 @@ function createTooltipForSlider(slider, text, position = 'top') {
         tooltip = document.createElement('div');
         tooltip.id = `${sliderId}-tooltip`;
         tooltip.className = 'tooltip';
-        document.body.appendChild(tooltip);
+        
+        // Find slider's parent container
+        const parent = slider.parentElement;
+        
+        // Ensure parent has position relative
+        if (parent && window.getComputedStyle(parent).position === 'static') {
+            parent.style.position = 'relative';
+        }
+        
+        // Append to parent instead of body
+        if (parent) {
+            parent.appendChild(tooltip);
+        } else {
+            document.body.appendChild(tooltip);
+        }
     }
     
-    // Position tooltip near slider
-    const sliderRect = slider.getBoundingClientRect();
+    // Remove any previous position classes
+    tooltip.classList.remove('tooltip-right', 'tooltip-bottom', 'tooltip-top-right');
     
+    // Add the appropriate position class
     if (position === 'right') {
-        tooltip.style.left = `${sliderRect.right + 10}px`;
-        tooltip.style.top = `${sliderRect.top + sliderRect.height / 2 - 10}px`;
-    } else {
-        // top position
-        tooltip.style.left = `${sliderRect.left + sliderRect.width / 2 - 30}px`;
-        tooltip.style.top = `${sliderRect.top - 30}px`;
+        tooltip.classList.add('tooltip-right');
+    } else if (position === 'bottom') {
+        tooltip.classList.add('tooltip-bottom');
+    } else if (position === 'top-right') {
+        tooltip.classList.add('tooltip-top-right');
     }
+    // 'top' is the default, no extra class needed
+    
+    // Use CSS positioning instead of calculated pixels
+    // The CSS already handles centering with left: 50%, top: -30px, transform: translateX(-50%)
     
     tooltip.textContent = text;
     tooltip.style.display = 'block';
@@ -5296,7 +5395,7 @@ function initializeFilterPrecisionSlider(slider) {
     const frequency = positionToFrequency(position);
     
     // Show tooltip on the right
-    createTooltipForSlider(this, `${Math.round(frequency)} Hz`, 'right');
+    createTooltipForSlider(this, `${Math.round(frequency)} Hz`, 'top-right');
     
     // Update filter cutoff
     if (filterManager) {

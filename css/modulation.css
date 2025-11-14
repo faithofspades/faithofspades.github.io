@@ -90,6 +90,12 @@
     font-weight: 750;
     margin-bottom: 1.6px;
     color: #35100B;
+    transition: color 0.2s;
+  }
+
+  /* Routed destination label - blue color when destination has active routing */
+  .tick-label.routed {
+    color: #597097 !important;
   }
 
   
@@ -706,6 +712,17 @@
     background-color: #d69061; /* Same as hover orange */
     box-shadow: 0 0 8px rgba(207, 129, 77, 0.8); /* Orange glow */
   }
+
+  /* Routed state - blue color when destination has active routing */
+  .matrix-button.routed {
+    background-color: #597097;
+  }
+
+  /* Routed buttons still show orange on hover */
+  .matrix-button.routed:hover {
+    background-color: #CF814D;
+  }
+
   /* Add this CSS to style the text in the matrix buttons */
   .matrix-button {
     width: 21px;
