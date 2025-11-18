@@ -113,14 +113,7 @@
 }
 
 .seq-transport-button .select-led {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: transparent;
-  transition: all 0.3s;
+  display: none;
 }
 
 .seq-transport-button.active .select-led {
@@ -282,12 +275,6 @@
   box-sizing: border-box;
 }
 
-/* Every 4th button (1, 5, 9, 13) - Orange */
-.seq-step-button:nth-child(4n+1) {
-  background-color: #CF814D;
-  text-decoration: underline;
-}
-
 .seq-step-button:first-child {
   border-radius: 3px 0 0 3px;
 }
@@ -301,19 +288,13 @@
   background-color: #d99261;
 }
 
-/* Yellow buttons hover */
-.seq-step-button:not(:nth-child(4n+1)):hover {
-  background-color: #eab773;
-}
-
 .seq-step-button.active {
   background-color: #e3a375;
   box-shadow: 0 0 8px #edb489;
   color: #f2eed3;
 }
 
-/* Yellow buttons active */
-.seq-step-button:not(:nth-child(4n+1)).active {
+.seq-step-button.active {
   background-color: #efc287;
   box-shadow: 0 0 8px #f5d09b;
   color: #f2eed3;
@@ -1302,6 +1283,12 @@ svg.label-icon {
   font-weight: 750;
   color: #35100B;
   white-space: nowrap;
+  transition: color 0.2s;
+}
+
+/* Routed destination label - blue color when destination has active routing */
+.seq-destination-ticks .tick-label.routed {
+  color: #597097;
 }
 
 .seq-dest-label {
@@ -1359,14 +1346,7 @@ svg.label-icon {
 }
 
 .seq-select-button .select-led {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: transparent;
-  transition: all 0.3s;
+  display: none;
 }
 
 .seq-select-button.active .select-led {

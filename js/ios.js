@@ -122,6 +122,12 @@ export function createiOSStartupOverlay(audioCtx) {
                     // ADDED: Load the sample after overlay is removed
                     console.log("Overlay removed, loading initial sample");
                     
+                    // Initialize sequencer destination colors after user interaction
+                    if (window.sequencerTempo && window.sequencerTempo.initializeColors) {
+                        window.sequencerTempo.initializeColors();
+                        console.log("Sequencer colors initialized");
+                    }
+                    
                     // Make sure audio context is running
                     if (audioCtx && audioCtx.state === "running") {
                         // Check if window.loadPresetSample function exists

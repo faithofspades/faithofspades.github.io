@@ -95,7 +95,7 @@
 
   /* Routed destination label - blue color when destination has active routing */
   .tick-label.routed {
-    color: #597097 !important;
+    color: #597097;
   }
 
   

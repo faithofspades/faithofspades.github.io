@@ -80,7 +80,14 @@ const TR2 = 2 ** (1.0 / 12.0);
 const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
 const VOICE_STEAL_SAFETY_BUFFER = 0.000; // 2ms safety buffer for voice stealing
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+window.audioCtx = audioCtx; // Expose globally for sequencer
 Tone.setContext(audioCtx);
+
+// Expose voicePool for pitch bend access (will be populated later)
+window.voicePool = null;
+
+// Initialize pitch bend to 0
+window.sequencerPitchBend = 0;
 
 // Dual ADSR system state variables
 let adsrMode = 'adsr'; // 'adsr' or 'filter'
@@ -954,6 +961,7 @@ let osc1LastPlayedNote = null; // Separate tracking for Osc1 glide
 let osc1Waveform = 'triangle';
 let osc1OctaveOffset = 0;
 let osc1Detune = 0;
+window.osc1Detune = 0; // Expose for pitch bend access
 let osc1GainValue = 0.5;
 let osc1PWMValue = 0.0; // 0.0 to 1.0. Interpreted as Duty Cycle (Pulse/Square) or Shape Amount (Others)
 let osc1QuantizeValue = 0.0; // <<< ADD: Quantization amount 0.0 to 1.0
@@ -964,6 +972,7 @@ const osc1FMDepthScale = 22000; // Max frequency deviation in Hz
 let osc2Waveform = 'triangle';
 let osc2OctaveOffset = 0;
 let osc2Detune = 0; // Fine tune in cents
+window.osc2Detune = 0; // Expose for pitch bend access
 let osc2GainValue = 0.5;
 let osc2PWMValue = 0.0; // 0.0 to 1.0
 let osc2QuantizeValue = 0.0; // 0.0 to 1.0
@@ -1042,6 +1051,7 @@ let macroValues = {
 let lfoOscillator = null;
 let lfoGain = null;
 let lfoRate = 1.0; // Hz
+window.lfoRate = lfoRate; // Make globally accessible for tempo sync
 let lfoFade = 0.0; // 0-1 fade-in time (0=instant, 1=5 seconds) - applied per-voice
 let lfoDepth = 1.0; // 0-1 polarity control: 0=negative, 0.5=off, 1=positive
 window.lfoShape = 0; // 0=triangle, 1=square, 2=random, 3=sine, 4=saw (global for uiPlaceholders.js)
@@ -1086,6 +1096,13 @@ function initializeLFO() {
  * Restart the LFO with current shape and rate
  */
 function restartLFO() {
+  // Check if LFO is synced to tempo
+  if (window.sequencerTempo) {
+    const tempoConnections = window.sequencerTempo;
+    // Check if LFO destination is routed in the tempo system
+    // The tempo system will automatically update lfoRate when needed
+  }
+  
   // Note: We don't actually use Web Audio oscillators here
   // The LFO is calculated mathematically in applyLFOModulation()
   // This function exists for future implementation with AudioWorklet
@@ -1100,6 +1117,11 @@ function applyLFOModulation() {
   const hasAnyConnections = Object.values(destinationConnections).some(source => source === 'LFO');
   if (!hasAnyConnections) {
     return; // No connections, skip processing
+  }
+  
+  // Sync from window.lfoRate in case it was updated by sequencer
+  if (window.lfoRate !== undefined && window.lfoRate !== lfoRate) {
+    lfoRate = window.lfoRate;
   }
   
   // Calculate LFO value (0-1 range) - shared across all voices
@@ -1233,6 +1255,7 @@ function applyLFOModulation() {
 // --- MOD Canvas Modulation System ---
 let modCanvasMode = 'lfo'; // 'env', 'lfo', or 'trig'
 let modCanvasRate = 1.0; // Hz for LFO mode
+window.modCanvasRate = modCanvasRate; // Make globally accessible for tempo sync
 let modCanvasValue = 0.5; // Current canvas output value (0-1)
 let modCanvasPhase = 0.0; // Current phase (0-1) for LFO mode
 let modCanvasUpdateInterval = null;
@@ -1344,6 +1367,11 @@ function applyMODCanvasModulation() {
   // Only process in LFO mode
   if (modCanvasMode !== 'lfo') {
     return;
+  }
+  
+  // Sync from window.modCanvasRate in case it was updated by sequencer
+  if (window.modCanvasRate !== undefined && window.modCanvasRate !== modCanvasRate) {
+    modCanvasRate = window.modCanvasRate;
   }
   
   // Update phase based on rate
@@ -1665,6 +1693,7 @@ const knobDefaults = {
 'osc2-fm-knob': 0.0, // <<< ADD: Default FM amount
 'mod-depth-knob': 1.0, // LFO Depth: 1.0 = positive polarity (default)
 'mod-rate-knob': 0.5, // MOD Canvas Rate: 1 Hz (middle position)
+'seq-division-knob': 0.206, // 4/4 time signature (numerator 4, denominator 4)
 // ADD FILTER KNOBS
     'adsr-knob': 0.5, // 50% = unity
     'keytrack-knob': 0.5, // 50% = unity
@@ -2289,6 +2318,9 @@ function initializeVoicePool() {
     nextVoiceIndex = 0;
     voiceAssignments = new Map();
     
+    // Expose voicePool globally for sequencer pitch bend
+    window.voicePool = voicePool;
+    
     // REMOVED THE FM INITIALIZATION FROM HERE - it was forcing FM to 0
     // The FM will be properly initialized after knobs are set up in DOMContentLoaded
     
@@ -2758,7 +2790,7 @@ function updateSourceButtonStates() {
  * Updates the 'routed' class on destination buttons based on active connections
  */
 function updateDestinationRoutedStates() {
-  const allTickLabels = document.querySelectorAll('.tick-label');
+  const allTickLabels = document.querySelectorAll('.lfo-destination-ticks .tick-label');
   
   console.log(`updateDestinationRoutedStates: Found ${allTickLabels.length} tick labels`);
   console.log(`destinationConnections:`, destinationConnections);
@@ -2833,7 +2865,7 @@ function handleDestinationChange(sliderIndex, sliderNumber) {
   updateDestinationRoutedStates();
   
   // Then highlight the current destination tick label (orange overrides routed blue)
-  const allTickLabels = document.querySelectorAll('.tick-label');
+  const allTickLabels = document.querySelectorAll('.lfo-destination-ticks .tick-label');
   allTickLabels.forEach((label) => {
     if (label.textContent.trim() === currentDestinationName) {
       // This is the active destination - highlight it in orange
@@ -3138,7 +3170,7 @@ function initializeModulationRouting() {
   currentDestinationName = modulationDestinations[12];
   
   // Highlight the initial destination
-  const allTickLabels = document.querySelectorAll('.tick-label');
+  const allTickLabels = document.querySelectorAll('.lfo-destination-ticks .tick-label');
   allTickLabels.forEach((label) => {
     if (label.textContent.trim() === currentDestinationName) {
       label.style.color = '#CF814D';
@@ -3530,6 +3562,7 @@ const knobInitializations = {
         
         // Map 0-1 to 0.1-20 Hz (logarithmic) - same as LFO rate slider
         modCanvasRate = 0.1 * Math.pow(200, value);
+        window.modCanvasRate = modCanvasRate; // Update global
         
         tooltip.textContent = `${modCanvasRate.toFixed(2)} Hz`;
         tooltip.style.opacity = '1';
@@ -3724,13 +3757,15 @@ const knobInitializations = {
 
         // --- REAL-TIME UPDATE FOR ACTIVE NOTES (Control levelNode) ---
         const now = audioCtx.currentTime;
+        const rampTime = 0.02; // 20ms smooth ramp to prevent clicks
         // <<< CHANGE: Iterate over voicePool >>>
         voicePool.forEach(voice => {
             // Check if the voice is active and the specific osc1 levelNode exist
             if (voice.state !== 'inactive' && voice.osc1Note && voice.osc1Note.levelNode) {
                 const levelNode = voice.osc1Note.levelNode;
                 levelNode.gain.cancelScheduledValues(now);
-                levelNode.gain.setValueAtTime(osc1GainValue, now);
+                levelNode.gain.setValueAtTime(levelNode.gain.value, now);
+                levelNode.gain.linearRampToValueAtTime(osc1GainValue, now + rampTime);
             }
         });
         // <<< END CHANGE >>>
@@ -3757,6 +3792,7 @@ const knobInitializations = {
         
         // Calculate detune value (e.g., -100 to +100 cents) using modulated value
         osc1Detune = (finalValue - 0.5) * 200; // Example mapping
+        window.osc1Detune = osc1Detune; // Keep global sync
 
         const tooltip = createTooltipForKnob('osc1-pitch-knob', value, 'right');
         tooltip.textContent = `${osc1Detune.toFixed(0)}c`;
@@ -4155,11 +4191,14 @@ const knobInitializations = {
         tooltip.textContent = `GAIN: ${Math.round(finalValue * 100)}%`;
         tooltip.style.opacity = '1';
         // Update active Osc2 notes
+        const now = audioCtx.currentTime;
+        const rampTime = 0.02; // 20ms smooth ramp to prevent clicks
         // <<< CHANGE: Iterate over voicePool >>>
         voicePool.forEach(voice => {
             if (voice.state !== 'inactive' && voice.osc2Note && voice.osc2Note.levelNode) {
-                voice.osc2Note.levelNode.gain.cancelScheduledValues(audioCtx.currentTime);
-                voice.osc2Note.levelNode.gain.setValueAtTime(osc2GainValue, audioCtx.currentTime);
+                voice.osc2Note.levelNode.gain.cancelScheduledValues(now);
+                voice.osc2Note.levelNode.gain.setValueAtTime(voice.osc2Note.levelNode.gain.value, now);
+                voice.osc2Note.levelNode.gain.linearRampToValueAtTime(osc2GainValue, now + rampTime);
             }
         });
         // <<< END CHANGE >>>
@@ -4184,6 +4223,7 @@ const knobInitializations = {
         
         // Map 0-1 to -100 to +100 cents using modulated value
         osc2Detune = (finalValue - 0.5) * 200;
+        window.osc2Detune = osc2Detune; // Keep global sync
         const tooltip = createTooltipForKnob('osc2-pitch-knob', value, 'right');
         tooltip.textContent = `${osc2Detune.toFixed(0)}c`;
         tooltip.style.opacity = '1';
@@ -6481,14 +6521,17 @@ function applyPitchWarble(voice, now) {
     
     const settleTime = WARBLE_SETTLE_TIME;
     
+    // Get current pitch bend from sequencer
+    const pitchBendCents = (window.sequencerPitchBend || 0) * 100;
+    
     // Apply warble to OSC1
     if (voice.osc1Note && voice.osc1Note.workletNode) {
         const detuneParam = voice.osc1Note.workletNode.parameters.get('detune');
         if (detuneParam) {
-            // Start with the random warble offset
-            detuneParam.setValueAtTime(osc1Detune + voice.warbleOffset, now);
-            // Settle back to base detune over 150ms
-            detuneParam.linearRampToValueAtTime(osc1Detune, now + settleTime);
+            // Start with the random warble offset + pitch bend
+            detuneParam.setValueAtTime(osc1Detune + voice.warbleOffset + pitchBendCents, now);
+            // Settle back to base detune + pitch bend over 150ms
+            detuneParam.linearRampToValueAtTime(osc1Detune + pitchBendCents, now + settleTime);
         }
     }
     
@@ -6496,8 +6539,8 @@ function applyPitchWarble(voice, now) {
     if (voice.osc2Note && voice.osc2Note.workletNode) {
         const detuneParam = voice.osc2Note.workletNode.parameters.get('detune');
         if (detuneParam) {
-            detuneParam.setValueAtTime(osc2Detune + voice.warbleOffset, now);
-            detuneParam.linearRampToValueAtTime(osc2Detune, now + settleTime);
+            detuneParam.setValueAtTime(osc2Detune + voice.warbleOffset + pitchBendCents, now);
+            detuneParam.linearRampToValueAtTime(osc2Detune + pitchBendCents, now + settleTime);
         }
     }
 }
@@ -6509,10 +6552,13 @@ function applySamplerWarble(samplerVoice, now) {
     const source = samplerVoice.samplerNote.source;
     const settleTime = WARBLE_SETTLE_TIME;
     
+    // Get current pitch bend from sequencer (convert semitones to cents)
+    const pitchBendCents = (window.sequencerPitchBend || 0) * 100;
+    
     // Apply warble to sampler detune
     const baseDetune = currentSampleDetune;
-    source.detune.setValueAtTime(baseDetune + samplerVoice.warbleOffset, now);
-    source.detune.linearRampToValueAtTime(baseDetune, now + settleTime);
+    source.detune.setValueAtTime(baseDetune + samplerVoice.warbleOffset + pitchBendCents, now);
+    source.detune.linearRampToValueAtTime(baseDetune + pitchBendCents, now + settleTime);
 }
 // Also ensure noteOn properly sets up the envelope from zero
 function noteOn(noteNumber, isLegatoMonoTransition = false) {
@@ -6974,16 +7020,109 @@ if (legatoTransition && samplerNote.state === 'playing') {
         samplerVoice.decayEndTime = now + attack + decay;
     }
 } else {
-  // For fresh notes, apply linear attack and curved decay
-  samplerNote.gainNode.gain.setValueAtTime(0, now);
-  samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
-  
-  // Apply curved decay
-  applyCurvedEnvelope(samplerNote.gainNode.gain, 1.0, sustain, decay, now + attack, 'decay');
-  
-  voice.envelopeState = 'attack';
-  voice.attackEndTime = now + attack;
-  voice.decayEndTime = now + attack + decay;
+  // Mono mode (non-legato) OR fresh note
+  if (isMonoMode && wasSamplerStolen) {
+    // Mono multi mode stealing - apply same smooth transitions as poly multi
+    samplerNote.gainNode.gain.cancelScheduledValues(now);
+    const currentGain = samplerNote.gainNode.gain.value;
+    
+    if (wasReleasing) {
+      // Start fresh from 0 when stealing from release
+      samplerNote.gainNode.gain.setValueAtTime(0, now);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+      
+      voice.envelopeState = 'attack';
+      voice.envelopeStartTime = now;
+      voice.attackEndTime = now + attack;
+      voice.decayEndTime = now + attack + decay;
+      
+      samplerVoice.envelopeState = 'attack';
+      samplerVoice.envelopeStartTime = now;
+      samplerVoice.attackEndTime = now + attack;
+      samplerVoice.decayEndTime = now + attack + decay;
+      
+      console.log(`Mono multi sampler: Fresh attack from 0 (from release)`);
+    } else if (wasInAttack) {
+      // Continue attack
+      const remainingAttackTime = attack * (1.0 - currentGain);
+      samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+      
+      voice.envelopeState = 'attack';
+      voice.envelopeStartTime = now;
+      voice.attackEndTime = now + remainingAttackTime;
+      voice.decayEndTime = now + remainingAttackTime + decay;
+      
+      samplerVoice.envelopeState = 'attack';
+      samplerVoice.envelopeStartTime = now;
+      samplerVoice.attackEndTime = now + remainingAttackTime;
+      samplerVoice.decayEndTime = now + remainingAttackTime + decay;
+      
+      console.log(`Mono multi sampler: Continuing attack from ${currentGain.toFixed(3)}`);
+    } else if (wasInDecay) {
+      // Reset from decay
+      samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+      
+      voice.envelopeState = 'attack';
+      voice.envelopeStartTime = now;
+      voice.attackEndTime = now + attack;
+      voice.decayEndTime = now + attack + decay;
+      
+      samplerVoice.envelopeState = 'attack';
+      samplerVoice.envelopeStartTime = now;
+      samplerVoice.attackEndTime = now + attack;
+      samplerVoice.decayEndTime = now + attack + decay;
+      
+      console.log(`Mono multi sampler: Reset from decay (gain ${currentGain.toFixed(3)})`);
+    } else if (wasInSustain) {
+      // From sustain to new envelope
+      samplerNote.gainNode.gain.setValueAtTime(sustain, now);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+      
+      voice.envelopeState = 'attack';
+      voice.envelopeStartTime = now;
+      voice.attackEndTime = now + attack;
+      voice.decayEndTime = now + attack + decay;
+      
+      samplerVoice.envelopeState = 'attack';
+      samplerVoice.envelopeStartTime = now;
+      samplerVoice.attackEndTime = now + attack;
+      samplerVoice.decayEndTime = now + attack + decay;
+      
+      console.log(`Mono multi sampler: From sustain to new envelope`);
+    } else {
+      // Lock in current gain
+      samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+      samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+      
+      voice.envelopeState = 'attack';
+      voice.envelopeStartTime = now;
+      voice.attackEndTime = now + attack;
+      voice.decayEndTime = now + attack + decay;
+      
+      samplerVoice.envelopeState = 'attack';
+      samplerVoice.envelopeStartTime = now;
+      samplerVoice.attackEndTime = now + attack;
+      samplerVoice.decayEndTime = now + attack + decay;
+    }
+  } else {
+    // Fresh notes - apply linear attack and curved decay
+    samplerNote.gainNode.gain.setValueAtTime(0, now);
+    samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+    
+    // Apply curved decay
+    applyCurvedEnvelope(samplerNote.gainNode.gain, 1.0, sustain, decay, now + attack, 'decay');
+    
+    voice.envelopeState = 'attack';
+    voice.attackEndTime = now + attack;
+    voice.decayEndTime = now + attack + decay;
+  }
 }
 
 // Schedule envelope state updates for BOTH voices
@@ -7215,14 +7354,41 @@ if (legatoTransition && osc1.state === 'playing') {
     }
 } else {
     // Mono mode (non-legato) OR fresh note
-    if (isMonoMode && wasReleasing) {
-        // Mono mode stealing from release - smooth 5ms fade like poly
-        const fadeOutTime = 0.005;
-        osc1.gainNode.gain.setValueAtTime(currentGain, now);
-        osc1.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
-        osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
-        osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
-        console.log(`Mono osc1: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack`);
+    if (isMonoMode && wasActive) {
+        // Mono multi mode stealing - apply same smooth transitions as poly multi
+        if (wasReleasing) {
+            // Smooth 5ms fade when stealing from release
+            const fadeOutTime = 0.005;
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+            osc1.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
+            console.log(`Mono multi osc1: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack (from release)`);
+        } else if (wasInAttack) {
+            // Continue attack
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+            const remainingAttackTime = attack * (1.0 - currentGain);
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+            console.log(`Mono multi osc1: Continuing attack from ${currentGain.toFixed(3)}`);
+        } else if (wasInDecay) {
+            // Restart from current gain
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+            console.log(`Mono multi osc1: Reset from decay (gain ${currentGain.toFixed(3)})`);
+        } else if (wasInSustain) {
+            // From sustain to new envelope
+            osc1.gainNode.gain.setValueAtTime(sustain, now);
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+            console.log(`Mono multi osc1: From sustain to new envelope`);
+        } else {
+            // Lock in current gain
+            osc1.gainNode.gain.setValueAtTime(currentGain, now);
+            osc1.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc1.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        }
     } else {
         // Fresh note - start from 0
         osc1.gainNode.gain.setValueAtTime(0, now);
@@ -7354,14 +7520,41 @@ if (legatoTransition && osc2.state === 'playing') {
     }
 } else {
     // Mono mode (non-legato) OR fresh note
-    if (isMonoMode && wasReleasing) {
-        // Mono mode stealing from release - smooth 5ms fade like poly
-        const fadeOutTime = 0.005;
-        osc2.gainNode.gain.setValueAtTime(currentGain, now);
-        osc2.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
-        osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
-        osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
-        console.log(`Mono osc2: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack`);
+    if (isMonoMode && wasActive) {
+        // Mono multi mode stealing - apply same smooth transitions as poly multi
+        if (wasReleasing) {
+            // Smooth 5ms fade when stealing from release
+            const fadeOutTime = 0.005;
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+            osc2.gainNode.gain.linearRampToValueAtTime(0, now + fadeOutTime);
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + fadeOutTime + attack);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + fadeOutTime + attack + decay);
+            console.log(`Mono multi osc2: Smooth restart from ${currentGain.toFixed(3)} → 0 → attack (from release)`);
+        } else if (wasInAttack) {
+            // Continue attack
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+            const remainingAttackTime = attack * (1.0 - currentGain);
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + remainingAttackTime + decay);
+            console.log(`Mono multi osc2: Continuing attack from ${currentGain.toFixed(3)}`);
+        } else if (wasInDecay) {
+            // Restart from current gain
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+            console.log(`Mono multi osc2: Reset from decay (gain ${currentGain.toFixed(3)})`);
+        } else if (wasInSustain) {
+            // From sustain to new envelope
+            osc2.gainNode.gain.setValueAtTime(sustain, now);
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+            console.log(`Mono multi osc2: From sustain to new envelope`);
+        } else {
+            // Lock in current gain
+            osc2.gainNode.gain.setValueAtTime(currentGain, now);
+            osc2.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
+            osc2.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
+        }
     } else {
         // Fresh note - start from 0
         osc2.gainNode.gain.setValueAtTime(0, now);
@@ -7818,6 +8011,12 @@ setupNonLinearFilterSlider(); // Set up non-linear cutoff mapping BEFORE filter 
 initializeFilterControls();
 initializeModulationRouting();
 
+// Initialize Sequencer Tempo System (must be before LFO/MOD so they can sync)
+if (window.sequencerTempo) {
+  window.sequencerTempo.initialize();
+  console.log('Sequencer tempo system initialized from main.js');
+}
+
 // Initialize LFO system
 initializeLFO();
 
@@ -7831,6 +8030,7 @@ if (rateSlider) {
     const value = parseFloat(e.target.value);
     // Map 0-1 to 0.1-20 Hz (logarithmic)
     lfoRate = 0.1 * Math.pow(200, value); // 0.1 Hz to 20 Hz
+    window.lfoRate = lfoRate; // Update global
     
     // Show tooltip on the right
     createTooltipForSlider(e.target, `${lfoRate.toFixed(2)} Hz`, 'right');

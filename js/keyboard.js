@@ -4,6 +4,7 @@ let noteOnCallback = () => {};
 let noteOffCallback = () => {};
 let updateKeyboardDisplayCallback = () => {};
 const keyStates = {}; // Track physical key states internally
+const activeNotes = new Map(); // Track which note number each key is playing (key index -> actual note number)
 
 // Key mappings (copied from main.js)
 export const keys = [
@@ -67,33 +68,67 @@ function generateKeyboard(keyboardElement) {
 function addKeyListeners(keyElement, noteIndex) {
     // Mouse events
     keyElement.addEventListener('mousedown', () => {
-        noteOnCallback(noteIndex);
+        // Apply octave shift before calling noteOn
+        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
+        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        
+        // Store which note this key is playing
+        activeNotes.set(noteIndex, actualNote);
+        
+        noteOnCallback(actualNote);
         keyElement.classList.add('pressed');
     });
     keyElement.addEventListener('mouseup', () => {
-        noteOffCallback(noteIndex);
+        // Use the stored note number for release
+        const actualNote = activeNotes.get(noteIndex);
+        if (actualNote !== undefined) {
+            noteOffCallback(actualNote);
+            activeNotes.delete(noteIndex);
+        }
         keyElement.classList.remove('pressed');
     });
     keyElement.addEventListener('mouseleave', () => {
         if (keyElement.classList.contains('pressed')) {
-            noteOffCallback(noteIndex);
+            // Use the stored note number for release
+            const actualNote = activeNotes.get(noteIndex);
+            if (actualNote !== undefined) {
+                noteOffCallback(actualNote);
+                activeNotes.delete(noteIndex);
+            }
             keyElement.classList.remove('pressed');
         }
     });
 
     // Touch events
     keyElement.addEventListener('touchstart', (e) => {
-        noteOnCallback(noteIndex);
+        // Apply octave shift before calling noteOn
+        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
+        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        
+        // Store which note this key is playing
+        activeNotes.set(noteIndex, actualNote);
+        
+        noteOnCallback(actualNote);
         keyElement.classList.add('pressed');
         e.preventDefault();
     }, { passive: false });
     keyElement.addEventListener('touchend', (e) => {
-        noteOffCallback(noteIndex);
+        // Use the stored note number for release
+        const actualNote = activeNotes.get(noteIndex);
+        if (actualNote !== undefined) {
+            noteOffCallback(actualNote);
+            activeNotes.delete(noteIndex);
+        }
         keyElement.classList.remove('pressed');
         e.preventDefault();
     }, { passive: false });
     keyElement.addEventListener('touchcancel', (e) => {
-        noteOffCallback(noteIndex);
+        // Use the stored note number for release
+        const actualNote = activeNotes.get(noteIndex);
+        if (actualNote !== undefined) {
+            noteOffCallback(actualNote);
+            activeNotes.delete(noteIndex);
+        }
         keyElement.classList.remove('pressed');
         e.preventDefault();
     }, { passive: false });
@@ -105,14 +140,32 @@ function handleKeyDown(e) {
 
     if (keys.includes(upperKey) && !keyStates[upperKey]) {
         keyStates[upperKey] = true;
-        noteOnCallback(keys.indexOf(upperKey));
+        const noteIndex = keys.indexOf(upperKey);
+        
+        // Apply octave shift before calling noteOn
+        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
+        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        
+        // Store which note this key is playing (use string key for computer keyboard)
+        activeNotes.set(upperKey, actualNote);
+        
+        noteOnCallback(actualNote);
         updateKeyboardDisplayCallback(); // Trigger visual update
         return;
     }
 
     if (Object.prototype.hasOwnProperty.call(specialKeyMap, e.key) && !keyStates[e.key]) {
         keyStates[e.key] = true;
-        noteOnCallback(specialKeyMap[e.key]);
+        const noteIndex = specialKeyMap[e.key];
+        
+        // Apply octave shift before calling noteOn
+        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
+        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        
+        // Store which note this key is playing
+        activeNotes.set(e.key, actualNote);
+        
+        noteOnCallback(actualNote);
         updateKeyboardDisplayCallback(); // Trigger visual update
     }
 }
@@ -122,14 +175,28 @@ function handleKeyUp(e) {
 
     if (keys.includes(upperKey) && keyStates[upperKey]) {
         keyStates[upperKey] = false;
-        noteOffCallback(keys.indexOf(upperKey));
+        
+        // Use the stored note number for release
+        const actualNote = activeNotes.get(upperKey);
+        if (actualNote !== undefined) {
+            noteOffCallback(actualNote);
+            activeNotes.delete(upperKey);
+        }
+        
         updateKeyboardDisplayCallback(); // Trigger visual update
         return;
     }
 
     if (Object.prototype.hasOwnProperty.call(specialKeyMap, e.key) && keyStates[e.key]) {
         keyStates[e.key] = false;
-        noteOffCallback(specialKeyMap[e.key]);
+        
+        // Use the stored note number for release
+        const actualNote = activeNotes.get(e.key);
+        if (actualNote !== undefined) {
+            noteOffCallback(actualNote);
+            activeNotes.delete(e.key);
+        }
+        
         updateKeyboardDisplayCallback(); // Trigger visual update
     }
 }
