@@ -28,6 +28,11 @@ let currentDivisionDestination = 'GLOBAL'; // Currently highlighted destination
 let selectedDivisionDestination = null; // Currently selected destination (when select is on)
 let divisionConnections = {}; // { 'LOSS': true, 'DELAY': false, ... }
 let divisionSettings = {}; // { 'LOSS': { type: '1/64', modifier: 'regular' }, ... }
+let arpeggiatorInstance = null;
+
+export function setArpeggiatorInstance(instance) {
+    arpeggiatorInstance = instance;
+}
 
 // Division options for LOSS, DELAY, ARP, LFO, MOD
 const rhythmDivisions = [
@@ -177,7 +182,7 @@ function updateOctaveIndicator() {
     });
 }
 
-function getKeyboardOctaveShift() {
+export function getKeyboardOctaveShift() {
     return keyboardOctaveShift;
 }
 
@@ -263,9 +268,9 @@ function initializeDivisionSystem() {
     divisionSettings['MOD'] = { type: '1/4', modifier: 'regular' };
     
     // Default connections
-    divisionConnections['GLOBAL'] = true;
-    divisionConnections['ARP'] = true;
-    divisionConnections['LOSS'] = true;
+    divisionConnections['GLOBAL'] = true; // Always routed (master tempo)
+    divisionConnections['ARP'] = true; // Permanently routed to its own scheduler
+    divisionConnections['LOSS'] = true; // Loss/sidechain clock always follows tempo
     divisionConnections['DELAY'] = false;
     divisionConnections['LFO'] = false;
     divisionConnections['MOD'] = false;
@@ -629,6 +634,11 @@ function setDivision(destination, divisionIndex, modifierIndex = 0) {
 // --- Toggle Division Routing ---
 function toggleDivisionRouting(destination) {
     if (!destination) destination = currentDivisionDestination;
+    if (destination === 'ARP' || destination === 'GLOBAL' || destination === 'LOSS') {
+        console.log(`${destination} routing is locked and cannot be toggled.`);
+        updateDivisionRoutingIndicators();
+        return;
+    }
     
     divisionConnections[destination] = !divisionConnections[destination];
     
@@ -762,6 +772,7 @@ function notifyDivisionTick(time) {
     for (const destination of divisionDestinations) {
         if (!divisionConnections[destination]) continue;
         if (destination === 'GLOBAL') continue; // Global just controls metronome
+        if (destination === 'ARP') continue; // Arpeggiator now runs on its own scheduler
         
         const settings = divisionSettings[destination];
         if (!settings) continue;
@@ -800,12 +811,6 @@ function notifyDivisionTick(time) {
 function fireDivisionEvent(destination, time) {
     // Trigger appropriate module based on destination
     switch(destination) {
-        case 'ARP':
-            // Trigger Arpeggiator Note
-            if (window.Arpeggiator) {
-                window.Arpeggiator.playNextStep(time);
-            }
-            break;
         case 'LOSS':
             // Trigger bit crusher/loss effect
             if (window.lossEffect && window.lossEffect.trigger) {
@@ -1015,7 +1020,7 @@ function updateDivisionKnobForDestination(destination) {
 }
 
 // --- Export for use in main.js ---
-window.sequencerTempo = {
+export const sequencerTempo = {
     initialize: initializeDivisionSystem,
     start: startTempo,
     stop: stopTempo,
@@ -1049,10 +1054,13 @@ function initializeSequencerUI() {
     if (playButton) {
         playButton.addEventListener('click', () => {
             if (isTempoPlaying) {
-                stopTempo({ keepButtonState: true });
-                startTempo();
-                playButton.classList.add('active');
-                if (playButtonImg) playButtonImg.src = 'control%20icons/STOP.svg';
+                // Second press stops playback and resets transport
+                stopTempo();
+                playButton.classList.remove('active');
+                if (playButtonImg) playButtonImg.src = 'control%20icons/PLAY.svg';
+                const pauseBtn = document.getElementById('seq-pause-button');
+                if (pauseBtn) pauseBtn.classList.remove('active');
+                return;
             } else if (isPaused) {
                 // Resume from pause
                 startTempo();
@@ -1263,13 +1271,13 @@ function initializeSequencerUI() {
     }
 
     // --- Arpeggiator UI ---
-    if (window.Arpeggiator) {
+    if (arpeggiatorInstance) {
         // Hold Button
         const holdButton = document.getElementById('seq-hold-button');
         if (holdButton) {
             holdButton.addEventListener('click', () => {
-                const isHold = !window.Arpeggiator.isHold();
-                window.Arpeggiator.setHold(isHold);
+                const isHold = !arpeggiatorInstance.isHold();
+                arpeggiatorInstance.setHold(isHold);
                 holdButton.classList.toggle('active', isHold);
             });
         }
@@ -1278,8 +1286,8 @@ function initializeSequencerUI() {
         const arpButton = document.getElementById('seq-arp-button');
         if (arpButton) {
             arpButton.addEventListener('click', () => {
-                const isActive = !window.Arpeggiator.isActive();
-                window.Arpeggiator.setActive(isActive);
+                const isActive = !arpeggiatorInstance.isActive();
+                arpeggiatorInstance.setActive(isActive);
                 arpButton.classList.toggle('active', isActive);
             });
         }
@@ -1290,7 +1298,7 @@ function initializeSequencerUI() {
         const octDots = document.querySelectorAll('.seq-octave-buttons + .seq-dots-container .seq-dot');
         
         function updateArpOctaveUI() {
-            const oct = window.Arpeggiator.getOctaves();
+            const oct = arpeggiatorInstance.getOctaves();
             octDots.forEach((dot, i) => {
                 dot.classList.toggle('active', i + 1 === oct);
             });
@@ -1298,9 +1306,9 @@ function initializeSequencerUI() {
 
         if (octDown) {
             octDown.addEventListener('click', () => {
-                let oct = window.Arpeggiator.getOctaves();
+                let oct = arpeggiatorInstance.getOctaves();
                 if (oct > 1) {
-                    window.Arpeggiator.setOctaves(oct - 1);
+                    arpeggiatorInstance.setOctaves(oct - 1);
                     updateArpOctaveUI();
                 }
             });
@@ -1308,9 +1316,9 @@ function initializeSequencerUI() {
 
         if (octUp) {
             octUp.addEventListener('click', () => {
-                let oct = window.Arpeggiator.getOctaves();
+                let oct = arpeggiatorInstance.getOctaves();
                 if (oct < 5) {
-                    window.Arpeggiator.setOctaves(oct + 1);
+                    arpeggiatorInstance.setOctaves(oct + 1);
                     updateArpOctaveUI();
                 }
             });
@@ -1325,7 +1333,7 @@ function initializeSequencerUI() {
         // UI: Up, Down, Forward(Order), UpDown, Random
         
         function updateArpModeUI() {
-            const mode = window.Arpeggiator.getMode();
+            const mode = arpeggiatorInstance.getMode();
             // Map mode string to index
             let index = 0;
             if (mode === 'up') index = 0;
@@ -1341,7 +1349,7 @@ function initializeSequencerUI() {
 
         if (dirDown) {
             dirDown.addEventListener('click', () => {
-                const currentMode = window.Arpeggiator.getMode();
+                const currentMode = arpeggiatorInstance.getMode();
                 let index = 0;
                 if (currentMode === 'up') index = 0;
                 else if (currentMode === 'down') index = 1;
@@ -1357,7 +1365,7 @@ function initializeSequencerUI() {
                     else if (index === 3) newMode = 'upDown';
                     else if (index === 4) newMode = 'random';
                     
-                    window.Arpeggiator.setMode(newMode);
+                    arpeggiatorInstance.setMode(newMode);
                     updateArpModeUI();
                 }
             });
@@ -1365,7 +1373,7 @@ function initializeSequencerUI() {
 
         if (dirUp) {
             dirUp.addEventListener('click', () => {
-                const currentMode = window.Arpeggiator.getMode();
+                const currentMode = arpeggiatorInstance.getMode();
                 let index = 0;
                 if (currentMode === 'up') index = 0;
                 else if (currentMode === 'down') index = 1;
@@ -1381,7 +1389,7 @@ function initializeSequencerUI() {
                     else if (index === 3) newMode = 'upDown';
                     else if (index === 4) newMode = 'random';
                     
-                    window.Arpeggiator.setMode(newMode);
+                    arpeggiatorInstance.setMode(newMode);
                     updateArpModeUI();
                 }
             });
@@ -1439,52 +1447,24 @@ function updateSelectButtonState() {
     }
 }
 
-// Initialize when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        initializeDivisionSystem();
-        initializeSequencerUI();
-        
-        // Set initial displays
-        updateTempoKnobDisplay();
-        updateDivisionRoutingIndicators();
-        
-        // Set destination slider to GLOBAL (index 5, but inverted so value 0)
-        const destSlider = document.querySelector('.seq-destination-range');
-        if (destSlider) {
-            destSlider.value = 0; // 0 maps to index 5 (GLOBAL) after inversion
-        }
-        
-        // Initialize destination highlight colors
-        updateDestinationHighlight('GLOBAL');
-    });
-} else {
+export function initializeSequencerModule() {
     initializeDivisionSystem();
     initializeSequencerUI();
-    
-    // Set initial displays
+
     updateTempoKnobDisplay();
     updateDivisionRoutingIndicators();
-    
-    // Set destination slider to GLOBAL (slider value 0 inverts to index 5)
+
     const destSlider = document.querySelector('.seq-destination-range');
     if (destSlider) {
-        destSlider.value = 0; // Slider 0 inverts to index 5 = GLOBAL
+        destSlider.value = 0;
         currentDivisionDestination = 'GLOBAL';
     }
-    
-    // Initialize destination highlight colors and select button
-    // Use requestAnimationFrame to ensure DOM is painted
+
     requestAnimationFrame(() => {
         updateDestinationHighlight('GLOBAL');
         updateSelectButtonState();
-        
-        // Initialize division knob to 4/4 position after DOM is ready
         updateDivisionKnobForDestination('GLOBAL');
     });
+
+    console.log('Sequencer tempo system loaded');
 }
-
-console.log('Sequencer tempo system loaded');
-
-// Export functions for use by other modules
-window.getKeyboardOctaveShift = getKeyboardOctaveShift;

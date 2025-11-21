@@ -1,3 +1,5 @@
+import { getKeyboardOctaveShift } from './sequencer-module.js';
+
 // filepath: d:\Dropbox\Github Computer Programming Class\faithofspades.github.io\js\keyboard.js
 // --- Module State ---
 let noteOnCallback = () => {};
@@ -5,6 +7,8 @@ let noteOffCallback = () => {};
 let updateKeyboardDisplayCallback = () => {};
 const keyStates = {}; // Track physical key states internally
 const activeNotes = new Map(); // Track which note number each key is playing (key index -> actual note number)
+const MIN_NOTE_NUMBER = -36; // Corresponds to MIDI note 0 after main.js offset is applied
+const MAX_NOTE_NUMBER = 127; // Prevent absurdly high generated notes
 
 // Key mappings (copied from main.js)
 export const keys = [
@@ -68,9 +72,7 @@ function generateKeyboard(keyboardElement) {
 function addKeyListeners(keyElement, noteIndex) {
     // Mouse events
     keyElement.addEventListener('mousedown', () => {
-        // Apply octave shift before calling noteOn
-        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
-        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        const actualNote = getShiftedNote(noteIndex);
         
         // Store which note this key is playing
         activeNotes.set(noteIndex, actualNote);
@@ -101,9 +103,7 @@ function addKeyListeners(keyElement, noteIndex) {
 
     // Touch events
     keyElement.addEventListener('touchstart', (e) => {
-        // Apply octave shift before calling noteOn
-        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
-        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        const actualNote = getShiftedNote(noteIndex);
         
         // Store which note this key is playing
         activeNotes.set(noteIndex, actualNote);
@@ -142,9 +142,7 @@ function handleKeyDown(e) {
         keyStates[upperKey] = true;
         const noteIndex = keys.indexOf(upperKey);
         
-        // Apply octave shift before calling noteOn
-        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
-        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        const actualNote = getShiftedNote(noteIndex);
         
         // Store which note this key is playing (use string key for computer keyboard)
         activeNotes.set(upperKey, actualNote);
@@ -158,9 +156,7 @@ function handleKeyDown(e) {
         keyStates[e.key] = true;
         const noteIndex = specialKeyMap[e.key];
         
-        // Apply octave shift before calling noteOn
-        const octaveShift = window.getKeyboardOctaveShift ? window.getKeyboardOctaveShift() : 0;
-        const actualNote = Math.max(0, Math.min(127, noteIndex + (octaveShift * 12)));
+        const actualNote = getShiftedNote(noteIndex);
         
         // Store which note this key is playing
         activeNotes.set(e.key, actualNote);
@@ -244,4 +240,10 @@ export function resetKeyStates() {
     });
     
     console.log("All keyboard states reset");
+}
+
+function getShiftedNote(noteIndex) {
+    const octaveShift = getKeyboardOctaveShift();
+    const shifted = noteIndex + (octaveShift * 12);
+    return Math.max(MIN_NOTE_NUMBER, Math.min(MAX_NOTE_NUMBER, shifted));
 }

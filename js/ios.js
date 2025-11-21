@@ -1,3 +1,5 @@
+import { sequencerTempo } from './sequencer-module.js';
+
 /**
  * Creates a startup overlay for iOS devices to unlock the Web Audio API.
  * @param {AudioContext} audioCtx - The main AudioContext to resume.
@@ -123,8 +125,8 @@ export function createiOSStartupOverlay(audioCtx) {
                     console.log("Overlay removed, loading initial sample");
                     
                     // Initialize sequencer destination colors after user interaction
-                    if (window.sequencerTempo && window.sequencerTempo.initializeColors) {
-                        window.sequencerTempo.initializeColors();
+                    if (sequencerTempo && sequencerTempo.initializeColors) {
+                        sequencerTempo.initializeColors();
                         console.log("Sequencer colors initialized");
                     }
                     

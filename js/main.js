@@ -75,6 +75,8 @@ import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
 import FilterManager from './filter-manager.js';
+import { createArpeggiator } from './arpeggiator-module.js';
+import { sequencerTempo, initializeSequencerModule, setArpeggiatorInstance } from './sequencer-module.js';
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
 const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
@@ -85,6 +87,8 @@ Tone.setContext(audioCtx);
 
 // Expose voicePool for pitch bend access (will be populated later)
 window.voicePool = null;
+
+let arpeggiator = null;
 
 // Initialize pitch bend to 0
 window.sequencerPitchBend = 0;
@@ -1096,12 +1100,10 @@ function initializeLFO() {
  * Restart the LFO with current shape and rate
  */
 function restartLFO() {
-  // Check if LFO is synced to tempo
-  if (window.sequencerTempo) {
-    const tempoConnections = window.sequencerTempo;
-    // Check if LFO destination is routed in the tempo system
-    // The tempo system will automatically update lfoRate when needed
-  }
+    // Check if LFO is synced to tempo
+    if (sequencerTempo) {
+        // The tempo system will automatically update lfoRate when routed
+    }
   
   // Note: We don't actually use Web Audio oscillators here
   // The LFO is calculated mathematically in applyLFOModulation()
@@ -6077,17 +6079,17 @@ console.error("Error finding zero crossings:", e);
 return { start: startSample, end: endSample };
 }
 
-function releaseSamplerNote(note) {
+function releaseSamplerNote(note, releaseStartTime = audioCtx.currentTime) {
   if (!note || note.state !== "playing") {
     console.log(`releaseSamplerNote: Note ${note?.id} not playing, state: ${note?.state}`);
     return;
   }
 
   // Set parent voice state to releasing
-  const voice = note.parentVoice || samplerVoicePool.find(v => v.samplerNote === note);
-  if (voice && voice.state === 'playing') {
-    voice.state = 'releasing';
-  }
+    const voice = note.parentVoice || samplerVoicePool.find(v => v.samplerNote === note);
+    if (voice && voice.state === 'playing') {
+        voice.state = 'releasing';
+    }
 
   // Set component state and clear existing timers
   note.state = "releasing";
@@ -6102,19 +6104,21 @@ function releaseSamplerNote(note) {
   }
 
   // Apply release envelope
-  const release = Math.max(0.01, parseFloat(D('release').dataset.mappedTime || D('release').value));
-  const now = audioCtx.currentTime;
+    const release = Math.max(0.01, parseFloat(D('release').dataset.mappedTime || D('release').value));
+    const now = audioCtx.currentTime;
+    const startTime = Math.max(now, releaseStartTime);
+    const startDelayMs = Math.max(0, (startTime - now) * 1000);
   
   // Apply curved release envelope with natural decay
-  const currentGain = note.gainNode.gain.value;
-  applyCurvedEnvelope(note.gainNode.gain, currentGain, 0, release, now, 'release');
+    const currentGain = note.gainNode.gain.value;
+    applyCurvedEnvelope(note.gainNode.gain, currentGain, 0, release, startTime, 'release');
 
   // Apply curved release to sample gain as well
-  const currentSampleGain = note.sampleNode.gain.value;
-  applyCurvedEnvelope(note.sampleNode.gain, currentSampleGain, 0, release, now, 'release');
+    const currentSampleGain = note.sampleNode.gain.value;
+    applyCurvedEnvelope(note.sampleNode.gain, currentSampleGain, 0, release, startTime, 'release');
 
   // Rest of the function remains the same
-  const stopTime = now + release + 0.05;
+    const stopTime = startTime + release + 0.05;
   
   if (!note.looping && !note.crossfadeActive) {
     try {
@@ -6125,7 +6129,7 @@ function releaseSamplerNote(note) {
   }
 
   // Schedule kill after release with proper timing
-  const killDelay = Math.max(5, (release * 1000) + 0);
+    const killDelay = Math.max(5, startDelayMs + (release * 1000));
   trackSetTimeout(() => {
     killSamplerNote(note);
   }, killDelay, note);
@@ -6195,6 +6199,8 @@ function killSamplerNote(note) {
         voice.state = 'inactive';
         voice.noteNumber = null;
         voice.startTime = 0;
+        voice.currentArpStepId = null;
+        voice.lastArpReleaseToken = null;
         
         // Reset MOD canvas envelope state
         voice.modCanvasEnvStartTime = null;
@@ -6560,16 +6566,90 @@ function applySamplerWarble(samplerVoice, now) {
     source.detune.setValueAtTime(baseDetune + samplerVoice.warbleOffset + pitchBendCents, now);
     source.detune.linearRampToValueAtTime(baseDetune + pitchBendCents, now + settleTime);
 }
+
+const ARP_PRESTART_LEAD = 0.01; // seconds to prep a voice before its scheduled start
+const ARP_MIN_GATE_SECONDS = 0.01;
+const ARP_RELEASE_MATCH_EPSILON = 0.02; // seconds tolerance when matching forced releases to specific voices
+
+const ARP_RELEASE_CALLAHEAD = 0.012; // seconds to prep forced releases ahead of their target time
+let arpReleaseTokenCounter = 0;
+
+function playArpNote(noteNumber, scheduledTime, durationSeconds, stepId = null) {
+    if (!audioCtx) return;
+    const currentTime = audioCtx.currentTime;
+    const startTime = Math.max(typeof scheduledTime === 'number' ? scheduledTime : currentTime, currentTime);
+    const gateSeconds = Math.max(ARP_MIN_GATE_SECONDS, durationSeconds || 0.05);
+
+    const prepTime = Math.max(currentTime, startTime - ARP_PRESTART_LEAD);
+    const prepDelayMs = Math.max(0, (prepTime - currentTime) * 1000);
+
+    setTimeout(() => {
+        const arpVoice = noteOn(noteNumber, false, true, startTime) || {};
+        const releaseToken = `arp_${stepId !== null ? stepId : 'free'}_${++arpReleaseTokenCounter}`;
+        const tagVoiceForStep = (voiceRef) => {
+            if (!voiceRef) return;
+            if (stepId !== null) {
+                voiceRef.currentArpStepId = stepId;
+            }
+            voiceRef.lastArpReleaseToken = releaseToken;
+        };
+
+        tagVoiceForStep(arpVoice.voice);
+        tagVoiceForStep(arpVoice.samplerVoice);
+
+        const releaseTime = startTime + gateSeconds;
+        const releaseCallAhead = Math.min(ARP_RELEASE_CALLAHEAD, gateSeconds * 0.75);
+        const releaseCallTime = Math.max(currentTime, releaseTime - releaseCallAhead);
+        const releaseDelayMs = Math.max(0, (releaseCallTime - audioCtx.currentTime) * 1000);
+        setTimeout(() => {
+            const oscVoice = arpVoice.voice && arpVoice.voice.lastArpReleaseToken === releaseToken
+                ? arpVoice.voice
+                : null;
+            const sampVoice = arpVoice.samplerVoice && arpVoice.samplerVoice.lastArpReleaseToken === releaseToken
+                ? arpVoice.samplerVoice
+                : null;
+            if (!oscVoice && !sampVoice) return;
+            noteOff(
+                noteNumber,
+                true,
+                oscVoice,
+                startTime,
+                sampVoice,
+                releaseToken,
+                releaseTime
+            );
+        }, releaseDelayMs);
+    }, prepDelayMs);
+}
+
+arpeggiator = createArpeggiator({
+    playNote: playArpNote,
+    getIntervalMs: () => sequencerTempo.getIntervalTime('ARP'),
+    getTempo: () => sequencerTempo.getTempo(),
+    getAudioContext: () => audioCtx
+});
+setArpeggiatorInstance(arpeggiator);
+arpeggiator.init();
+
 // Also ensure noteOn properly sets up the envelope from zero
-function noteOn(noteNumber, isLegatoMonoTransition = false) {
+function noteOn(noteNumber, isLegatoMonoTransition = false, bypassArp = false, scheduledStartTime = null) {
     if (isModeTransitioning) return;
-    
-    const now = audioCtx.currentTime;
+
+    // Arpeggiator Interception
+    if (arpeggiator && arpeggiator.isActive() && !bypassArp) {
+        arpeggiator.handleNoteOn(noteNumber);
+        return null;
+    }
+
+    const currentTime = audioCtx.currentTime;
+    const now = typeof scheduledStartTime === 'number' ? Math.max(scheduledStartTime, currentTime) : currentTime;
 
     // Add to held notes
-    if (!heldNotes.includes(noteNumber)) {
-        heldNotes.push(noteNumber);
-        heldNotes.sort((a, b) => a - b);
+    if (!bypassArp) {
+        if (!heldNotes.includes(noteNumber)) {
+            heldNotes.push(noteNumber);
+            heldNotes.sort((a, b) => a - b);
+        }
     }
     
     // CRITICAL FIX: Use the mapped time values from dataset for attack and decay too
@@ -6619,13 +6699,17 @@ function noteOn(noteNumber, isLegatoMonoTransition = false) {
             wasSamplerStolen = samplerVoice.state !== 'inactive';
         }
     }
+
+    if (samplerVoice) {
+        samplerVoice.currentArpStepId = null;
+    }
     
     // --- OSCILLATOR VOICE ALLOCATION (EXISTING) ---
     // Get a voice for oscillators (may be stolen)
     const voice = findAvailableVoice(noteNumber);
     if (!voice) {
         console.error("noteOn: Could not assign a voice!");
-        return;
+        return null;
     }
     
     // CRITICAL: Clear all previous timers for this voice when stealing it
@@ -6675,6 +6759,7 @@ setMasterClockRate(1, noteNumber, osc1Detune);
     voice.state = 'active';
     voice.currentReleaseId = null;
     voice.wasStolen = false;
+    voice.currentArpStepId = null;
     
     // Set per-voice LFO fade start time
     if (lfoFade > 0) {
@@ -7574,7 +7659,7 @@ osc2.levelNode.gain.setValueAtTime(osc2GainValue, now);
   }
   
 // Update FM for ALL oscillators regardless of FM amount
-const nowFM = audioCtx.currentTime + 0.01;
+const nowFM = now + 0.01;
 
 // ALWAYS set up FM connections, even if depth is 0
 if (voice.osc1Note) {
@@ -7598,10 +7683,21 @@ if (voice.osc2Note) {
     lastPlayedNoteNumber = noteNumber;
     updateVoiceDisplay_Pool();
     updateKeyboardDisplay_Pool();
+
+    return {
+        voice,
+        samplerVoice
+    };
 }
 
 // Update noteOff to handle multiple voices per note
-function noteOff(noteNumber, isForced = false, specificVoice = null) {
+function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt = null, specificSamplerVoice = null, releaseToken = null, scheduledReleaseTime = null) {
+    // Arpeggiator Interception
+    if (arpeggiator && arpeggiator.isActive() && !isForced) {
+        arpeggiator.handleNoteOff(noteNumber);
+        return;
+    }
+
     if (isModeTransitioning && !isForced) {
         console.log(`noteOff: Ignoring note ${noteNumber} during mode transition`);
         return;
@@ -7609,9 +7705,15 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
     
     console.log(`noteOff: ${noteNumber}, Mono: ${isMonoMode}`);
     const now = audioCtx.currentTime;
+    const releaseStartTime = scheduledReleaseTime !== null
+        ? Math.max(now, scheduledReleaseTime)
+        : now;
+    const releaseStartDelayMs = Math.max(0, (releaseStartTime - now) * 1000);
 
-    // Remove from held notes
-    heldNotes = heldNotes.filter(n => n !== noteNumber);
+    // Remove from held notes (physical key tracking only)
+    if (!isForced) {
+        heldNotes = heldNotes.filter(n => n !== noteNumber);
+    }
 
     // --- MONO MODE HANDLING ---
     if (isMonoMode && heldNotes.length > 0) {
@@ -7635,17 +7737,71 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
   return;
 }
 
+    const matchVoicesByTime = (voices) => {
+        if (triggeredAt == null || voices.length === 0) {
+            return voices;
+        }
+        const matches = voices.filter(v => Math.abs(((v.startTime || 0) - triggeredAt)) <= ARP_RELEASE_MATCH_EPSILON);
+        if (matches.length > 0) {
+            return matches;
+        }
+        // Fall back to the closest by time to avoid stuck voices
+        let closest = voices[0];
+        let minDiff = Math.abs(((closest.startTime || 0) - triggeredAt));
+        for (let i = 1; i < voices.length; i++) {
+            const diff = Math.abs(((voices[i].startTime || 0) - triggeredAt));
+            if (diff < minDiff) {
+                closest = voices[i];
+                minDiff = diff;
+            }
+        }
+        return [closest];
+    };
+
+    const shouldFilterByToken = releaseToken !== null;
+    if (shouldFilterByToken) {
+        if (specificVoice && specificVoice.lastArpReleaseToken !== releaseToken) {
+            console.log(`noteOff: Specific osc voice ${specificVoice.id} skipped due to token mismatch (${specificVoice.lastArpReleaseToken} !== ${releaseToken})`);
+            specificVoice = null;
+        }
+        if (specificSamplerVoice && specificSamplerVoice.lastArpReleaseToken !== releaseToken) {
+            console.log(`noteOff: Specific sampler voice ${specificSamplerVoice.id} skipped due to token mismatch (${specificSamplerVoice.lastArpReleaseToken} !== ${releaseToken})`);
+            specificSamplerVoice = null;
+        }
+    }
+
     // --- SAMPLER NOTE-OFF LOGIC ---
-    // Find all sampler voices playing this note
-    const samplerVoicesToRelease = samplerVoicePool.filter(
-        voice => voice.noteNumber === noteNumber && voice.state === 'playing'
-    );
+    let samplerVoicesToRelease;
+    if (specificSamplerVoice && specificSamplerVoice.noteNumber === noteNumber) {
+        samplerVoicesToRelease = [specificSamplerVoice];
+    } else {
+        samplerVoicesToRelease = samplerVoicePool.filter(
+            voice => voice.noteNumber === noteNumber && voice.state === 'playing'
+        );
+    }
+
+    if (shouldFilterByToken) {
+        samplerVoicesToRelease = samplerVoicesToRelease.filter(voice => voice.lastArpReleaseToken === releaseToken);
+        if (samplerVoicesToRelease.length === 0) {
+            console.log(`noteOff: No sampler voices matched release token ${releaseToken} for note ${noteNumber}`);
+        }
+    }
+
+    if (isForced && samplerVoicesToRelease.length > 0) {
+        samplerVoicesToRelease = matchVoicesByTime(samplerVoicesToRelease);
+        // If still more than one (rare), release only the oldest to avoid cutting new attacks
+        if (samplerVoicesToRelease.length > 1) {
+            samplerVoicesToRelease = samplerVoicesToRelease
+                .sort((a, b) => (a.startTime || 0) - (b.startTime || 0))
+                .slice(0, 1);
+        }
+    }
 
     if (samplerVoicesToRelease.length > 0) {
-        console.log(`noteOff: Found and releasing ${samplerVoicesToRelease.length} sampler voice(s) for note ${noteNumber}.`);
+        console.log(`noteOff: Releasing ${samplerVoicesToRelease.length} sampler voice(s) for note ${noteNumber}.`);
         samplerVoicesToRelease.forEach(voice => {
             if (voice.samplerNote && voice.samplerNote.state === 'playing') {
-                releaseSamplerNote(voice.samplerNote);
+                releaseSamplerNote(voice.samplerNote, releaseStartTime);
             }
         });
     }
@@ -7654,21 +7810,34 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
     // Get all voices assigned to this note, or use the specific voice if provided
     let voicesToRelease = [];
     if (specificVoice) {
-        // Release only the specific voice
         voicesToRelease = [specificVoice];
         console.log(`Releasing specific voice ${specificVoice.id} for note ${noteNumber}`);
     } else {
-        
-        // Release all voices for this note
         voicesToRelease = voiceAssignments.get(noteNumber) || [];
+        if (shouldFilterByToken) {
+            voicesToRelease = voicesToRelease.filter(v => v.lastArpReleaseToken === releaseToken);
+        }
+        if (isForced && voicesToRelease.length > 0) {
+            voicesToRelease = matchVoicesByTime(voicesToRelease);
+            if (voicesToRelease.length > 1) {
+                voicesToRelease = voicesToRelease
+                    .sort((a, b) => (a.startTime || 0) - (b.startTime || 0))
+                    .slice(0, 1);
+            }
+        }
     }
     
     if (voicesToRelease.length === 0) {
-        console.log(`noteOff: No oscillator voices to release for note ${noteNumber}`);
+        if (shouldFilterByToken) {
+            console.log(`noteOff: No oscillator voices matched release token ${releaseToken} for note ${noteNumber}`);
+        } else {
+            console.log(`noteOff: No oscillator voices to release for note ${noteNumber}`);
+        }
         return;
     }
 // CRITICAL FIX: Use the mapped time value from dataset instead of raw slider value
     const release = Math.max(0.01, parseFloat(D('release').dataset.mappedTime || D('release').value));
+    const releaseEnvelopeDuration = Math.max(0.001, release);
 
     // Release the specified voices
     for (const voice of voicesToRelease) {
@@ -7678,7 +7847,7 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
         
         console.log(`Starting release ${releaseId} for voice ${voice.id}, note ${noteNumber}`);
         
-        // Release Osc1
+                // Release Osc1
         if (voice.osc1Note && voice.osc1Note.workletNode) {
   const osc1 = voice.osc1Note;
   osc1.currentReleaseId = releaseId;
@@ -7689,19 +7858,20 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
   
   // Apply curved release envelope at 80% speed to leave buffer for exponential tail
   const currentGain = osc1.gainNode.gain.value;
-  const envelopeRelease = release * 0.6;
-  applyCurvedEnvelope(osc1.gainNode.gain, currentGain, 0, envelopeRelease, now, 'release');
+    const envelopeRelease = releaseEnvelopeDuration * 0.6;
+    applyCurvedEnvelope(osc1.gainNode.gain, currentGain, 0, envelopeRelease, releaseStartTime, 'release');
   
   // Schedule gate closure after full release time (envelope completes at 80%, tail decays during remaining 20%)
   trackVoiceTimer(voice, () => {
     // Only close if this is still the active release for this voice
     if (osc1.currentReleaseId === releaseId && osc1.state === 'releasing') {
-      osc1.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+            const gateCloseTime = releaseStartTime + releaseEnvelopeDuration;
+            osc1.workletNode.parameters.get('gate').setValueAtTime(0, gateCloseTime);
       osc1.state = 'idle';
       osc1.noteNumber = null;
       console.log(`Osc1 gate closed for release ${releaseId}`);
     }
-  }, release * 1000 + 40);
+    }, releaseStartDelayMs + releaseEnvelopeDuration * 1000 + 40);
 }
 
         // Release Osc2 with similar pattern
@@ -7713,17 +7883,18 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
   
   // Apply curved release envelope at 80% speed to leave buffer for exponential tail
   const currentGain = osc2.gainNode.gain.value;
-  const envelopeRelease = release * 0.6;
-  applyCurvedEnvelope(osc2.gainNode.gain, currentGain, 0, envelopeRelease, now, 'release');
+    const envelopeRelease = releaseEnvelopeDuration * 0.6;
+    applyCurvedEnvelope(osc2.gainNode.gain, currentGain, 0, envelopeRelease, releaseStartTime, 'release');
   
   trackVoiceTimer(voice, () => {
     if (osc2.currentReleaseId === releaseId && osc2.state === 'releasing') {
-      osc2.workletNode.parameters.get('gate').setValueAtTime(0, audioCtx.currentTime);
+            const gateCloseTime = releaseStartTime + releaseEnvelopeDuration;
+            osc2.workletNode.parameters.get('gate').setValueAtTime(0, gateCloseTime);
       osc2.state = 'idle';
       osc2.noteNumber = null;
       console.log(`Osc2 gate closed for release ${releaseId}`);
     }
-  }, release * 1000 + 40);
+    }, releaseStartDelayMs + releaseEnvelopeDuration * 1000 + 40);
 }
 
 // Update filter call to include mono mode parameters
@@ -7750,12 +7921,14 @@ function noteOff(noteNumber, isForced = false, specificVoice = null) {
                 // Clear the release ID
                 voice.currentReleaseId = null;
                 voice.noteNumber = null;
+                voice.currentArpStepId = null;
+                voice.lastArpReleaseToken = null;
                 
                 console.log(`Voice ${voice.id} fully released for note ${noteNumber} (${releaseId})`);
                 updateVoiceDisplay_Pool();
                 updateKeyboardDisplay_Pool();
             }
-        }, release * 1000 + 60);
+        }, releaseStartDelayMs + releaseEnvelopeDuration * 1000 + 60);
     }
 }
 function updateSampleProcessing() {
@@ -8012,10 +8185,8 @@ initializeFilterControls();
 initializeModulationRouting();
 
 // Initialize Sequencer Tempo System (must be before LFO/MOD so they can sync)
-if (window.sequencerTempo) {
-  window.sequencerTempo.initialize();
-  console.log('Sequencer tempo system initialized from main.js');
-}
+initializeSequencerModule();
+console.log('Sequencer tempo system initialized from main.js');
 
 // Initialize LFO system
 initializeLFO();
