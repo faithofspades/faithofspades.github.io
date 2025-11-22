@@ -1178,8 +1178,117 @@ function checkReleasingNotesOnResume() {
 }
 // --- End AudioContext Handling ---
 const VOICE_PAN_LIMIT = 0.08; // 8% pan variation
+const DEFAULT_VOICE_PAN_SPREAD = 0.5;
+let voicePanSpread = DEFAULT_VOICE_PAN_SPREAD;
+let spreadKnobElement = null;
+let spreadTooltipTimer = null;
 const VOICE_DETUNE_LIMIT = 20; // 20 cents max detune
 const WARBLE_SETTLE_TIME = 0.15; // 150ms to settle
+
+function getPanSpreadRange(value = voicePanSpread) {
+    const clamped = Math.max(0, Math.min(1, Number.isFinite(value) ? value : DEFAULT_VOICE_PAN_SPREAD));
+    if (clamped === 0) return 0;
+    if (clamped === 1) return 1;
+    if (clamped <= 0.5) {
+        return (clamped / 0.5) * VOICE_PAN_LIMIT;
+    }
+    const normalized = (clamped - 0.5) / 0.5;
+    return Math.min(1, VOICE_PAN_LIMIT + normalized * (1 - VOICE_PAN_LIMIT));
+}
+
+function applyVoicePanSpread(voice) {
+    if (!voice) return;
+    if (typeof voice.panSeed !== 'number') {
+        voice.panSeed = (Math.random() * 2) - 1;
+    }
+    const spreadAmount = getPanSpreadRange();
+    const panValue = voice.panSeed * spreadAmount;
+    voice.panOffset = panValue;
+    const now = audioCtx ? audioCtx.currentTime : 0;
+    const setPan = (panner) => {
+        if (!panner) return;
+        try {
+            if (panner.pan && typeof panner.pan.setValueAtTime === 'function') {
+                panner.pan.setValueAtTime(panValue, now);
+            } else if (panner.pan !== undefined) {
+                panner.pan.value = panValue;
+            }
+        } catch (error) {
+            console.warn('Failed to update pan spread', error);
+        }
+    };
+    if (voice.samplerNote?.panner) setPan(voice.samplerNote.panner);
+    if (voice.osc1Note?.panner) setPan(voice.osc1Note.panner);
+    if (voice.osc2Note?.panner) setPan(voice.osc2Note.panner);
+    if (voice.panner) setPan(voice.panner);
+}
+
+function applyPanSpreadToAllVoices() {
+    if (Array.isArray(voicePool)) {
+        voicePool.forEach(applyVoicePanSpread);
+    }
+    if (Array.isArray(samplerVoicePool)) {
+        samplerVoicePool.forEach(applyVoicePanSpread);
+    }
+}
+
+function updateSpreadKnobRotation() {
+    if (!spreadKnobElement) return;
+    const rotation = (voicePanSpread * 300) - 150;
+    spreadKnobElement.style.transform = `rotate(${rotation}deg)`;
+}
+
+function setVoicePanSpread(value, options = {}) {
+    const numericValue = Number(value);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : DEFAULT_VOICE_PAN_SPREAD;
+    const clamped = Math.max(0, Math.min(1, safeValue)); 
+    const changed = clamped !== voicePanSpread;
+    voicePanSpread = clamped;
+    if (!options.skipKnobUpdate) {
+        updateSpreadKnobRotation();
+    }
+    if (changed || options.forceUpdate) {
+        applyPanSpreadToAllVoices();
+    }
+}
+
+function formatSpreadTooltip(value) {
+    if (value <= 0) return 'Spread 0% (Mono)';
+    if (value >= 1) return 'Spread 100% (Wide)';
+    if (Math.abs(value - 0.5) < 0.001) return 'Spread 50% (Classic)';
+    return `Spread ${Math.round(value * 100)}%`;
+}
+
+function showSpreadTooltip(value) {
+    const tooltip = createTooltipForKnob('seq-spread-knob');
+    tooltip.textContent = formatSpreadTooltip(value);
+    tooltip.style.opacity = '1';
+    if (spreadTooltipTimer) {
+        clearTimeout(spreadTooltipTimer);
+    }
+    spreadTooltipTimer = setTimeout(() => {
+        const tip = document.getElementById('seq-spread-knob-tooltip');
+        if (tip) {
+            tip.style.opacity = '0';
+        }
+    }, 900);
+}
+
+function setupVoiceSpreadControl() {
+    const knob = document.getElementById('seq-spread-knob');
+    if (!knob) return;
+    const control = initializeKnob(knob, (value) => {
+        setVoicePanSpread(value);
+        showSpreadTooltip(voicePanSpread);
+    }, knobDefaults);
+    spreadKnobElement = document.getElementById('seq-spread-knob');
+    if (control && typeof control.setValue === 'function') {
+        control.setValue(voicePanSpread, false);
+    } else {
+        updateSpreadKnobRotation();
+    }
+    setVoicePanSpread(voicePanSpread, { forceUpdate: true });
+}
 
 let masterClockNode = null;
 let masterClockSharedBuffer = null;
@@ -1970,6 +2079,7 @@ const knobDefaults = {
 'mod-depth-knob': 1.0, // LFO Depth: 1.0 = positive polarity (default)
 'mod-rate-knob': 0.5, // MOD Canvas Rate: 1 Hz (middle position)
 'seq-division-knob': 0.206, // 4/4 time signature (numerator 4, denominator 4)
+'seq-spread-knob': 0.5,
 // ADD FILTER KNOBS
     'adsr-knob': 0.5, // 50% = unity
     'keytrack-knob': 0.5, // 50% = unity
@@ -2248,7 +2358,8 @@ function createVoice(ctx, index) {
     scheduledTimers: [],
     currentReleaseId: null,
     wasStolen: false,
-    panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT,
+    panSeed: (Math.random() * 2 - 1),
+    panOffset: 0,
     warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT,
     // ADD: Envelope state tracking
     envelopeState: 'idle', // 'idle', 'attack', 'decay', 'sustain', 'release'
@@ -2270,8 +2381,8 @@ function createVoice(ctx, index) {
   const samplerFMTap = ctx.createGain();
   samplerFMTap.gain.value = 1.0;
   
-  const samplerPanner = ctx.createStereoPanner();
-  samplerPanner.pan.value = voice.panOffset;
+    const samplerPanner = ctx.createStereoPanner();
+    samplerPanner.pan.value = 0;
   
   samplerSource.connect(samplerSampleNode);
   samplerSampleNode.connect(samplerFMTap);
@@ -2313,7 +2424,7 @@ function createVoice(ctx, index) {
     osc1GainNode.gain.value = 0;
     
     const osc1Panner = ctx.createStereoPanner();
-    osc1Panner.pan.value = voice.panOffset;
+    osc1Panner.pan.value = 0;
     
     try {
       const osc1WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
@@ -2391,7 +2502,7 @@ function createVoice(ctx, index) {
     osc2GainNode.gain.value = 0;
     
     const osc2Panner = ctx.createStereoPanner();
-    osc2Panner.pan.value = voice.panOffset;
+    osc2Panner.pan.value = 0;
     
     try {
       const osc2WorkletNode = new AudioWorkletNode(ctx, 'juno-voice-processor', {
@@ -2511,6 +2622,8 @@ if (filterManager && voice.osc1Note && voice.osc2Note) {
   
   // Connect sampler panner directly to sampler master gain
   samplerPanner.connect(samplerMasterGain);
+
+    applyVoicePanSpread(voice);
 
   return voice;
 }
@@ -5204,7 +5317,8 @@ function createSamplerVoice(ctx, index) {
     startTime: 0,
     state: 'inactive',
     samplerNote: null,
-    panOffset: (Math.random() * 2 - 1) * VOICE_PAN_LIMIT,
+    panSeed: (Math.random() * 2 - 1),
+    panOffset: 0,
     warbleOffset: (Math.random() * 2 - 1) * VOICE_DETUNE_LIMIT,
     // ADD: Envelope state tracking for sampler voices too
     envelopeState: 'idle', // 'idle', 'attack', 'decay', 'sustain', 'release'
@@ -5227,8 +5341,8 @@ function createSamplerVoice(ctx, index) {
   samplerFMTap.gain.value = 1.0;
   
   // Create panner
-  const samplerPanner = ctx.createStereoPanner();
-  samplerPanner.pan.value = voice.panOffset;
+    const samplerPanner = ctx.createStereoPanner();
+    samplerPanner.pan.value = 0;
   
   // CRITICAL: Build chain but DON'T connect panner to anything yet
   // Chain: source → sampleNode → fmTap (splits here for FM) → gainNode → panner → [FILTER or MASTER]
@@ -5302,7 +5416,9 @@ if (filterManager) {
   console.log(`No filter manager for sampler voice ${voice.id}`);
 }
 
-  console.log(`Created sampler voice ${index} with pan: ${(voice.panOffset * 100).toFixed(1)}%, warble: ${voice.warbleOffset.toFixed(1)} cents`);
+    applyVoicePanSpread(voice);
+
+    console.log(`Created sampler voice ${index} with pan: ${(voice.panOffset * 100).toFixed(1)}%, warble: ${voice.warbleOffset.toFixed(1)} cents`);
   return voice;
 }
 
@@ -8727,6 +8843,7 @@ initializeModulationRouting();
 initializeSequencerModule();
 console.log('Sequencer tempo system initialized from main.js');
 setupSequenceSaveLoadControls();
+setupVoiceSpreadControl();
 
 registerSequencerPlaybackHandlers({
     noteOn: ({ noteNumber, startTime, isLegato }) => {
