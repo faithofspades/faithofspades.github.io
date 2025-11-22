@@ -21,6 +21,7 @@ class FilterManager {
     this.drive = 0.5; // Initialize to 0.5 to match UI slider default (50% = unity gain for LH18)
     this.inputGain = 1.0;
     this.saturation = 1.0;
+    this.cutoffModulation = 0.0;
     
     // ADSR parameters
     this.attackTime = 0.01;
@@ -191,7 +192,8 @@ class FilterManager {
       keytrackAmount: (this.keytrackAmount - 0.5) * 2,
       envelopeAmount: (this.envelopeAmount - 0.5) * 2,
       currentMidiNote: 69,
-      inputGain: this.inputGain
+      inputGain: this.inputGain,
+      cutoffModulation: this.cutoffModulation
     };
     
     let filter;
@@ -238,6 +240,9 @@ class FilterManager {
     filter.setDecayTime(this.decayTime);
     filter.setSustainLevel(this.sustainLevel);
     filter.setReleaseTime(this.releaseTime);
+    if (filter.setCutoffModulation) {
+      filter.setCutoffModulation(this.cutoffModulation);
+    }
     
     return filter;
   }
@@ -327,6 +332,29 @@ class FilterManager {
     
     console.log(`Filter cutoff set to ${this.cutoff.toFixed(1)}Hz`);
   }
+
+    setCutoffModulation(modulationValue = 0) {
+      const clamped = Math.max(-1, Math.min(1, modulationValue));
+      this.cutoffModulation = clamped;
+
+      this.voiceFilters.forEach((filterData) => {
+        if (filterData.lp24Filter) {
+          filterData.lp24Filter.setCutoffModulation(clamped);
+        }
+        if (filterData.lp12Filter) {
+          filterData.lp12Filter.setCutoffModulation(clamped);
+        }
+        if (filterData.lh12Filter) {
+          filterData.lh12Filter.setCutoffModulation(clamped);
+        }
+        if (filterData.lh18Filter) {
+          filterData.lh18Filter.setCutoffModulation(clamped);
+        }
+        if (filterData.lh24Filter) {
+          filterData.lh24Filter.setCutoffModulation(clamped);
+        }
+      });
+    }
   
   setResonance(normalizedValue) {
     this.resonance = normalizedValue;

@@ -12,7 +12,8 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
       { name: 'adsrValue', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'a-rate' },
       { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' },
       { name: 'classicMode', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
-      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }
+      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
+      { name: 'cutoffModulation', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'a-rate' }
     ];
   }
 
@@ -316,6 +317,10 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
     const inputGain = parameters.inputGain[0];
     const classicMode = parameters.classicMode[0];
     const sustainLevel = parameters.sustainLevel[0];
+    const cutoffModulation = parameters.cutoffModulation;
+    const logMinCutoff = Math.log(8);
+    const logMaxCutoff = Math.log(16000);
+    const logCutoffRange = logMaxCutoff - logMinCutoff;
     
     for (let channel = 0; channel < input.length; channel++) {
       const inputChannel = input[channel];
@@ -402,6 +407,14 @@ class LH12FilterProcessor extends AudioWorkletProcessor {
               actualCutoff *= Math.exp(envValue * 0.8 * Math.LN10);
             }
           }
+        }
+
+        const macroModValue = cutoffModulation.length > 1 ? cutoffModulation[i] : cutoffModulation[0];
+        if (macroModValue !== 0) {
+          const logCutoff = Math.log(actualCutoff);
+          const logOffset = macroModValue * logCutoffRange;
+          const modulatedLog = Math.min(logMaxCutoff, Math.max(logMinCutoff, logCutoff + logOffset));
+          actualCutoff = Math.exp(modulatedLog);
         }
         
         // Update filter coefficients

@@ -193,7 +193,21 @@ export class LH12FilterNode extends AudioWorkletNode {
   // Parameter setters
   setCutoff(value) {
     // FIXED: Accept 8Hz to 16000Hz range
-    this.parameters.get('cutoff').value = Math.max(8, Math.min(16000, value));
+    const clamped = Math.max(8, Math.min(16000, value));
+    const cutoffParam = this.parameters.get('cutoff');
+    if (!cutoffParam) return;
+    const now = this.context.currentTime;
+    cutoffParam.cancelScheduledValues(now);
+    cutoffParam.linearRampToValueAtTime(clamped, now + 0.01);
+  }
+
+  setCutoffModulation(value) {
+    const modulationParam = this.parameters.get('cutoffModulation');
+    if (!modulationParam) return;
+    const now = this.context.currentTime;
+    const clamped = Math.max(-1, Math.min(1, value));
+    modulationParam.cancelScheduledValues(now);
+    modulationParam.linearRampToValueAtTime(clamped, now + 0.01);
   }
   
   setInputGain(value) {

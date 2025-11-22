@@ -89,6 +89,24 @@
   transform: scale(0.98);
 }
 
+#seq-record-button.precount-armed {
+  box-shadow: 0 0 10px #f2eed3, 0 0 0 2px rgba(242,238,211,0.9) inset;
+}
+
+#seq-record-button .record-precount-label {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-family: "Nunito", sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  color: #f2eed3;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+}
+
 .seq-transport-button .icon {
   position: absolute;
   width: 24px;
@@ -204,14 +222,29 @@
 }
 
 .seq-top-record-button.active {
-  background-color: #e3a375;
-  box-shadow: 0 0 8px #edb489;
+  background-color: #b7352c;
+  box-shadow: 0 0 10px rgba(183, 53, 44, 0.8);
+  color: #ffffff;
+}
+
+.seq-top-record-button.active:hover {
+  background-color: #c7473f;
 }
 
 .seq-top-record-button .icon {
   width: 16px;
   height: 16px;
   filter: invert(21%) sepia(10%) saturate(1289%) hue-rotate(334deg) brightness(93%) contrast(88%);
+  transition: filter 0.2s;
+}
+
+.seq-top-record-button.active:not(.simple-mode) .icon {
+  filter: brightness(0) invert(1);
+}
+
+.seq-top-record-button.simple-mode .icon,
+.seq-top-record-button.active.simple-mode .icon {
+  filter: invert(38%) sepia(11%) saturate(1233%) hue-rotate(178deg) brightness(90%) contrast(90%);
 }
 
 .seq-top-record-container label {
@@ -273,6 +306,7 @@
   font-weight: 900;
   transition: background-color 0.2s, box-shadow 0.2s;
   box-sizing: border-box;
+  position: relative;
 }
 
 .seq-step-button:first-child {
@@ -298,6 +332,36 @@
   background-color: #efc287;
   box-shadow: 0 0 8px #f5d09b;
   color: #f2eed3;
+}
+
+.seq-step-button.has-notes::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 3px;
+  height: 3px;
+  border-radius: 2px;
+  background-color: #c03535;
+}
+
+.seq-step-button.active.has-notes::after {
+  background-color: #ff5e5b;
+}
+
+.seq-step-button.has-modulation::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 3px;
+  height: 3px;
+  border-radius: 2px;
+  background-color: #597097;
+}
+
+.seq-step-button.active.has-modulation::before {
+  background-color: #7fa3c7;
 }
 
 /* Page Backward Arrow Icon */

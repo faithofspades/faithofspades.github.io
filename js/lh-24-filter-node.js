@@ -190,16 +190,31 @@ export class LH24FilterNode extends AudioWorkletNode {
 }
   // Parameter setters
   setCutoff(value) {
-  // FIXED: Accept 8Hz to 16000Hz range
-  this.parameters.get('cutoff').value = Math.max(8, Math.min(16000, value));
-}
-setInputGain(value) {
+    const clamped = Math.max(8, Math.min(16000, value));
+    const cutoffParam = this.parameters.get('cutoff');
+    if (!cutoffParam) return;
+    const now = this.context.currentTime;
+    cutoffParam.cancelScheduledValues(now);
+    cutoffParam.linearRampToValueAtTime(clamped, now + 0.01);
+  }
+
+  setCutoffModulation(value) {
+    const modulationParam = this.parameters.get('cutoffModulation');
+    if (!modulationParam) return;
+    const now = this.context.currentTime;
+    const clamped = Math.max(-1, Math.min(1, value));
+    modulationParam.cancelScheduledValues(now);
+    modulationParam.linearRampToValueAtTime(clamped, now + 0.01);
+  }
+
+  setInputGain(value) {
   const param = this.parameters.get('inputGain');
   if (param) {
     param.setValueAtTime(value, this.context.currentTime);
   }
-}
-setResonance(value) {
+  }
+
+  setResonance(value) {
   // FIXED: Accept 0.0 to 1.0 range (processor will map to Q)
   this.parameters.get('resonance').value = Math.max(0.0, Math.min(1.0, value));
 }
@@ -467,4 +482,4 @@ export class PolyphonicMoogFilter {
     this.classicMode = enabled;
     this.filters.forEach(data => data.filter.setClassicMode(enabled));
   }
-}
+  }

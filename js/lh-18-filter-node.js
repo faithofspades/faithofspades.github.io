@@ -188,20 +188,34 @@ export class LH18FilterNode extends AudioWorkletNode {
 }
   // Parameter setters
   setCutoff(value) {
-  // Accept 8Hz to 16000Hz range
-  const clampedValue = Math.max(8, Math.min(16000, value));
-  this.parameters.get('cutoff').value = clampedValue;
-}
-setInputGain(value) {
+    const clamped = Math.max(8, Math.min(16000, value));
+    const cutoffParam = this.parameters.get('cutoff');
+    if (!cutoffParam) return;
+    const now = this.context.currentTime;
+    cutoffParam.cancelScheduledValues(now);
+    cutoffParam.linearRampToValueAtTime(clamped, now + 0.01);
+  }
+
+  setCutoffModulation(value) {
+    const modulationParam = this.parameters.get('cutoffModulation');
+    if (!modulationParam) return;
+    const now = this.context.currentTime;
+    const clamped = Math.max(-1, Math.min(1, value));
+    modulationParam.cancelScheduledValues(now);
+    modulationParam.linearRampToValueAtTime(clamped, now + 0.01);
+  }
+
+  setInputGain(value) {
   const param = this.parameters.get('inputGain');
   if (param) {
     param.setValueAtTime(value, this.context.currentTime);
   }
-}
-setResonance(value) {
+  }
+
+  setResonance(value) {
   // FIXED: Accept 0.0 to 1.0 range (processor will map to Q)
   this.parameters.get('resonance').value = Math.max(0.0, Math.min(1.0, value));
-}
+  }
   
   setDrive(value) {
     const clampedValue = Math.max(0.1, Math.min(5.0, value));

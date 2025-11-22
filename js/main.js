@@ -76,7 +76,7 @@ import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './c
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
 import FilterManager from './filter-manager.js';
 import { createArpeggiator } from './arpeggiator-module.js';
-import { sequencerTempo, initializeSequencerModule, setArpeggiatorInstance } from './sequencer-module.js';
+import { sequencerTempo, initializeSequencerModule, setArpeggiatorInstance, handleLiveSequencerNoteInput, handleLiveSequencerNoteRelease, registerSequencerPlaybackHandlers, registerModAutomationTarget, recordModAutomationValue, updateAutomationBaselineValue, getSequencerStateSnapshot, loadSequencerStateSnapshot } from './sequencer-module.js';
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
 const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
@@ -92,6 +92,226 @@ let arpeggiator = null;
 
 // Initialize pitch bend to 0
 window.sequencerPitchBend = 0;
+
+const AUTOMATION_KNOB_IDS = new Set([
+    'macro1-knob',
+    'macro2-knob',
+    'macro3-knob',
+    'macro4-knob',
+    'mod-rate-knob',
+    'mod-depth-knob',
+    'lfo-depth-knob',
+    'sample-volume-knob',
+    'sample-pitch-knob',
+    'osc1-pwm-knob',
+    'osc2-pwm-knob',
+    'osc1-fm-knob',
+    'osc2-fm-knob',
+    'osc1-quantize-knob',
+    'osc2-quantize-knob',
+    'osc1-pitch-knob',
+    'osc2-pitch-knob',
+    'osc1-gain-knob',
+    'osc2-gain-knob',
+    'glide-time-knob',
+    'filter-cutoff'
+]);
+
+const DISABLED_AUTOMATION_PARAMS = new Set([
+    'matrix-depth-knob',
+    'attack',
+    'decay',
+    'sustain',
+    'release',
+    'filter-attack',
+    'filter-decay',
+    'filter-sustain',
+    'filter-release'
+]);
+
+let suppressAutomationCapture = false;
+let automationCaptureReady = false;
+
+function emitAutomationValue(paramId, value) {
+    if (!paramId) return;
+    if (!suppressAutomationCapture) {
+        updateAutomationBaselineValue(paramId, value);
+    }
+    if (suppressAutomationCapture || !automationCaptureReady) return;
+    recordModAutomationValue(paramId, value);
+}
+
+function dispatchAutomationInputEvent(element) {
+    if (!element) return;
+    let event;
+    if (typeof Event === 'function') {
+        event = new Event('input', { bubbles: true });
+    } else {
+        event = document.createEvent('Event');
+        event.initEvent('input', true, true);
+    }
+    element.dispatchEvent(event);
+}
+
+function sequenceSnapshotHasContent(snapshot) {
+    if (!snapshot) return false;
+    if (Array.isArray(snapshot.notes) && snapshot.notes.length) {
+        return true;
+    }
+    const automationSection = snapshot.automation;
+    if (!automationSection || typeof automationSection !== 'object') {
+        return false;
+    }
+    const lanes = automationSection.lanes;
+    if (!lanes || typeof lanes !== 'object') {
+        return false;
+    }
+    return Object.values(lanes).some(events => Array.isArray(events) && events.length);
+}
+
+function flashSequenceButton(button) {
+    if (!button) return;
+    button.classList.add('active');
+    setTimeout(() => button.classList.remove('active'), 250);
+}
+
+function triggerSequenceDownload(snapshot) {
+    const payload = JSON.stringify(snapshot, null, 2);
+    const blob = new Blob([payload], { type: 'application/json' });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `polyhymn-sequence-${timestamp}.json`;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function setupSequenceSaveLoadControls() {
+    const saveButton = document.getElementById('seq-save-button');
+    const loadButton = document.getElementById('seq-load-button');
+    const fileInput = document.getElementById('seq-load-file-input');
+
+    if (saveButton) {
+        saveButton.addEventListener('click', () => {
+            try {
+                const snapshot = getSequencerStateSnapshot();
+                if (!sequenceSnapshotHasContent(snapshot)) {
+                    alert('Record notes or motion before saving a sequence.');
+                    return;
+                }
+                triggerSequenceDownload(snapshot);
+                flashSequenceButton(saveButton);
+            } catch (error) {
+                console.error('Unable to export sequence snapshot', error);
+                alert('Unable to save the sequence right now.');
+            }
+        });
+    }
+
+    if (loadButton && fileInput) {
+        loadButton.addEventListener('click', () => {
+            fileInput.value = '';
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (event) => {
+            const files = event.target && event.target.files ? event.target.files : [];
+            if (!files.length) return;
+            const file = files[0];
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const rawText = typeof reader.result === 'string' ? reader.result : '';
+                    const parsed = JSON.parse(rawText);
+                    const result = loadSequencerStateSnapshot(parsed);
+                    flashSequenceButton(loadButton);
+                    console.log(`Sequence loaded (${result.noteCount} notes, ${result.automationLaneCount} motion lane(s))`);
+                } catch (error) {
+                    console.error('Failed to load sequence snapshot', error);
+                    alert('That file is not a valid PolyHymn sequence.');
+                } finally {
+                    fileInput.value = '';
+                }
+            };
+            reader.onerror = () => {
+                console.error('Failed to read sequence file', reader.error);
+                alert('Could not read that file.');
+                fileInput.value = '';
+            };
+            reader.readAsText(file);
+        });
+    }
+}
+
+function isTempoRouted(destinationKey) {
+    if (!destinationKey) return false;
+    const checker = sequencerTempo && typeof sequencerTempo.isDestinationRouted === 'function'
+        ? sequencerTempo.isDestinationRouted(destinationKey)
+        : false;
+    return !!checker;
+}
+
+function formatTempoSyncedRateText(globalValue) {
+    if (typeof globalValue === 'number' && Number.isFinite(globalValue)) {
+        return `${globalValue.toFixed(2)} Hz`;
+    }
+    return 'Tempo Sync';
+}
+
+function registerSliderAutomationBinding(slider, paramId) {
+    if (!slider) return;
+    registerModAutomationTarget(paramId, (value) => {
+        suppressAutomationCapture = true;
+        slider.value = value;
+        dispatchAutomationInputEvent(slider);
+        suppressAutomationCapture = false;
+    });
+    const initialValue = parseFloat(slider.value);
+    if (Number.isFinite(initialValue)) {
+        updateAutomationBaselineValue(paramId, initialValue);
+        const normalized = getNormalizedSliderValue(slider);
+        if (normalized !== null) {
+            setDestinationBaseValueFromParam(paramId, normalized, { force: true });
+        }
+    }
+}
+
+function attachAutomationToSlider(slider, paramId, valueExtractor) {
+    if (!slider) return;
+    if (DISABLED_AUTOMATION_PARAMS.has(paramId)) return;
+    const getter = typeof valueExtractor === 'function'
+        ? valueExtractor
+        : (el) => parseFloat(el.value);
+    slider.addEventListener('input', () => {
+        const raw = getter(slider);
+        const normalized = getNormalizedSliderValue(slider);
+        if (normalized !== null) {
+            setDestinationBaseValueFromParam(paramId, normalized);
+        }
+        emitAutomationValue(paramId, raw);
+    });
+    registerSliderAutomationBinding(slider, paramId);
+}
+
+function registerKnobAutomationControl(id, control, callback) {
+    if (DISABLED_AUTOMATION_PARAMS.has(id)) return;
+    if (!AUTOMATION_KNOB_IDS.has(id) || !control || typeof callback !== 'function') return;
+    registerModAutomationTarget(id, (value) => {
+        suppressAutomationCapture = true;
+        control.setValue(value, false);
+        callback(value);
+        suppressAutomationCapture = false;
+    });
+    const initialValue = typeof control.getValue === 'function' ? control.getValue() : null;
+    if (Number.isFinite(initialValue)) {
+        updateAutomationBaselineValue(id, initialValue);
+        setDestinationBaseValueFromParam(id, initialValue, { force: true });
+    }
+}
 
 // Dual ADSR system state variables
 let adsrMode = 'adsr'; // 'adsr' or 'filter'
@@ -249,6 +469,21 @@ function filterPositionToFrequency(position) {
   return Math.round(frequency);
 }
 
+function clampBipolar(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(-1, Math.min(1, value));
+}
+
+function applyCutoffModulationToFrequency(baseFrequency, modulationAmount) {
+    const clampedFrequency = Math.max(8, Math.min(16000, baseFrequency));
+    const logMin = Math.log(8);
+    const logMax = Math.log(16000);
+    const logRange = logMax - logMin;
+    const logBase = Math.log(clampedFrequency);
+    const modulatedLog = Math.min(logMax, Math.max(logMin, logBase + clampBipolar(modulationAmount) * logRange));
+    return Math.exp(modulatedLog);
+}
+
 function setupNonLinearFilterSlider() {
   const slider = document.querySelector('.freq-slider-range');
   if (!slider) return;
@@ -278,25 +513,24 @@ function setupNonLinearFilterSlider() {
     // Calculate visual position based on slider physical position
     let visualPosition = parseInt(this.value) / (parseInt(this.max) - parseInt(this.min));
     
-    // Check if this slider has active macro modulation
+    // Update base value for modulation system
     const destination = knobToDestinationMap['filter-cutoff'];
-    if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
-      const multiplier = destinationModulations[destination];
-      
-      // Apply multiplier to position (0-1 range)
-      visualPosition = visualPosition * multiplier;
-      
-      // Clamp to 0-1 range
-      visualPosition = Math.max(0, Math.min(1, visualPosition));
-      
-      console.log(`Filter cutoff modulated: base=${(parseInt(this.value) / (parseInt(this.max) - parseInt(this.min))).toFixed(2)}, multiplier=${multiplier.toFixed(2)}, final=${visualPosition.toFixed(2)}`);
+    if (destination) {
+        assignDestinationBaseValue(destination, visualPosition, { force: true });
     }
     
     // Convert to frequency using our mapping (already rounded to whole Hz)
-    const frequency = filterPositionToFrequency(visualPosition);
+        const frequency = filterPositionToFrequency(visualPosition);
+        let tooltipFrequency = frequency;
+    
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination] ?? 1;
+            const bipolarModulation = clampBipolar(multiplier - 1);
+            tooltipFrequency = applyCutoffModulationToFrequency(frequency, bipolarModulation);
+        }
     
     // Show tooltip with final modulated frequency
-    createTooltipForSlider(this, `${Math.round(frequency)} Hz`, 'top-right');
+        createTooltipForSlider(this, `${Math.round(tooltipFrequency)} Hz`, 'top-right');
     
     // Update filter
     if (filterManager) {
@@ -320,6 +554,8 @@ function setupNonLinearFilterSlider() {
   const event = new Event('input');
   newSlider.dispatchEvent(event);
   
+    attachAutomationToSlider(newSlider, 'filter-cutoff', (el) => parseFloat(el.value));
+
   console.log("Fixed non-linear filter cutoff slider setup complete");
 }
 
@@ -365,6 +601,7 @@ function setupNonLinearADSRSliders() {
       
       console.log(`Amplitude ${id.toUpperCase()}: ${timeValue.toFixed(3)}s`);
     };
+        attachAutomationToSlider(slider, id);
     
     // Set initial values
     let initialTime = 0.00;
@@ -389,6 +626,7 @@ function setupNonLinearADSRSliders() {
       
       console.log(`Amplitude SUSTAIN: ${sustainValue.toFixed(2)}`);
     };
+        attachAutomationToSlider(sustainSlider, 'sustain');
     
     sustainSlider.value = 1.0;
     sustainSlider.dispatchEvent(new Event('input'));
@@ -429,6 +667,7 @@ function setupNonLinearADSRSliders() {
       
       console.log(`Filter ${id.toUpperCase()}: ${timeValue.toFixed(3)}s`);
     };
+        attachAutomationToSlider(slider, id);
     
     // Set initial values
     let initialTime = 0.00;
@@ -466,6 +705,7 @@ function setupNonLinearADSRSliders() {
       
       console.log(`Filter SUSTAIN: ${sustainValue.toFixed(2)}`);
     };
+        attachAutomationToSlider(filterSustainSlider, 'filter-sustain');
     
     filterSustainSlider.value = 1.0;
     filterSustainSlider.dispatchEvent(new Event('input'));
@@ -646,8 +886,13 @@ function initializeFilterControls() {
     resSlider.addEventListener('input', (e) => {
       let value = parseFloat(e.target.value);
       
-      // Check if this slider has active macro modulation
+      // Update base value for modulation system
       const destination = knobToDestinationMap['filter-resonance'];
+      if (destination) {
+          assignDestinationBaseValue(destination, value, { force: true });
+      }
+      
+      // Check if this slider has active macro modulation
       if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
         const multiplier = destinationModulations[destination];
         
@@ -667,6 +912,7 @@ function initializeFilterControls() {
         filterManager.setResonance(value);
       }
     });
+        attachAutomationToSlider(resSlider, 'filter-resonance');
     
     resSlider.addEventListener('mouseup', () => hideTooltipForSlider(resSlider));
     resSlider.addEventListener('touchend', () => hideTooltipForSlider(resSlider));
@@ -687,6 +933,7 @@ if (driveSlider) {
       filterManager.setInputGain(value);
     }
   });
+    attachAutomationToSlider(driveSlider, 'filter-drive');
   
   // Hide tooltip on release
   driveSlider.addEventListener('mouseup', () => hideTooltipForSlider(driveSlider));
@@ -705,8 +952,13 @@ if (driveSlider) {
     variantSlider.addEventListener('input', (e) => {
       let value = parseFloat(e.target.value);
       
-      // Check if this slider has active macro modulation FIRST
+      // Update base value for modulation system
       const destination = knobToDestinationMap['filter-variant'];
+      if (destination) {
+          assignDestinationBaseValue(destination, value, { force: true });
+      }
+      
+      // Check if this slider has active macro modulation FIRST
       if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
         const multiplier = destinationModulations[destination];
         
@@ -739,6 +991,7 @@ if (driveSlider) {
         filterManager.setVariant(value);
       }
     });
+        attachAutomationToSlider(variantSlider, 'filter-variant');
     
     // Hide tooltip on release
     variantSlider.addEventListener('mouseup', () => hideTooltipForSlider(variantSlider));
@@ -1039,6 +1292,7 @@ let currentDestinationIndex = 0; // 0-25 matching combined slider positions
 let currentDestinationName = 'Sampler Pitch'; // Track the actual destination name
 let destinationConnections = {}; // Format: { 'Sampler Pitch': 'MOD', 'Osc 1 Pitch': 'LFO', ... }
 let destinationDepths = {}; // Format: { 'Sampler Pitch': 0.5, 'Osc 1 Pitch': 0.8, ... } - stores depth for each destination
+let destinationBaseValues = {}; // Stores unmodulated 0-1 base values for each destination
 
 // Store reference to the depth knob control for programmatic updates
 let matrixDepthKnobControl = null;
@@ -1055,6 +1309,8 @@ let macroValues = {
 let lfoOscillator = null;
 let lfoGain = null;
 let lfoRate = 1.0; // Hz
+let lfoPhase = 0.0; // Accumulated phase (0-1)
+let lastLfoTime = 0.0; // Last time LFO was updated
 window.lfoRate = lfoRate; // Make globally accessible for tempo sync
 let lfoFade = 0.0; // 0-1 fade-in time (0=instant, 1=5 seconds) - applied per-voice
 let lfoDepth = 1.0; // 0-1 polarity control: 0=negative, 0.5=off, 1=positive
@@ -1065,6 +1321,7 @@ let lfoUpdateInterval = null;
 
 // Store the current modulation amount for each destination (bipolar -1 to +1)
 let destinationModulations = {};
+let modulationInjectionActive = false;
 
 // Initialize - each destination can be connected to one source at a time
 function initializeModulationConnections() {
@@ -1072,6 +1329,7 @@ function initializeModulationConnections() {
     destinationConnections[dest] = null; // null means no connection
     destinationDepths[dest] = 0.5; // Default depth to 50% (middle position)
     destinationModulations[dest] = 0; // Default modulation is 0 (no modulation)
+        destinationBaseValues[dest] = null; // Base values populated once controls initialize
   });
 }
 
@@ -1128,7 +1386,23 @@ function applyLFOModulation() {
   
   // Calculate LFO value (0-1 range) - shared across all voices
   const now = audioCtx.currentTime;
-  const phase = (now * lfoRate) % 1.0;
+  
+  // Initialize lastLfoTime if this is the first run
+  if (lastLfoTime === 0) {
+    lastLfoTime = now;
+  }
+  
+  // Calculate time delta and update phase incrementally
+  // This prevents phase jumps when changing LFO rate
+  const dt = now - lastLfoTime;
+  lastLfoTime = now;
+  
+  // Accumulate phase
+  lfoPhase += dt * lfoRate;
+  // Wrap phase to 0-1 range
+  lfoPhase = lfoPhase - Math.floor(lfoPhase);
+  
+  const phase = lfoPhase;
   
   // Debug: Log shape periodically
   if (!applyLFOModulation.lastLog || now - applyLFOModulation.lastLog > 1.0) {
@@ -2450,6 +2724,7 @@ function findAvailableVoice(noteNumber) {
         } else {
             voiceAssignments.set(selectedVoice.noteNumber, updatedOldAssignments);
         }
+        unlinkSequencerVoice(selectedVoice);
     }
     
     // Multiple assignments are now possible (same note in different voices)
@@ -2996,6 +3271,127 @@ Object.keys(destinationToKnobMap).forEach(dest => {
   knobToDestinationMap[destinationToKnobMap[dest]] = dest;
 });
 
+function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
+}
+
+function getNormalizedSliderValue(sliderElement) {
+    if (!sliderElement) return null;
+    const sliderValue = parseFloat(sliderElement.value);
+    const sliderMin = parseFloat(sliderElement.min ?? 0);
+    const sliderMax = parseFloat(sliderElement.max ?? 1);
+    const range = sliderMax - sliderMin;
+    if (!Number.isFinite(sliderValue) || !Number.isFinite(range) || range === 0) {
+        return null;
+    }
+    return sliderValue / range;
+}
+
+function assignDestinationBaseValue(destination, value, options = {}) {
+    if (!destination || typeof value !== 'number' || Number.isNaN(value)) return;
+    if (!options.force && modulationInjectionActive) return;
+    destinationBaseValues[destination] = clamp01(value);
+}
+
+function setDestinationBaseValueFromParam(paramId, value, options = {}) {
+    const destination = knobToDestinationMap[paramId];
+    if (!destination) return;
+    assignDestinationBaseValue(destination, value, options);
+}
+
+function getDestinationBaseValue(destination) {
+    const value = destinationBaseValues[destination];
+    return typeof value === 'number' && !Number.isNaN(value) ? value : null;
+}
+
+function deriveKnobValueFromElement(element) {
+    if (!element) return null;
+    const transform = element.style.transform;
+    if (!transform) return null;
+    const match = transform.match(/rotate\((-?\d+\.?\d*)deg\)/);
+    if (!match) return null;
+    const rotation = parseFloat(match[1]);
+    if (!Number.isFinite(rotation)) return null;
+    return clamp01((rotation + 150) / 300);
+}
+
+function getControlElementForDestination(elementId) {
+    if (!elementId) return null;
+    if (elementId === 'filter-cutoff') {
+        return document.querySelector('.freq-slider-range');
+    }
+    if (elementId === 'filter-resonance') {
+        return document.querySelector('.res-slider-range');
+    }
+    if (elementId === 'filter-variant') {
+        return document.querySelector('.variant-slider-range');
+    }
+    return document.getElementById(elementId);
+}
+
+function ensureDestinationBaseValue(destination, controlElement, elementId) {
+    let baseValue = getDestinationBaseValue(destination);
+    if (baseValue !== null) {
+        return baseValue;
+    }
+
+    let derived = null;
+    if (controlElement && controlElement.classList && controlElement.classList.contains('knob')) {
+        derived = deriveKnobValueFromElement(controlElement);
+    } else if (controlElement && controlElement.tagName === 'INPUT' && controlElement.type === 'range') {
+        derived = getNormalizedSliderValue(controlElement);
+    } else if (elementId) {
+        // Fallback: attempt to resolve the control element again
+        const fallbackElement = getControlElementForDestination(elementId);
+        if (fallbackElement) {
+            if (fallbackElement.classList && fallbackElement.classList.contains('knob')) {
+                derived = deriveKnobValueFromElement(fallbackElement);
+            } else if (fallbackElement.tagName === 'INPUT' && fallbackElement.type === 'range') {
+                derived = getNormalizedSliderValue(fallbackElement);
+            }
+        }
+    }
+
+    if (Number.isFinite(derived)) {
+        assignDestinationBaseValue(destination, derived, { force: true });
+        return derived;
+    }
+
+    return null;
+}
+
+function withModulationInjection(fn) {
+    const previousSuppression = suppressAutomationCapture;
+    const previousInjection = modulationInjectionActive;
+    suppressAutomationCapture = true;
+    modulationInjectionActive = true;
+    try {
+        fn();
+    } finally {
+        modulationInjectionActive = previousInjection;
+        suppressAutomationCapture = previousSuppression;
+    }
+}
+
+function captureInitialDestinationBaseValues() {
+    Object.entries(destinationToKnobMap).forEach(([destination, elementId]) => {
+        const controlElement = getControlElementForDestination(elementId);
+        if (!controlElement) return;
+        let derived = null;
+        if (controlElement.classList && controlElement.classList.contains('knob')) {
+            derived = deriveKnobValueFromElement(controlElement);
+        } else if (controlElement.tagName === 'INPUT' && controlElement.type === 'range') {
+            derived = getNormalizedSliderValue(controlElement);
+        }
+        if (Number.isFinite(derived)) {
+            assignDestinationBaseValue(destination, derived, { force: true });
+        }
+    });
+}
+
 /**
  * Applies a modulation value to a specific destination parameter
  * Stores the modulation amount and triggers the knob callback to update in real-time
@@ -3009,88 +3405,78 @@ function applyModulationToDestination(destination, modulation) {
   console.log(`    -> ${destination}: Stored modulation ${(modulation * 100).toFixed(0)}%`);
   
   // Find the corresponding element and trigger its callback to apply the modulation in real-time
-  const elementId = destinationToKnobMap[destination];
-  if (elementId) {
-    // Try as a knob first
-    let knobElement = document.getElementById(elementId);
-    if (knobElement && knobElement.classList.contains('knob')) {
-      // It's a knob - extract rotation
-      const transform = knobElement.style.transform;
-      const match = transform.match(/rotate\((-?\d+\.?\d*)deg\)/);
-      if (match) {
-        const rotation = parseFloat(match[1]);
-        const baseValue = (rotation + 150) / 300; // Convert rotation to 0-1 value
-        
-        // Trigger the knob's callback with the base value
+    const elementId = destinationToKnobMap[destination];
+    if (!elementId) return;
+
+    const controlElement = getControlElementForDestination(elementId);
+    if (!controlElement) return;
+
+    if (controlElement.classList && controlElement.classList.contains('knob')) {
         const callback = knobInitializations[elementId];
-        if (callback) {
-          callback(baseValue);
-        }
-      }
-    } else {
-      // It's a slider - handle filter sliders directly
-      if (elementId === 'filter-cutoff') {
-        const sliderElement = document.querySelector('.freq-slider-range');
-        if (sliderElement && filterManager) {
-          // Get current slider position (0-1)
-          const sliderValue = parseInt(sliderElement.value);
-          const sliderMin = parseInt(sliderElement.min);
-          const sliderMax = parseInt(sliderElement.max);
-          let position = sliderValue / (sliderMax - sliderMin);
-          
-          // Apply modulation
-          position = position * modulation;
-          position = Math.max(0, Math.min(1, position));
-          
-          // Convert to frequency and apply
-          const frequency = filterPositionToFrequency(position);
-          filterManager.setCutoff(frequency);
-          
-          // Show tooltip with modulated frequency
-          createTooltipForSlider(sliderElement, `${Math.round(frequency)} Hz`, 'top-right');
-          
-          console.log(`    -> Filter cutoff: position=${position.toFixed(2)}, frequency=${frequency}Hz`);
-        }
-      } else if (elementId === 'filter-resonance') {
-        const sliderElement = document.querySelector('.res-slider-range');
-        if (sliderElement && filterManager) {
-          let value = parseFloat(sliderElement.value);
-          value = value * modulation;
-          value = Math.max(0, Math.min(1, value));
-          filterManager.setResonance(value);
-          
-          // Show tooltip with modulated value
-          createTooltipForSlider(sliderElement, `${Math.round(value * 100)}%`, 'top-right');
-          
-          console.log(`    -> Filter resonance: ${value.toFixed(2)}`);
-        }
-      } else if (elementId === 'filter-variant') {
-        const sliderElement = document.querySelector('.variant-slider-range');
-        if (sliderElement && filterManager) {
-          let value = parseFloat(sliderElement.value);
-          value = value * modulation;
-          value = Math.max(0, Math.min(1, value));
-          filterManager.setVariant(value);
-          
-          // Show tooltip with modulated value based on filter type
-          let tooltipText;
-          if (currentFilterType === 'lp12') {
-            tooltipText = `Diode: ${Math.round(value * 100)}%`;
-          } else if (currentFilterType === 'lp24') {
-            tooltipText = `Bass Compensation: ${Math.round(value * 100)}%`;
-          } else if (currentFilterType.startsWith('lh')) {
-            const frequency = 16000 * Math.pow(8/16000, value);
-            tooltipText = `High Pass: ${Math.round(frequency)} Hz`;
-          } else {
-            tooltipText = `Variant: ${Math.round(value * 100)}%`;
-          }
-          createTooltipForSlider(sliderElement, tooltipText, 'bottom');
-          
-          console.log(`    -> Filter variant: ${value.toFixed(2)}`);
-        }
-      }
+        if (!callback) return;
+        const baseValue = ensureDestinationBaseValue(destination, controlElement, elementId);
+        if (baseValue === null) return;
+        withModulationInjection(() => {
+            callback(baseValue);
+        });
+        return;
     }
-  }
+
+    if (elementId === 'filter-cutoff') {
+        applyFilterCutoffModulation(destination, modulation, controlElement);
+    } else if (elementId === 'filter-resonance') {
+        applyFilterResonanceModulation(destination, modulation, controlElement);
+    } else if (elementId === 'filter-variant') {
+        applyFilterVariantModulation(destination, modulation, controlElement);
+    }
+}
+
+function applyFilterCutoffModulation(destination, modulation, sliderElement) {
+    const targetSlider = sliderElement || document.querySelector('.freq-slider-range');
+    if (!targetSlider || !filterManager) return;
+    const position = ensureDestinationBaseValue(destination, targetSlider, 'filter-cutoff');
+    if (!Number.isFinite(position)) return;
+
+    const baseFrequency = filterPositionToFrequency(position);
+    const bipolarModulation = clampBipolar((modulation ?? 1) - 1);
+    filterManager.setCutoffModulation(bipolarModulation);
+
+    const modulatedFrequency = applyCutoffModulationToFrequency(baseFrequency, bipolarModulation);
+    createTooltipForSlider(targetSlider, `${Math.round(modulatedFrequency)} Hz`, 'top-right');
+    console.log(`    -> Filter cutoff modulation: base=${Math.round(baseFrequency)}Hz, modded=${Math.round(modulatedFrequency)}Hz, amount=${bipolarModulation.toFixed(2)}`);
+}
+
+function applyFilterResonanceModulation(destination, modulation, sliderElement) {
+    const targetSlider = sliderElement || document.querySelector('.res-slider-range');
+    if (!targetSlider || !filterManager) return;
+    let value = ensureDestinationBaseValue(destination, targetSlider, 'filter-resonance');
+    if (!Number.isFinite(value)) return;
+    value = clamp01(value * modulation);
+    filterManager.setResonance(value);
+    createTooltipForSlider(targetSlider, `${Math.round(value * 100)}%`, 'top-right');
+    console.log(`    -> Filter resonance: ${value.toFixed(2)}`);
+}
+
+function applyFilterVariantModulation(destination, modulation, sliderElement) {
+    const targetSlider = sliderElement || document.querySelector('.variant-slider-range');
+    if (!targetSlider || !filterManager) return;
+    let value = ensureDestinationBaseValue(destination, targetSlider, 'filter-variant');
+    if (!Number.isFinite(value)) return;
+    value = clamp01(value * modulation);
+    filterManager.setVariant(value);
+    let tooltipText;
+    if (currentFilterType === 'lp12') {
+        tooltipText = `Diode: ${Math.round(value * 100)}%`;
+    } else if (currentFilterType === 'lp24') {
+        tooltipText = `Bass Compensation: ${Math.round(value * 100)}%`;
+    } else if (currentFilterType && currentFilterType.startsWith('lh')) {
+        const frequency = 16000 * Math.pow(8 / 16000, value);
+        tooltipText = `High Pass: ${Math.round(frequency)} Hz`;
+    } else {
+        tooltipText = `Variant: ${Math.round(value * 100)}%`;
+    }
+    createTooltipForSlider(targetSlider, tooltipText, 'bottom');
+    console.log(`    -> Filter variant: ${value.toFixed(2)}`);
 }
 
 /**
@@ -3130,6 +3516,12 @@ function handleSelectButtonToggle() {
   });
   
   console.log(`=== SELECT BUTTON TOGGLE COMPLETE ===`);
+
+    if (currentDestinationName === 'Cutoff' && (!destinationConnections[currentDestinationName] || destinationConnections[currentDestinationName] === null)) {
+        if (filterManager) {
+            filterManager.setCutoffModulation(0);
+        }
+    }
 }
 
 /**
@@ -3561,6 +3953,12 @@ const knobInitializations = {
     },
     'mod-rate-knob': (value) => {
         const tooltip = createTooltipForKnob('mod-rate-knob', value);
+        if (isTempoRouted('MOD')) {
+            tooltip.textContent = `Tempo: ${formatTempoSyncedRateText(window.modCanvasRate)}`;
+            tooltip.style.opacity = '1';
+            console.debug('MOD Canvas Rate knob input ignored - destination is tempo-routed.');
+            return value;
+        }
         
         // Map 0-1 to 0.1-20 Hz (logarithmic) - same as LFO rate slider
         modCanvasRate = 0.1 * Math.pow(200, value);
@@ -4408,6 +4806,21 @@ const knobInitializations = {
         console.log(`Osc2 FM Knob Raw: ${value.toFixed(3)}, Curved: ${osc2FMAmount.toFixed(3)}, Depth: ${scaledDepth.toFixed(1)} Hz`);
     },
 };
+
+Object.keys(knobInitializations).forEach((id) => {
+    if (!AUTOMATION_KNOB_IDS.has(id)) return;
+    const original = knobInitializations[id];
+    if (typeof original !== 'function') return;
+    knobInitializations[id] = (value, ...rest) => {
+        const result = original(value, ...rest);
+        const destination = knobToDestinationMap[id];
+        if (destination) {
+            assignDestinationBaseValue(destination, value);
+        }
+        emitAutomationValue(id, value);
+        return result;
+    };
+});
 /**
  * Updates an existing sampler note's playback parameters (buffer, loop, rate, etc.)
  * by aggressively replacing its source and gain nodes.
@@ -4663,6 +5076,8 @@ const defaultValue = knobDefaults[id] !== undefined ? knobDefaults[id] : 0.5;
 console.log(`[DOMContentLoaded] Initializing knob: ${id}, element:`, knob);
 const control = initializeKnob(knob, callback, knobDefaults);
 
+registerKnobAutomationControl(id, control, callback);
+
 // Store reference to matrix-depth-knob control for programmatic updates
 if (id === 'matrix-depth-knob') {
     matrixDepthKnobControl = control;
@@ -4696,6 +5111,89 @@ let voiceQueue = []; // FIFO queue to track voice usage order// New sampler voic
 const MAX_SAMPLER_POLYPHONY = 6; // New constant for sampler voices
 const samplerVoicePool = []; // Array to hold all sampler voice objects
 let nextSamplerVoiceIndex = 0; // To cycle through sampler voices for allocation/stealing
+// Track which voices were triggered by the sequencer so we can clean them up safely
+const sequencerVoiceRegistry = new Set();
+const sequencerSamplerRegistry = new Set();
+const sequencerVoiceToSampler = new Map();
+const sequencerSamplerToVoice = new Map();
+
+function linkSequencerVoices(voice, samplerVoice) {
+    if (voice) {
+        voice.isSequencerVoice = true;
+        sequencerVoiceRegistry.add(voice);
+    }
+    if (samplerVoice) {
+        samplerVoice.isSequencerVoice = true;
+        sequencerSamplerRegistry.add(samplerVoice);
+    }
+    if (voice && samplerVoice) {
+        sequencerVoiceToSampler.set(voice, samplerVoice);
+        sequencerSamplerToVoice.set(samplerVoice, voice);
+    }
+}
+
+function unlinkSequencerVoice(voice) {
+    if (!voice) return;
+    voice.isSequencerVoice = false;
+    const linkedSampler = sequencerVoiceToSampler.get(voice);
+    if (linkedSampler && sequencerSamplerToVoice.get(linkedSampler) === voice) {
+        sequencerSamplerToVoice.delete(linkedSampler);
+    }
+    sequencerVoiceToSampler.delete(voice);
+    sequencerVoiceRegistry.delete(voice);
+}
+
+function unlinkSequencerSamplerVoice(samplerVoice) {
+    if (!samplerVoice) return;
+    samplerVoice.isSequencerVoice = false;
+    const linkedVoice = sequencerSamplerToVoice.get(samplerVoice);
+    if (linkedVoice && sequencerVoiceToSampler.get(linkedVoice) === samplerVoice) {
+        sequencerVoiceToSampler.delete(linkedVoice);
+    }
+    sequencerSamplerToVoice.delete(samplerVoice);
+    sequencerSamplerRegistry.delete(samplerVoice);
+}
+
+function releaseSequencerVoices(reason = 'manual') {
+    if ((!sequencerVoiceRegistry.size && !sequencerSamplerRegistry.size) || !audioCtx) {
+        return;
+    }
+    const now = audioCtx.currentTime;
+    [...sequencerVoiceRegistry].forEach(voice => {
+        if (!voice || voice.state === 'idle' || voice.state === 'releasing' || voice.noteNumber === null) {
+            unlinkSequencerVoice(voice);
+            return;
+        }
+        const samplerVoice = sequencerVoiceToSampler.get(voice) || null;
+        const noteNumber = voice.noteNumber ?? samplerVoice?.noteNumber;
+        if (noteNumber === null || noteNumber === undefined) {
+            unlinkSequencerVoice(voice);
+            if (samplerVoice) {
+                unlinkSequencerSamplerVoice(samplerVoice);
+            }
+            return;
+        }
+        noteOff(noteNumber, true, voice, voice.startTime ?? now, samplerVoice ?? null, null, now);
+    });
+
+    [...sequencerSamplerRegistry].forEach(samplerVoice => {
+        if (!samplerVoice || samplerVoice.state === 'releasing' || sequencerSamplerToVoice.has(samplerVoice)) {
+            return;
+        }
+        if (samplerVoice.state === 'inactive' || samplerVoice.noteNumber === null) {
+            unlinkSequencerSamplerVoice(samplerVoice);
+            return;
+        }
+        const noteNumber = samplerVoice.noteNumber ?? samplerVoice.samplerNote?.noteNumber;
+        if (noteNumber === null || noteNumber === undefined) {
+            unlinkSequencerSamplerVoice(samplerVoice);
+            return;
+        }
+        noteOff(noteNumber, true, null, samplerVoice.startTime ?? now, samplerVoice, null, now);
+    });
+
+    console.log(`Forced release of sequencer voices (${reason})`);
+}
 
 // Function to create a sampler voice
 function createSamplerVoice(ctx, index) {
@@ -4839,6 +5337,7 @@ function findAvailableSamplerVoice(noteNumber) {
     candidate.wasStolen = candidate.state !== 'inactive';
     if (candidate.wasStolen) {
         console.log(`findAvailableSamplerVoice: Stealing sampler voice ${candidate.id} for note ${noteNumber}.`);
+        unlinkSequencerSamplerVoice(candidate);
     }
     
     return candidate;
@@ -5186,6 +5685,7 @@ function cleanupAllNotes() {
         voice.state = 'idle';
         voice.noteNumber = null;
         voice.startTime = 0;
+        unlinkSequencerVoice(voice);
     });
     
     // Clear all assignments and queue
@@ -5215,6 +5715,7 @@ if (filterManager) {
         filterManager.noteOff(`sampler-${samplerVoice.id}`);  // FIXED: Changed 'voice' to 'samplerVoice'
         console.log(`Released filter envelope for sampler voice ${samplerVoice.id} during cleanup`);  // FIXED: Changed 'voice' to 'samplerVoice'
     }
+    unlinkSequencerSamplerVoice(samplerVoice);
 });
     
     console.log("All filters cleaned up");
@@ -5433,11 +5934,22 @@ function initializeFilterPrecisionSlider(slider) {
     // Convert slider value to normalized position (0-1)
     const position = sliderValueToPosition(parseFloat(this.value));
     
+        const destination = knobToDestinationMap['filter-cutoff'];
+        if (destination) {
+            assignDestinationBaseValue(destination, position, { force: true });
+        }
+
     // Map position to frequency using non-linear mapping
     const frequency = positionToFrequency(position);
+        let tooltipFrequency = frequency;
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination] ?? 1;
+            const bipolarModulation = clampBipolar(multiplier - 1);
+            tooltipFrequency = applyCutoffModulationToFrequency(frequency, bipolarModulation);
+        }
     
     // Show tooltip on the right
-    createTooltipForSlider(this, `${Math.round(frequency)} Hz`, 'top-right');
+        createTooltipForSlider(this, `${Math.round(tooltipFrequency)} Hz`, 'top-right');
     
     // Update filter cutoff
     if (filterManager) {
@@ -5459,6 +5971,9 @@ function initializeFilterPrecisionSlider(slider) {
   // Initialize with maximum frequency (16000Hz)
   const initialSliderValue = frequencyToSliderValue(maxFreq);
   newSlider.value = initialSliderValue;
+
+    // Re-bind automation capture now that the slider has been cloned
+    attachAutomationToSlider(newSlider, 'filter-cutoff', (el) => parseFloat(el.value));
   
   // Trigger input event to set initial cutoff
   const event = new Event('input');
@@ -6217,6 +6732,7 @@ function killSamplerNote(note) {
         if (isMonoMode && currentMonoSamplerVoice === voice) {
             currentMonoSamplerVoice = null;
         }
+        unlinkSequencerSamplerVoice(voice);
 
         // Update UI
         updateVoiceDisplay_Pool();
@@ -6573,12 +7089,17 @@ const ARP_RELEASE_MATCH_EPSILON = 0.02; // seconds tolerance when matching force
 
 const ARP_RELEASE_CALLAHEAD = 0.012; // seconds to prep forced releases ahead of their target time
 let arpReleaseTokenCounter = 0;
+const SEQUENCER_RELEASE_FALLBACK_MAX_DIFF = 0.06; // max seconds away from target start to consider releasing fallback voice
 
 function playArpNote(noteNumber, scheduledTime, durationSeconds, stepId = null) {
     if (!audioCtx) return;
     const currentTime = audioCtx.currentTime;
     const startTime = Math.max(typeof scheduledTime === 'number' ? scheduledTime : currentTime, currentTime);
     const gateSeconds = Math.max(ARP_MIN_GATE_SECONDS, durationSeconds || 0.05);
+    handleLiveSequencerNoteInput(noteNumber, 1, {
+        startTime,
+        source: 'arp'
+    });
 
     const prepTime = Math.max(currentTime, startTime - ARP_PRESTART_LEAD);
     const prepDelayMs = Math.max(0, (prepTime - currentTime) * 1000);
@@ -6602,6 +7123,7 @@ function playArpNote(noteNumber, scheduledTime, durationSeconds, stepId = null) 
         const releaseCallTime = Math.max(currentTime, releaseTime - releaseCallAhead);
         const releaseDelayMs = Math.max(0, (releaseCallTime - audioCtx.currentTime) * 1000);
         setTimeout(() => {
+            handleLiveSequencerNoteRelease(noteNumber, { releaseTime });
             const oscVoice = arpVoice.voice && arpVoice.voice.lastArpReleaseToken === releaseToken
                 ? arpVoice.voice
                 : null;
@@ -6639,6 +7161,10 @@ function noteOn(noteNumber, isLegatoMonoTransition = false, bypassArp = false, s
     if (arpeggiator && arpeggiator.isActive() && !bypassArp) {
         arpeggiator.handleNoteOn(noteNumber);
         return null;
+    }
+
+    if (!bypassArp) {
+        handleLiveSequencerNoteInput(noteNumber);
     }
 
     const currentTime = audioCtx.currentTime;
@@ -7703,6 +8229,10 @@ function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt
         return;
     }
     
+    if (!isForced) {
+        handleLiveSequencerNoteRelease(noteNumber);
+    }
+    
     console.log(`noteOff: ${noteNumber}, Mono: ${isMonoMode}`);
     const now = audioCtx.currentTime;
     const releaseStartTime = scheduledReleaseTime !== null
@@ -7745,17 +8275,20 @@ function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt
         if (matches.length > 0) {
             return matches;
         }
-        // Fall back to the closest by time to avoid stuck voices
-        let closest = voices[0];
-        let minDiff = Math.abs(((closest.startTime || 0) - triggeredAt));
-        for (let i = 1; i < voices.length; i++) {
+        let closest = null;
+        let minDiff = Infinity;
+        for (let i = 0; i < voices.length; i++) {
             const diff = Math.abs(((voices[i].startTime || 0) - triggeredAt));
             if (diff < minDiff) {
                 closest = voices[i];
                 minDiff = diff;
             }
         }
-        return [closest];
+        if (closest && minDiff <= SEQUENCER_RELEASE_FALLBACK_MAX_DIFF) {
+            return [closest];
+        }
+        console.warn(`noteOff: no start-time match for note ${noteNumber} (diff ${(minDiff || 0).toFixed(3)}s), skipping forced release to protect newer voices`);
+        return [];
     };
 
     const shouldFilterByToken = releaseToken !== null;
@@ -7788,12 +8321,14 @@ function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt
     }
 
     if (isForced && samplerVoicesToRelease.length > 0) {
-        samplerVoicesToRelease = matchVoicesByTime(samplerVoicesToRelease);
-        // If still more than one (rare), release only the oldest to avoid cutting new attacks
-        if (samplerVoicesToRelease.length > 1) {
-            samplerVoicesToRelease = samplerVoicesToRelease
+        const matchedSamplerVoices = matchVoicesByTime(samplerVoicesToRelease);
+        const allowMultiRelease = triggeredAt !== null;
+        if (matchedSamplerVoices.length > 1 && !allowMultiRelease) {
+            samplerVoicesToRelease = matchedSamplerVoices
                 .sort((a, b) => (a.startTime || 0) - (b.startTime || 0))
                 .slice(0, 1);
+        } else {
+            samplerVoicesToRelease = matchedSamplerVoices;
         }
     }
 
@@ -7818,11 +8353,14 @@ function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt
             voicesToRelease = voicesToRelease.filter(v => v.lastArpReleaseToken === releaseToken);
         }
         if (isForced && voicesToRelease.length > 0) {
-            voicesToRelease = matchVoicesByTime(voicesToRelease);
-            if (voicesToRelease.length > 1) {
-                voicesToRelease = voicesToRelease
+            const matchedVoices = matchVoicesByTime(voicesToRelease);
+            const allowMultiRelease = triggeredAt !== null;
+            if (matchedVoices.length > 1 && !allowMultiRelease) {
+                voicesToRelease = matchedVoices
                     .sort((a, b) => (a.startTime || 0) - (b.startTime || 0))
                     .slice(0, 1);
+            } else {
+                voicesToRelease = matchedVoices;
             }
         }
     }
@@ -7923,6 +8461,7 @@ function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt
                 voice.noteNumber = null;
                 voice.currentArpStepId = null;
                 voice.lastArpReleaseToken = null;
+                unlinkSequencerVoice(voice);
                 
                 console.log(`Voice ${voice.id} fully released for note ${noteNumber} (${releaseId})`);
                 updateVoiceDisplay_Pool();
@@ -8187,6 +8726,28 @@ initializeModulationRouting();
 // Initialize Sequencer Tempo System (must be before LFO/MOD so they can sync)
 initializeSequencerModule();
 console.log('Sequencer tempo system initialized from main.js');
+setupSequenceSaveLoadControls();
+
+registerSequencerPlaybackHandlers({
+    noteOn: ({ noteNumber, startTime, isLegato }) => {
+        const result = noteOn(noteNumber, !!isLegato, true, startTime ?? null);
+        if (result && (result.voice || result.samplerVoice)) {
+            linkSequencerVoices(result.voice ?? null, result.samplerVoice ?? null);
+        }
+    },
+    noteOff: ({ noteNumber, startTime, releaseTime }) => {
+        noteOff(noteNumber, true, null, startTime ?? null, null, null, releaseTime ?? null);
+    }
+});
+console.log('Sequencer playback callbacks registered');
+
+window.addEventListener('sequencer:quantize-changed', () => {
+    releaseSequencerVoices('quantize-change');
+});
+
+window.addEventListener('sequencer:transport-stopped', () => {
+    releaseSequencerVoices('transport-stop');
+});
 
 // Initialize LFO system
 initializeLFO();
@@ -8198,6 +8759,11 @@ initializeModCanvasModulation();
 const rateSlider = document.querySelector('.rate-slider-range');
 if (rateSlider) {
   rateSlider.addEventListener('input', (e) => {
+        if (isTempoRouted('LFO')) {
+            createTooltipForSlider(e.target, `Tempo: ${formatTempoSyncedRateText(window.lfoRate)}`, 'right');
+            console.debug('LFO rate slider input ignored - destination is tempo-routed.');
+            return;
+        }
     const value = parseFloat(e.target.value);
     // Map 0-1 to 0.1-20 Hz (logarithmic)
     lfoRate = 0.1 * Math.pow(200, value); // 0.1 Hz to 20 Hz
@@ -8209,6 +8775,7 @@ if (rateSlider) {
     restartLFO();
     console.log(`LFO Rate: ${lfoRate.toFixed(2)} Hz`);
   });
+    attachAutomationToSlider(rateSlider, 'lfo-rate-slider');
   
   rateSlider.addEventListener('mouseup', () => hideTooltipForSlider(rateSlider));
   rateSlider.addEventListener('touchend', () => hideTooltipForSlider(rateSlider));
@@ -8508,6 +9075,7 @@ if (osc1WaveSelector) {
         
         updatePWMKnobState(); // Update PWM knob visibility/state
     });
+    attachAutomationToSlider(osc1WaveSelector, 'osc1-wave-selector', (el) => parseInt(el.value, 10));
     
     // Hide tooltips on release
     osc1WaveSelector.addEventListener('mouseup', () => hideTooltipForSlider(osc1WaveSelector));
@@ -8645,6 +9213,8 @@ const resumeAudioContext = function() {
 };
 document.body.addEventListener('touchstart', resumeAudioContext, { passive: true });
 document.body.addEventListener('mousedown', resumeAudioContext, { passive: true });
+captureInitialDestinationBaseValues();
+automationCaptureReady = true;
 });
 document.addEventListener('DOMContentLoaded', function() {
 const selectButton = document.getElementById('lfo-select-button');
@@ -8657,11 +9227,25 @@ this.classList.toggle('active');
 // Initialize the depth knob
 const depthKnob = document.getElementById('lfo-depth-knob');
 if (depthKnob) {
-initializeKnob(depthKnob, (value) => {
+const applyLfoDepth = (value, options = {}) => {
 const tooltip = createTooltipForKnob('lfo-depth-knob', value);
 tooltip.textContent = `Depth: ${Math.round(value * 100)}%`;
 tooltip.style.opacity = '1';
 console.log('LFO Depth:', value.toFixed(2));
+if (!options.suppressAutomationCapture) {
+    emitAutomationValue('lfo-depth-knob', value);
+}
+};
+const depthControl = initializeKnob(depthKnob, (value) => applyLfoDepth(value));
+if (depthControl && typeof depthControl.getValue === 'function') {
+    updateAutomationBaselineValue('lfo-depth-knob', depthControl.getValue());
+}
+registerModAutomationTarget('lfo-depth-knob', (value) => {
+    if (!depthControl) return;
+    suppressAutomationCapture = true;
+    depthControl.setValue(value, false);
+    applyLfoDepth(value, { suppressAutomationCapture: true });
+    suppressAutomationCapture = false;
 });
 }
 });
@@ -8932,6 +9516,7 @@ if (osc2WaveSelector) {
         
         updateOsc2PWMKnobState();
     });
+    attachAutomationToSlider(osc2WaveSelector, 'osc2-wave-selector', (el) => parseInt(el.value, 10));
     
     // Hide tooltips on release
     osc2WaveSelector.addEventListener('mouseup', () => hideTooltipForSlider(osc2WaveSelector));

@@ -13,7 +13,8 @@ class MoogFilterProcessor extends AudioWorkletProcessor {
       // CORRECTED: Default to 1.0 (instead of 0.5) to match original filter behavior
       { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' },
       { name: 'classicMode', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
-      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }
+      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
+      { name: 'cutoffModulation', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'a-rate' }
     ];
   }
 
@@ -342,6 +343,7 @@ process(inputs, outputs, parameters) {
   const currentMidiNote = parameters.currentMidiNote[0];
   const adsrValue = parameters.adsrValue;
   const inputGain = parameters.inputGain[0];
+  const cutoffModulation = parameters.cutoffModulation;
   const classicMode = parameters.classicMode[0];
   const sustainLevel = parameters.sustainLevel[0];
   
@@ -349,6 +351,10 @@ process(inputs, outputs, parameters) {
   this.setDrive(drive * (1.0 + saturation * 0.5));
   
   // Process each channel
+  const logMinCutoff = Math.log(8);
+  const logMaxCutoff = Math.log(16000);
+  const logCutoffRange = logMaxCutoff - logMinCutoff;
+
   for (let channel = 0; channel < input.length; channel++) {
     const inputChannel = input[channel];
     const outputChannel = output[channel];
@@ -443,8 +449,7 @@ process(inputs, outputs, parameters) {
         const logFreq = logMinFreq + (currentAdsrValue * (logMaxFreq - logMinFreq));
         actualCutoff = Math.exp(logFreq);
       }
-      
-      
+
     } else {
       // Original behavior for non-maximum envelope amount
       const scaledEnv = Math.min(0.95, envValue);
@@ -472,6 +477,15 @@ process(inputs, outputs, parameters) {
     }
   }
 }
+
+      // STEP 3: Apply macro/LFO modulation after ADSR using logarithmic mapping
+      const macroModValue = cutoffModulation.length > 1 ? cutoffModulation[i] : cutoffModulation[0];
+      if (macroModValue !== 0) {
+        const logCutoff = Math.log(actualCutoff);
+        const logOffset = macroModValue * logCutoffRange;
+        const modulatedLog = Math.min(logMaxCutoff, Math.max(logMinCutoff, logCutoff + logOffset));
+        actualCutoff = Math.exp(modulatedLog);
+      }
       
       // Rest of the processing - use activeResonance instead of raw resonance
       this.setCutoff(actualCutoff);

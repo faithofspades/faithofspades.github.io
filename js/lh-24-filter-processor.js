@@ -14,7 +14,8 @@ class LH24FilterProcessor extends AudioWorkletProcessor {
       // CORRECTED: Default to 1.0 (instead of 0.5) to match original filter behavior
       { name: 'inputGain', defaultValue: 1.0, minValue: 0.0, maxValue: 2.0, automationRate: 'k-rate' },
       { name: 'classicMode', defaultValue: 0.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
-      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' }
+      { name: 'sustainLevel', defaultValue: 1.0, minValue: 0.0, maxValue: 1.0, automationRate: 'k-rate' },
+      { name: 'cutoffModulation', defaultValue: 0.0, minValue: -1.0, maxValue: 1.0, automationRate: 'a-rate' }
     ];
   }
 
@@ -436,9 +437,14 @@ process(inputs, outputs, parameters) {
   const inputGain = parameters.inputGain[0];
   const classicMode = parameters.classicMode[0];
   const sustainLevel = parameters.sustainLevel[0];
+  const cutoffModulation = parameters.cutoffModulation;
   
   // Bass compensation fixed at maximum (1.0) - no user control
   const bassCompensation = 1.0;
+
+  const logMinCutoff = Math.log(8);
+  const logMaxCutoff = Math.log(16000);
+  const logCutoffRange = logMaxCutoff - logMinCutoff;
   
   // Update drive parameter as before
   this.setDrive(drive * (1.0 + saturation * 0.5));
@@ -652,6 +658,14 @@ process(inputs, outputs, parameters) {
     }
   }
 }
+
+      const macroModValue = cutoffModulation.length > 1 ? cutoffModulation[i] : cutoffModulation[0];
+      if (macroModValue !== 0) {
+        const logCutoff = Math.log(actualCutoff);
+        const logOffset = macroModValue * logCutoffRange;
+        const modulatedLog = Math.min(logMaxCutoff, Math.max(logMinCutoff, logCutoff + logOffset));
+        actualCutoff = Math.exp(modulatedLog);
+      }
       
       // Rest of the processing - use activeResonance instead of raw resonance
       this.setCutoff(actualCutoff);

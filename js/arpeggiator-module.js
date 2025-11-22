@@ -24,6 +24,9 @@ export function createArpeggiator({
     let holdCommitTimer = null;
     let holdBatchActive = false;
     let holdBatchShouldExtend = false;
+    let chordCaptureTimer = null;
+    let chordCapturePrevState = false;
+    let skipNextStartGrace = false;
 
     const schedulerLookahead = 25; // ms between scheduler checks
     const MIN_SCHEDULE_AHEAD = 0.1; // base seconds to keep queued
@@ -36,6 +39,7 @@ export function createArpeggiator({
     const MIN_GATE_SECONDS = 0.02;
     const ARP_START_GRACE_MS = 15;
     const HOLD_COMMIT_WINDOW_MS = 120;
+    const CHORD_CAPTURE_WINDOW_MS = 7;
 
     const getIntervalSeconds = () => Math.max(MIN_INTERVAL_SECONDS, intervalFallback() / 1000);
 
@@ -82,6 +86,27 @@ export function createArpeggiator({
         }, ARP_START_GRACE_MS);
     }
 
+    function cancelChordCapture() {
+        if (chordCaptureTimer) {
+            clearTimeout(chordCaptureTimer);
+            chordCaptureTimer = null;
+        }
+        chordCapturePrevState = false;
+        skipNextStartGrace = false;
+    }
+
+    function scheduleChordCapture(previouslyHadPattern) {
+        chordCapturePrevState = chordCapturePrevState || previouslyHadPattern;
+        if (chordCaptureTimer) return;
+        chordCaptureTimer = setTimeout(() => {
+            chordCaptureTimer = null;
+            const priorState = chordCapturePrevState;
+            chordCapturePrevState = false;
+            skipNextStartGrace = true;
+            handlePatternRefresh(priorState);
+        }, CHORD_CAPTURE_WINDOW_MS);
+    }
+
     function resetHoldTracking() {
         holdPressedNotes.clear();
         holdBatchNotes.clear();
@@ -104,7 +129,12 @@ export function createArpeggiator({
     function handlePatternRefresh(previouslyHadPattern) {
         const hasPattern = patternNotes.length > 0;
         if (!previouslyHadPattern && hasPattern && isActive) {
-            requestStartGrace();
+            if (skipNextStartGrace) {
+                skipNextStartGrace = false;
+                restartScheduleFromNow({ immediate: true });
+            } else {
+                requestStartGrace();
+            }
         } else if (hasPattern && isActive) {
             if (startGraceTimer) {
                 requestStartGrace();
@@ -112,8 +142,11 @@ export function createArpeggiator({
                 restartScheduleFromNow({ immediate: true });
             }
         } else if (!hasPattern) {
+            skipNextStartGrace = false;
+            cancelChordCapture();
             stopScheduler();
         } else {
+            skipNextStartGrace = false;
             ensureScheduler();
         }
     }
@@ -219,6 +252,7 @@ export function createArpeggiator({
         nextStepTime = null;
         clearScheduledSteps();
         cancelStartGrace();
+        cancelChordCapture();
     }
 
     function runScheduler() {
@@ -486,7 +520,15 @@ export function createArpeggiator({
 
             if (!isHold) {
                 if (patternChanged) {
-                    handlePatternRefresh(hadPattern);
+                    if (!hadPattern) {
+                        if (isActive) {
+                            scheduleChordCapture(hadPattern);
+                        } else {
+                            handlePatternRefresh(hadPattern);
+                        }
+                    } else {
+                        handlePatternRefresh(hadPattern);
+                    }
                 } else {
                     ensureScheduler();
                 }
@@ -502,6 +544,9 @@ export function createArpeggiator({
             const idx = heldNotes.indexOf(note);
             if (idx > -1) {
                 heldNotes.splice(idx, 1);
+                if (heldNotes.length === 0) {
+                    cancelChordCapture();
+                }
                 const previouslyHadPattern = patternNotes.length > 0;
                 generatePattern();
                 handlePatternRefresh(previouslyHadPattern);
@@ -509,6 +554,7 @@ export function createArpeggiator({
             }
 
             if (heldNotes.length === 0) {
+                cancelChordCapture();
                 stopScheduler();
             } else {
                 ensureScheduler();
