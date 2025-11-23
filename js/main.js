@@ -93,6 +93,46 @@ let arpeggiator = null;
 // Initialize pitch bend to 0
 window.sequencerPitchBend = 0;
 
+const JUNO_CHORUS_MODES = {
+    0: {
+        label: 'Off',
+        wetMix: 0,
+        dryMix: 1,
+        lineGainA: 0,
+        lineGainB: 0,
+        depthScaleA: 0,
+        depthScaleB: 0,
+        colorHz: 11000
+    },
+    1: {
+        label: 'Mode I',
+        wetMix: 0.55,
+        dryMix: 0.55,
+        lineGainA: 1,
+        lineGainB: 0,
+        depthScaleA: 1,
+        depthScaleB: 0,
+        lfo1Rate: 0.513,
+        lfo2Rate: 0.863,
+        colorHz: 11500
+    },
+    2: {
+        label: 'Mode II',
+        wetMix: 0.55,
+        dryMix: 0.55,
+        lineGainA: 0,
+        lineGainB: 1,
+        depthScaleA: 0,
+        depthScaleB: 1,
+        lfo1Rate: 0.513,
+        lfo2Rate: 0.863,
+        colorHz: 13500
+    }
+};
+
+let junoChorusEffect = null;
+let chorusState = 0;
+
 const AUTOMATION_KNOB_IDS = new Set([
     'macro1-knob',
     'macro2-knob',
@@ -340,13 +380,30 @@ let masterOutputVolume = 0.005;
 samplerMasterGain.gain.setValueAtTime(masterOutputVolume, audioCtx.currentTime);
 oscillatorMasterGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
+const fxBusInput = audioCtx.createGain();
+const fxBusOutput = audioCtx.createGain();
+fxBusInput.gain.setValueAtTime(1.0, audioCtx.currentTime);
+fxBusOutput.gain.setValueAtTime(1.0, audioCtx.currentTime);
+
+samplerMasterGain.connect(fxBusInput);
+oscillatorMasterGain.connect(fxBusInput);
+
+junoChorusEffect = createJunoChorus(audioCtx);
+window.junoChorusEffect = junoChorusEffect;
+if (junoChorusEffect) {
+    fxBusInput.connect(junoChorusEffect.input);
+    junoChorusEffect.output.connect(fxBusOutput);
+} else {
+    console.warn('Juno chorus failed to initialize - bypassing FX bus.');
+    fxBusInput.connect(fxBusOutput);
+}
+
 // Create masterGain node
 const masterGain = audioCtx.createGain();
 masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
 
-// CORRECT ROUTING: Connect both through masterGain to destination
-samplerMasterGain.connect(masterGain);
-oscillatorMasterGain.connect(masterGain);
+// CORRECT ROUTING: Connect FX output through masterGain to destination
+fxBusOutput.connect(masterGain);
 masterGain.connect(audioCtx.destination);
 // Don't connect masterGain yet - we'll do it selectively below
 let isWorkletReady = false;
@@ -1288,6 +1345,237 @@ function setupVoiceSpreadControl() {
         updateSpreadKnobRotation();
     }
     setVoicePanSpread(voicePanSpread, { forceUpdate: true });
+}
+
+function updateChorusButtonUi(state = chorusState) {
+    const button = document.getElementById('chorus-button');
+    if (!button) return;
+    button.classList.remove('state-1', 'state-2');
+    if (state === 1) {
+        button.classList.add('state-1');
+    } else if (state === 2) {
+        button.classList.add('state-2');
+    }
+    button.dataset.state = String(state);
+    button.setAttribute('aria-pressed', state === 0 ? 'false' : 'true');
+}
+
+function applyChorusState(state, options = {}) {
+    const normalized = ((Math.round(state) % 3) + 3) % 3;
+    const modeHasChanged = normalized !== chorusState;
+    chorusState = normalized;
+    if (junoChorusEffect && typeof junoChorusEffect.setMode === 'function') {
+        junoChorusEffect.setMode(normalized);
+    }
+    updateChorusButtonUi(normalized);
+    if (modeHasChanged || options.force) {
+        window.dispatchEvent(new CustomEvent('fx:chorus-mode-changed', {
+            detail: {
+                state: normalized,
+                label: JUNO_CHORUS_MODES[normalized]?.label ?? 'Off'
+            }
+        }));
+    }
+    return normalized;
+}
+
+function setupChorusButton() {
+    let button = document.getElementById('chorus-button');
+    if (!button) return;
+
+    if (!button.dataset.realChorusHandler) {
+        const replacement = button.cloneNode(true);
+        button.parentNode.replaceChild(replacement, button);
+        button = replacement;
+    }
+
+    button.dataset.realChorusHandler = 'true';
+    window.__chorusButtonReal = true;
+
+    button.addEventListener('click', () => {
+        const nextState = (chorusState + 1) % 3;
+        applyChorusState(nextState);
+        console.log(`Chorus mode set to ${JUNO_CHORUS_MODES[nextState]?.label ?? 'Off'} (state ${nextState})`);
+    });
+    applyChorusState(chorusState, { force: true });
+}
+
+function createJunoChorus(ctx) {
+    try {
+        const input = ctx.createGain();
+        input.channelCountMode = 'explicit';
+        input.channelInterpretation = 'speakers';
+
+        const dryGain = ctx.createGain();
+        dryGain.gain.value = 1;
+
+        const wetGain = ctx.createGain();
+        wetGain.gain.value = 0;
+
+        const output = ctx.createGain();
+        input.connect(dryGain);
+        dryGain.connect(output);
+
+        const splitter = ctx.createChannelSplitter(2);
+        input.connect(splitter);
+
+        const monoSum = ctx.createGain();
+        monoSum.gain.value = 0.5;
+        splitter.connect(monoSum, 0);
+        splitter.connect(monoSum, 1);
+
+        const preEmphasis = ctx.createBiquadFilter();
+        preEmphasis.type = 'highpass';
+        preEmphasis.frequency.value = 60;
+        preEmphasis.Q.value = 0.35;
+
+        const wetInput = ctx.createGain();
+        wetInput.gain.value = 1.0;
+        monoSum.connect(preEmphasis);
+        preEmphasis.connect(wetInput);
+
+        const wetMixBus = ctx.createGain();
+        wetMixBus.gain.value = 1;
+        wetMixBus.connect(wetGain);
+        wetGain.connect(output);
+
+        const baseDelayRanges = [
+            { min: 0.00154, max: 0.00515 },
+            { min: 0.00151, max: 0.00540 }
+        ];
+        const defaultRates = [0.513, 0.863];
+        const maxDelayTime = 0.03;
+        const panSpread = 0.7;
+
+        const createBbdLine = ({ rate = 0.5 } = {}) => {
+            const delayLeft = ctx.createDelay(maxDelayTime);
+            const delayRight = ctx.createDelay(maxDelayTime);
+            wetInput.connect(delayLeft);
+            wetInput.connect(delayRight);
+
+            const leftCenter = (baseDelayRanges[0].min + baseDelayRanges[0].max) * 0.5;
+            const rightCenter = (baseDelayRanges[1].min + baseDelayRanges[1].max) * 0.5;
+            const leftSwing = (baseDelayRanges[0].max - baseDelayRanges[0].min) * 0.5;
+            const rightSwing = (baseDelayRanges[1].max - baseDelayRanges[1].min) * 0.5;
+            delayLeft.delayTime.value = leftCenter;
+            delayRight.delayTime.value = rightCenter;
+
+            const lfo = ctx.createOscillator();
+            lfo.type = 'triangle';
+            lfo.frequency.value = Math.max(0.01, rate);
+
+            const depthScale = ctx.createGain();
+            depthScale.gain.value = 1;
+            lfo.connect(depthScale);
+
+            const inverted = ctx.createGain();
+            inverted.gain.value = -1;
+            depthScale.connect(inverted);
+
+            const leftModGain = ctx.createGain();
+            leftModGain.gain.value = leftSwing;
+            depthScale.connect(leftModGain);
+            leftModGain.connect(delayLeft.delayTime);
+
+            const rightModGain = ctx.createGain();
+            rightModGain.gain.value = rightSwing;
+            inverted.connect(rightModGain);
+            rightModGain.connect(delayRight.delayTime);
+
+            const colorLeft = ctx.createBiquadFilter();
+            const colorRight = ctx.createBiquadFilter();
+            colorLeft.type = colorRight.type = 'lowpass';
+            colorLeft.frequency.value = colorRight.frequency.value = 10000;
+            colorLeft.Q.value = colorRight.Q.value = 0.25;
+
+            delayLeft.connect(colorLeft);
+            delayRight.connect(colorRight);
+
+            const pannerLeft = ctx.createStereoPanner();
+            const pannerRight = ctx.createStereoPanner();
+            pannerLeft.pan.value = -panSpread;
+            pannerRight.pan.value = panSpread;
+
+            colorLeft.connect(pannerLeft);
+            colorRight.connect(pannerRight);
+
+            const lineGain = ctx.createGain();
+            lineGain.gain.value = 0;
+            pannerLeft.connect(lineGain);
+            pannerRight.connect(lineGain);
+            lineGain.connect(wetMixBus);
+
+            lfo.start();
+
+            return {
+                output: lineGain,
+                setLevel(value, now = ctx.currentTime) {
+                    const safe = Math.max(0, value);
+                    lineGain.gain.setTargetAtTime(safe, now, 0.08);
+                },
+                setDepthScale(value, now = ctx.currentTime) {
+                    const safe = Math.max(0, value);
+                    depthScale.gain.setTargetAtTime(safe, now, 0.1);
+                },
+                setRate(value, now = ctx.currentTime) {
+                    const safe = Math.max(0.01, value || 0.01);
+                    lfo.frequency.setTargetAtTime(safe, now, 0.1);
+                },
+                setColor(freq, now = ctx.currentTime) {
+                    const safe = Math.max(2000, Math.min(19000, freq || 10000));
+                    colorLeft.frequency.setTargetAtTime(safe, now, 0.12);
+                    colorRight.frequency.setTargetAtTime(safe, now, 0.12);
+                }
+            };
+        };
+
+        const chorusLines = [
+            createBbdLine({ rate: defaultRates[0] }),
+            createBbdLine({ rate: defaultRates[1] })
+        ];
+
+        let currentMode = 0;
+        const applyMode = (modeId = 0) => {
+            const config = JUNO_CHORUS_MODES[modeId] || JUNO_CHORUS_MODES[0];
+            const now = ctx.currentTime;
+            const wetMix = typeof config.wetMix === 'number' ? config.wetMix : 0;
+            const dryMix = typeof config.dryMix === 'number' ? config.dryMix : 1;
+            wetGain.gain.setTargetAtTime(wetMix, now, 0.1);
+            dryGain.gain.setTargetAtTime(dryMix, now, 0.1);
+
+            const lineAGain = config.lineGainA ?? 0;
+            const lineBGain = config.lineGainB ?? 0;
+            chorusLines[0].setLevel(lineAGain, now);
+            chorusLines[1].setLevel(lineBGain, now);
+
+            const depthScaleA = config.depthScaleA ?? 1;
+            const depthScaleB = config.depthScaleB ?? 1;
+            chorusLines[0].setDepthScale(depthScaleA, now);
+            chorusLines[1].setDepthScale(depthScaleB, now);
+
+            const lineARate = typeof config.lfo1Rate === 'number' ? config.lfo1Rate : defaultRates[0];
+            const lineBRate = typeof config.lfo2Rate === 'number' ? config.lfo2Rate : defaultRates[1];
+            chorusLines[0].setRate(lineARate, now);
+            chorusLines[1].setRate(lineBRate, now);
+
+            const colorTarget = config.colorHz ?? 10000;
+            chorusLines.forEach(line => line.setColor(colorTarget, now));
+
+            currentMode = modeId;
+        };
+
+        applyMode(currentMode);
+
+        return {
+            input,
+            output,
+            setMode: applyMode,
+            getMode: () => currentMode
+        };
+    } catch (error) {
+        console.error('Failed to create Juno chorus effect:', error);
+        return null;
+    }
 }
 
 let masterClockNode = null;
@@ -9103,6 +9391,7 @@ if (modCanvasElement) {
 }
 // Initialize Placeholder UI Elements
 initializeUiPlaceholders();
+setupChorusButton();
 // Initialize Oscillator 1 Octave Slider
 const osc1OctaveSelector = D('osc1-octave-selector');
 if (osc1OctaveSelector) {
@@ -9746,10 +10035,8 @@ function startInternalRecording() {
         // Create MediaStreamDestination to capture audio
         internalRecordingDestination = audioCtx.createMediaStreamDestination();
         
-        // Connect both master outputs to recording destination
-        // This captures the complete synth output (oscillators + sampler)
-        oscillatorMasterGain.connect(internalRecordingDestination);
-        samplerMasterGain.connect(internalRecordingDestination);
+        // Capture the full post-FX, post-master signal
+        masterGain.connect(internalRecordingDestination);
         
         // Create MediaRecorder with the internal audio stream
         const options = { 
@@ -9788,8 +10075,7 @@ function startInternalRecording() {
             // Clean up connections
             if (internalRecordingDestination) {
                 try {
-                    oscillatorMasterGain.disconnect(internalRecordingDestination);
-                    samplerMasterGain.disconnect(internalRecordingDestination);
+                    masterGain.disconnect(internalRecordingDestination);
                 } catch(e) { /* Ignore */ }
                 internalRecordingDestination = null;
             }
