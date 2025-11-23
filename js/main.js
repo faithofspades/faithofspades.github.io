@@ -131,21 +131,21 @@ const JUNO_CHORUS_MODES = {
 };
 
 const CABINET_PRESETS = [
-    { id: 'cab-off', label: 'Studio Direct', tooltip: 'No cabinet processing', type: 'none' },
-    { id: 'cab-royal-stack', label: 'Royal Stack', tooltip: 'Punchy British stack', files: ['cabinets/71 Marshall G12 SM57 & R121 Mix 1.wav'] },
+    { id: 'cab-off', label: 'Direct', tooltip: 'No cabinet processing', type: 'none' },
+    { id: 'cab-royal-stack', label: 'Royal', tooltip: 'Punchy British stack', files: ['cabinets/71 Marshall G12 SM57 & R121 Mix 1.wav'] },
     { id: 'cab-glass-fur', label: 'Glass Roar', tooltip: 'Wide mid-boosted roar', files: ['cabinets/Deftones_AroundTheFur_IR.wav'] },
-    { id: 'cab-oracle', label: 'Oracle Forge', tooltip: 'Thick scooped growl', files: ['cabinets/Godsmack_TheOracle_IR.wav'] },
-    { id: 'cab-ember-field', label: 'Ember Field', tooltip: 'Searing upper mids', files: ['cabinets/InFlames_SuburbanMe_IR.wav'] },
-    { id: 'cab-ashen-crown', label: 'Ashen Crown', tooltip: 'Tight palm-mute focus', files: ['cabinets/LOG_BlackenTheCursedSunR_IR.wav'] },
-    { id: 'cab-midnight-fade', label: 'Midnight Fade', tooltip: 'Dark, saturated 4x12', files: ['cabinets/Metallica_EnterSandmanL_IR.wav'] },
-    { id: 'cab-mix-lab', label: 'Mix Lab', tooltip: 'Balanced hi-gain studio mix', files: ['cabinets/Modern HIGH GAIN - Mix Ready.wav'] },
-    { id: 'cab-brutal-resin', label: 'Brutal Resin', tooltip: 'Aggressive modern bite', files: ['cabinets/Res Super Brutal 2.wav'] },
-    { id: 'cab-mask-riot', label: 'Mask Riot', tooltip: 'Raw percussive grind', files: ['cabinets/Slipknot_BeforeIForget_VerseL_IR.wav'] },
-    { id: 'cab-orbit-bloom', label: 'Orbit Bloom', tooltip: 'Spacious mids with sheen', files: ['cabinets/Tool_10000Days_IR.wav'] },
-    { id: 'cab-crown-focus', label: 'Crown Focus', tooltip: 'Mesa Triple Crown close mic', files: ['cabinets/Mesa_OS_4x12_57_m160.wav'] },
+    { id: 'cab-oracle', label: 'Oracle', tooltip: 'Thick scooped growl', files: ['cabinets/Godsmack_TheOracle_IR.wav'] },
+    { id: 'cab-ember-field', label: 'Ember', tooltip: 'Searing upper mids', files: ['cabinets/InFlames_SuburbanMe_IR.wav'] },
+    { id: 'cab-ashen-crown', label: 'Ashen', tooltip: 'Tight palm-mute focus', files: ['cabinets/LOG_BlackenTheCursedSunR_IR.wav'] },
+    { id: 'cab-midnight-fade', label: 'Midnight', tooltip: 'Dark, saturated 4x12', files: ['cabinets/Metallica_EnterSandmanL_IR.wav'] },
+    { id: 'cab-mix-lab', label: 'Lord', tooltip: 'Balanced hi-gain studio mix', files: ['cabinets/Modern HIGH GAIN - Mix Ready.wav'] },
+    { id: 'cab-brutal-resin', label: 'Resin', tooltip: 'Aggressive modern bite', files: ['cabinets/Res Super Brutal 2.wav'] },
+    { id: 'cab-mask-riot', label: 'Riot', tooltip: 'Raw percussive grind', files: ['cabinets/Slipknot_BeforeIForget_VerseL_IR.wav'] },
+    { id: 'cab-orbit-bloom', label: 'Bloom', tooltip: 'Spacious mids with sheen', files: ['cabinets/Tool_10000Days_IR.wav'] },
+    { id: 'cab-crown-focus', label: 'Crown', tooltip: 'Mesa Triple Crown close mic', files: ['cabinets/Mesa_OS_4x12_57_m160.wav'] },
     {
         id: 'cab-cathedral-room',
-        label: 'Cathedral Room',
+        label: 'Cathedral',
         tooltip: 'Oversized room mics for huge stereo',
         files: [
             'cabinets/Room Left Mesa Oversized AT2020 - jp_is_out_of_tune.wav',
