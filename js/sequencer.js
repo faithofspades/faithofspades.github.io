@@ -56,6 +56,110 @@ let pitchBendReturnTimeout = null;
 // --- Step Buttons State ---
 let currentStepCount = 16; // Current number of step buttons displayed
 
+const TOUCH_DOUBLE_TAP_MAX_DELAY = 350;
+const TOUCH_LONG_PRESS_DELAY = 600;
+const TOUCH_MOVE_CANCEL_THRESHOLD = 12;
+
+function addTouchDoubleTapSupport(element, handler, options = {}) {
+    if (!element || typeof handler !== 'function') return;
+    const delay = options.delay || TOUCH_DOUBLE_TAP_MAX_DELAY;
+    const moveThreshold = options.moveThreshold || TOUCH_MOVE_CANCEL_THRESHOLD;
+    let lastTapTime = 0;
+    let startX = 0;
+    let startY = 0;
+    let trackingTap = false;
+
+    element.addEventListener('touchstart', (event) => {
+        if (event.touches.length !== 1) return;
+        trackingTap = true;
+        startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
+    }, { passive: false });
+
+    element.addEventListener('touchend', (event) => {
+        if (!trackingTap || event.changedTouches.length !== 1) {
+            trackingTap = false;
+            return;
+        }
+        trackingTap = false;
+        const touch = event.changedTouches[0];
+        const now = performance.now();
+        const deltaTime = now - lastTapTime;
+        const distance = Math.hypot(touch.clientX - startX, touch.clientY - startY);
+        if (deltaTime > 0 && deltaTime <= delay && distance <= moveThreshold) {
+            event.preventDefault();
+            handler(event);
+            lastTapTime = 0;
+        } else {
+            lastTapTime = now;
+            startX = touch.clientX;
+            startY = touch.clientY;
+        }
+    }, { passive: false });
+
+    element.addEventListener('touchcancel', () => {
+        trackingTap = false;
+    });
+}
+
+function addTouchLongPressSupport(element, handler, options = {}) {
+    if (!element || typeof handler !== 'function') return;
+    const delay = options.delay || TOUCH_LONG_PRESS_DELAY;
+    const moveThreshold = options.moveThreshold || TOUCH_MOVE_CANCEL_THRESHOLD;
+    let timerId = null;
+    let startX = 0;
+    let startY = 0;
+    let active = false;
+    let longPressTriggered = false;
+
+    const clearTimer = () => {
+        if (timerId !== null) {
+            window.clearTimeout(timerId);
+            timerId = null;
+        }
+    };
+
+    const cancelTracking = () => {
+        clearTimer();
+        active = false;
+    };
+
+    element.addEventListener('touchstart', (event) => {
+        if (event.touches.length !== 1) return;
+        active = true;
+        longPressTriggered = false;
+        startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
+        clearTimer();
+        timerId = window.setTimeout(() => {
+            if (!active) return;
+            longPressTriggered = true;
+            event.preventDefault();
+            handler(event);
+        }, delay);
+    }, { passive: false });
+
+    element.addEventListener('touchmove', (event) => {
+        if (!active || event.touches.length !== 1) return;
+        const touch = event.touches[0];
+        const distance = Math.hypot(touch.clientX - startX, touch.clientY - startY);
+        if (distance > moveThreshold) {
+            cancelTracking();
+        }
+    }, { passive: false });
+
+    element.addEventListener('touchend', (event) => {
+        if (longPressTriggered) {
+            event.preventDefault();
+        }
+        cancelTracking();
+    }, { passive: false });
+
+    element.addEventListener('touchcancel', () => {
+        cancelTracking();
+    });
+}
+
 // --- Calculate Step Configuration Based on Meter ---
 function calculateStepConfiguration(numerator, denominator) {
     // Calculate total steps based on numerator
@@ -1223,16 +1327,18 @@ function initializeSequencerUI() {
             updateDivisionKnobForDestination(destination);
         });
         
-        // Double-click to toggle routing
-        destSlider.addEventListener('dblclick', () => {
+        const toggleRoutingFromGesture = () => {
             toggleDivisionRouting(currentDivisionDestination);
-        });
+        };
+        // Double-click or double-tap to toggle routing
+        destSlider.addEventListener('dblclick', toggleRoutingFromGesture);
+        addTouchDoubleTapSupport(destSlider, toggleRoutingFromGesture);
     }
     
     // Keyboard octave buttons
     const octaveDown = document.getElementById('seq-keyboard-octave-down');
     const octaveUp = document.getElementById('seq-keyboard-octave-up');
-    
+
     if (octaveDown) {
         octaveDown.addEventListener('click', () => {
             keyboardOctaveShift = Math.max(-2, keyboardOctaveShift - 1);
@@ -1287,7 +1393,12 @@ function initializeSequencerUI() {
         // Octave Buttons
         const octDown = document.getElementById('seq-octave-down');
         const octUp = document.getElementById('seq-octave-up');
-        const octDots = document.querySelectorAll('.seq-octave-buttons + .seq-dots-container .seq-dot');
+        const arpOctaveDotContainer = (octDown || octUp)
+            ? (octDown || octUp).closest('.seq-button-container')
+            : null;
+        const octDots = arpOctaveDotContainer
+            ? arpOctaveDotContainer.querySelectorAll('.seq-dots-container .seq-dot')
+            : [];
         
         function updateArpOctaveUI() {
             const oct = window.Arpeggiator.getOctaves();
@@ -1319,7 +1430,12 @@ function initializeSequencerUI() {
         // Direction Buttons
         const dirDown = document.getElementById('seq-direction-down');
         const dirUp = document.getElementById('seq-direction-up');
-        const dirDots = document.querySelectorAll('.seq-direction-buttons + .seq-dots-container .seq-dot');
+        const arpDirectionDotContainer = (dirDown || dirUp)
+            ? (dirDown || dirUp).closest('.seq-button-container')
+            : null;
+        const dirDots = arpDirectionDotContainer
+            ? arpDirectionDotContainer.querySelectorAll('.seq-dots-container .seq-dot')
+            : [];
         const modes = ['up', 'down', 'forward', 'upDown', 'random']; // 'forward' is 'order'
         // Map internal modes to UI dots
         // UI: Up, Down, Forward(Order), UpDown, Random

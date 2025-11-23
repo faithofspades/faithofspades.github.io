@@ -111,6 +111,110 @@ let stepRecordingAutomationBaselines = null;
 const stepRecordingTouchedParams = new Set();
 let sequencerSpaceHotkeyBound = false;
 
+const TOUCH_DOUBLE_TAP_MAX_DELAY = 350;
+const TOUCH_LONG_PRESS_DELAY = 600;
+const TOUCH_MOVE_CANCEL_THRESHOLD = 12;
+
+function addTouchDoubleTapSupport(element, handler, options = {}) {
+    if (!element || typeof handler !== 'function') return;
+    const delay = options.delay || TOUCH_DOUBLE_TAP_MAX_DELAY;
+    const moveThreshold = options.moveThreshold || TOUCH_MOVE_CANCEL_THRESHOLD;
+    let lastTapTime = 0;
+    let startX = 0;
+    let startY = 0;
+    let trackingTap = false;
+
+    element.addEventListener('touchstart', (event) => {
+        if (event.touches.length !== 1) return;
+        trackingTap = true;
+        startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
+    }, { passive: false });
+
+    element.addEventListener('touchend', (event) => {
+        if (!trackingTap || event.changedTouches.length !== 1) {
+            trackingTap = false;
+            return;
+        }
+        trackingTap = false;
+        const touch = event.changedTouches[0];
+        const now = performance.now();
+        const deltaTime = now - lastTapTime;
+        const distance = Math.hypot(touch.clientX - startX, touch.clientY - startY);
+        if (deltaTime > 0 && deltaTime <= delay && distance <= moveThreshold) {
+            event.preventDefault();
+            handler(event);
+            lastTapTime = 0;
+        } else {
+            lastTapTime = now;
+            startX = touch.clientX;
+            startY = touch.clientY;
+        }
+    }, { passive: false });
+
+    element.addEventListener('touchcancel', () => {
+        trackingTap = false;
+    });
+}
+
+function addTouchLongPressSupport(element, handler, options = {}) {
+    if (!element || typeof handler !== 'function') return;
+    const delay = options.delay || TOUCH_LONG_PRESS_DELAY;
+    const moveThreshold = options.moveThreshold || TOUCH_MOVE_CANCEL_THRESHOLD;
+    let timerId = null;
+    let startX = 0;
+    let startY = 0;
+    let active = false;
+    let longPressTriggered = false;
+
+    const clearTimer = () => {
+        if (timerId !== null) {
+            window.clearTimeout(timerId);
+            timerId = null;
+        }
+    };
+
+    const cancelTracking = () => {
+        clearTimer();
+        active = false;
+    };
+
+    element.addEventListener('touchstart', (event) => {
+        if (event.touches.length !== 1) return;
+        active = true;
+        longPressTriggered = false;
+        startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
+        clearTimer();
+        timerId = window.setTimeout(() => {
+            if (!active) return;
+            longPressTriggered = true;
+            event.preventDefault();
+            handler(event);
+        }, delay);
+    }, { passive: false });
+
+    element.addEventListener('touchmove', (event) => {
+        if (!active || event.touches.length !== 1) return;
+        const touch = event.touches[0];
+        const distance = Math.hypot(touch.clientX - startX, touch.clientY - startY);
+        if (distance > moveThreshold) {
+            cancelTracking();
+        }
+    }, { passive: false });
+
+    element.addEventListener('touchend', (event) => {
+        if (longPressTriggered) {
+            event.preventDefault();
+        }
+        cancelTracking();
+    }, { passive: false });
+
+    element.addEventListener('touchcancel', () => {
+        cancelTracking();
+    });
+}
+
 const TRIPLET_RATIO = 2 / 3;
 const DEFAULT_QUANTIZE_LABEL = '1/16 BEAT';
 const quantizeBaseModes = [
@@ -315,15 +419,20 @@ function rebuildStepButtons() {
         button.id = `seq-step-${displayNumber}`;
         button.dataset.stepIndex = displayNumber;
         button.textContent = displayNumber;
+        const clearThisStep = () => {
+            clearStepNotes(absoluteIndex);
+        };
         button.addEventListener('click', () => handleStepButtonClick(absoluteIndex));
         button.addEventListener('dblclick', (event) => {
             event.stopPropagation();
-            clearStepNotes(absoluteIndex);
+            clearThisStep();
         });
         button.addEventListener('contextmenu', (event) => {
             event.preventDefault();
-            clearStepNotes(absoluteIndex);
+            clearThisStep();
         });
+        addTouchDoubleTapSupport(button, clearThisStep);
+        addTouchLongPressSupport(button, clearThisStep);
         
         // Set custom width
         button.style.width = `${config.buttonWidth}px`;
@@ -3100,14 +3209,19 @@ function initializeSequencerUI() {
             if (event.detail > 1) return;
             toggleSequencerRecordArm();
         });
-        recordButton.addEventListener('dblclick', handleRecordButtonDoubleClick);
-        recordButton.addEventListener('contextmenu', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
+        const handleRecordContextAction = (event) => {
+            if (event) {
+                event.preventDefault?.();
+                event.stopPropagation?.();
+            }
             if (!canonicalSequencerEvents.length) return;
             if (!window.confirm('Delete all recorded notes?')) return;
             clearAllSequencerNotes();
-        });
+        };
+        recordButton.addEventListener('dblclick', handleRecordButtonDoubleClick);
+        addTouchDoubleTapSupport(recordButton, handleRecordButtonDoubleClick);
+        recordButton.addEventListener('contextmenu', handleRecordContextAction);
+        addTouchLongPressSupport(recordButton, handleRecordContextAction);
         recordButton.classList.toggle('active', sequencerRecordArmed);
         updateRecordPrecountIndicator();
     }
@@ -3117,13 +3231,17 @@ function initializeSequencerUI() {
         motionButton.addEventListener('click', () => {
             toggleModRecording();
         });
-        motionButton.addEventListener('contextmenu', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
+        const handleMotionContextAction = (event) => {
+            if (event) {
+                event.preventDefault?.();
+                event.stopPropagation?.();
+            }
             if (!hasAnyActiveAutomationLanes()) return;
             if (!window.confirm('Delete all recorded motion?')) return;
             clearAllAutomationRecordings();
-        });
+        };
+        motionButton.addEventListener('contextmenu', handleMotionContextAction);
+        addTouchLongPressSupport(motionButton, handleMotionContextAction);
         updateModRecButtonState();
     }
 
@@ -3133,11 +3251,15 @@ function initializeSequencerUI() {
             if (event.detail > 1) return;
             toggleStepRecording();
         });
-        stepRecordButton.addEventListener('contextmenu', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
+        const handleStepRecordContext = (event) => {
+            if (event) {
+                event.preventDefault?.();
+                event.stopPropagation?.();
+            }
             toggleStepRecordingSimpleMode();
-        });
+        };
+        stepRecordButton.addEventListener('contextmenu', handleStepRecordContext);
+        addTouchLongPressSupport(stepRecordButton, handleStepRecordContext);
         updateStepRecordButtonState();
     }
     
@@ -3304,9 +3426,11 @@ function initializeSequencerUI() {
         });
         
         // Double-click to toggle routing
-        destSlider.addEventListener('dblclick', () => {
+        const toggleRoutingFromGesture = () => {
             toggleDivisionRouting(currentDivisionDestination);
-        });
+        };
+        destSlider.addEventListener('dblclick', toggleRoutingFromGesture);
+        addTouchDoubleTapSupport(destSlider, toggleRoutingFromGesture);
     }
 
     // Page buttons
@@ -3317,10 +3441,12 @@ function initializeSequencerUI() {
                 setCurrentPage(currentPageIndex - 1);
             }
         });
-        pageDown.addEventListener('contextmenu', (event) => {
-            event.preventDefault();
+        const handlePageDownContext = (event) => {
+            event?.preventDefault?.();
             shiftSequenceBySteps(-1);
-        });
+        };
+        pageDown.addEventListener('contextmenu', handlePageDownContext);
+        addTouchLongPressSupport(pageDown, handlePageDownContext);
     }
     const pageUp = document.getElementById('seq-page-up');
     if (pageUp) {
@@ -3329,10 +3455,12 @@ function initializeSequencerUI() {
                 setCurrentPage(currentPageIndex + 1);
             }
         });
-        pageUp.addEventListener('contextmenu', (event) => {
-            event.preventDefault();
+        const handlePageUpContext = (event) => {
+            event?.preventDefault?.();
             shiftSequenceBySteps(1);
-        });
+        };
+        pageUp.addEventListener('contextmenu', handlePageUpContext);
+        addTouchLongPressSupport(pageUp, handlePageUpContext);
     }
     
     // Keyboard octave buttons
@@ -3393,7 +3521,12 @@ function initializeSequencerUI() {
         // Octave Buttons
         const octDown = document.getElementById('seq-octave-down');
         const octUp = document.getElementById('seq-octave-up');
-        const octDots = document.querySelectorAll('.seq-octave-buttons + .seq-dots-container .seq-dot');
+        const arpOctaveDotContainer = (octDown || octUp)
+            ? (octDown || octUp).closest('.seq-button-container')
+            : null;
+        const octDots = arpOctaveDotContainer
+            ? arpOctaveDotContainer.querySelectorAll('.seq-dots-container .seq-dot')
+            : [];
         
         function updateArpOctaveUI() {
             const oct = arpeggiatorInstance.getOctaves();
@@ -3425,7 +3558,12 @@ function initializeSequencerUI() {
         // Direction Buttons
         const dirDown = document.getElementById('seq-direction-down');
         const dirUp = document.getElementById('seq-direction-up');
-        const dirDots = document.querySelectorAll('.seq-direction-buttons + .seq-dots-container .seq-dot');
+        const arpDirectionDotContainer = (dirDown || dirUp)
+            ? (dirDown || dirUp).closest('.seq-button-container')
+            : null;
+        const dirDots = arpDirectionDotContainer
+            ? arpDirectionDotContainer.querySelectorAll('.seq-dots-container .seq-dot')
+            : [];
         const modes = ['up', 'down', 'forward', 'upDown', 'random']; // 'forward' is 'order'
         // Map internal modes to UI dots
         // UI: Up, Down, Forward(Order), UpDown, Random
