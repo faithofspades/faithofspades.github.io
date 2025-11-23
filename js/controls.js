@@ -34,14 +34,31 @@ export function initializeKnob(knob, onChange, knobDefaults) {
     knob.style.transform = `rotate(${rotation}deg)`;
     knob.style.cursor = 'grab'; // Initial cursor
 
-    function resetToDefault() {
-        rotation = -150 + (defaultValue * 300);
+    const clamp01 = (val) => Math.max(0, Math.min(1, Number.isFinite(val) ? val : 0));
+
+    const applyRotationFromValue = (value) => {
+        const clamped = clamp01(value);
+        rotation = Math.min(150, Math.max(-150, -150 + clamped * 300));
         knob.style.transform = `rotate(${rotation}deg)`;
-        if (onChange) {
-            // Trigger onChange with the default value when resetting
-            onChange(defaultValue);
+        return clamped;
+    };
+
+    const dispatchChange = (value) => {
+        const clamped = clamp01(value);
+        if (!onChange) {
+            return clamped;
         }
-        console.log(`Knob ${knob.id} reset to default: ${defaultValue}`);
+        const result = onChange(clamped);
+        if (typeof result === 'number' && Number.isFinite(result)) {
+            return clamp01(result);
+        }
+        return clamped;
+    };
+
+    function resetToDefault() {
+        const appliedValue = dispatchChange(defaultValue);
+        applyRotationFromValue(appliedValue);
+        console.log(`Knob ${knob.id} reset to default: ${appliedValue}`);
     }
 
     function handleMove(y) {
@@ -63,9 +80,10 @@ export function initializeKnob(knob, onChange, knobDefaults) {
             rotation = newRotation;
             knob.style.transform = `rotate(${rotation}deg)`;
 
-            if (onChange) {
-                const normalizedValue = (rotation + 150) / 300;
-                onChange(normalizedValue);
+            const normalizedValue = (rotation + 150) / 300;
+            const appliedValue = dispatchChange(normalizedValue);
+            if (Math.abs(appliedValue - normalizedValue) > 0.0005) {
+                applyRotationFromValue(appliedValue);
             }
         }
     }
@@ -199,13 +217,13 @@ export function initializeKnob(knob, onChange, knobDefaults) {
     return {
         getValue: () => (rotation + 150) / 300,
         setValue: (value, triggerOnChange = false) => {
-            const newRotation = (value * 300) - 150;
-            rotation = Math.min(150, Math.max(-150, newRotation));
-            knob.style.transform = `rotate(${rotation}deg)`;
+            const baseValue = applyRotationFromValue(value);
 
-            // Only trigger onChange if explicitly requested
-            if (onChange && triggerOnChange) {
-                onChange(value);
+            if (triggerOnChange) {
+                const appliedValue = dispatchChange(baseValue);
+                if (Math.abs(appliedValue - baseValue) > 0.0005) {
+                    applyRotationFromValue(appliedValue);
+                }
             }
         }
     };

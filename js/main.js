@@ -130,8 +130,37 @@ const JUNO_CHORUS_MODES = {
     }
 };
 
+const CABINET_PRESETS = [
+    { id: 'cab-off', label: 'Studio Direct', tooltip: 'No cabinet processing', type: 'none' },
+    { id: 'cab-royal-stack', label: 'Royal Stack', tooltip: 'Punchy British stack', files: ['cabinets/71 Marshall G12 SM57 & R121 Mix 1.wav'] },
+    { id: 'cab-glass-fur', label: 'Glass Roar', tooltip: 'Wide mid-boosted roar', files: ['cabinets/Deftones_AroundTheFur_IR.wav'] },
+    { id: 'cab-oracle', label: 'Oracle Forge', tooltip: 'Thick scooped growl', files: ['cabinets/Godsmack_TheOracle_IR.wav'] },
+    { id: 'cab-ember-field', label: 'Ember Field', tooltip: 'Searing upper mids', files: ['cabinets/InFlames_SuburbanMe_IR.wav'] },
+    { id: 'cab-ashen-crown', label: 'Ashen Crown', tooltip: 'Tight palm-mute focus', files: ['cabinets/LOG_BlackenTheCursedSunR_IR.wav'] },
+    { id: 'cab-midnight-fade', label: 'Midnight Fade', tooltip: 'Dark, saturated 4x12', files: ['cabinets/Metallica_EnterSandmanL_IR.wav'] },
+    { id: 'cab-mix-lab', label: 'Mix Lab', tooltip: 'Balanced hi-gain studio mix', files: ['cabinets/Modern HIGH GAIN - Mix Ready.wav'] },
+    { id: 'cab-brutal-resin', label: 'Brutal Resin', tooltip: 'Aggressive modern bite', files: ['cabinets/Res Super Brutal 2.wav'] },
+    { id: 'cab-mask-riot', label: 'Mask Riot', tooltip: 'Raw percussive grind', files: ['cabinets/Slipknot_BeforeIForget_VerseL_IR.wav'] },
+    { id: 'cab-orbit-bloom', label: 'Orbit Bloom', tooltip: 'Spacious mids with sheen', files: ['cabinets/Tool_10000Days_IR.wav'] },
+    { id: 'cab-crown-focus', label: 'Crown Focus', tooltip: 'Mesa Triple Crown close mic', files: ['cabinets/Mesa_OS_4x12_57_m160.wav'] },
+    {
+        id: 'cab-cathedral-room',
+        label: 'Cathedral Room',
+        tooltip: 'Oversized room mics for huge stereo',
+        files: [
+            'cabinets/Room Left Mesa Oversized AT2020 - jp_is_out_of_tune.wav',
+            'cabinets/Room Right Mesa Oversized AT2020 - jp_is_out_of_tune.wav'
+        ],
+        stereoPair: true
+    }
+];
+
 let junoChorusEffect = null;
 let chorusState = 0;
+let mesaAmpStage = null;
+let currentOverloadAmount = 0;
+let currentCabinetPresetIndex = 0;
+const DEFAULT_CABINET_IR = 'cabinets/Mesa_OS_4x12_57_m160.wav';
 
 const AUTOMATION_KNOB_IDS = new Set([
     'macro1-knob',
@@ -154,7 +183,9 @@ const AUTOMATION_KNOB_IDS = new Set([
     'osc1-gain-knob',
     'osc2-gain-knob',
     'glide-time-knob',
-    'filter-cutoff'
+    'filter-cutoff',
+    'overload-knob',
+    'cabinet-knob'
 ]);
 
 const DISABLED_AUTOMATION_PARAMS = new Set([
@@ -385,8 +416,23 @@ const fxBusOutput = audioCtx.createGain();
 fxBusInput.gain.setValueAtTime(1.0, audioCtx.currentTime);
 fxBusOutput.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
-samplerMasterGain.connect(fxBusInput);
-oscillatorMasterGain.connect(fxBusInput);
+mesaAmpStage = createMesaAmpStage(audioCtx);
+window.mesaAmpStage = mesaAmpStage;
+if (mesaAmpStage) {
+    samplerMasterGain.connect(mesaAmpStage.input);
+    oscillatorMasterGain.connect(mesaAmpStage.input);
+    mesaAmpStage.output.connect(fxBusInput);
+    if (typeof mesaAmpStage.setDrive === 'function') {
+        mesaAmpStage.setDrive(currentOverloadAmount);
+    }
+    if (typeof mesaAmpStage.setCabinetPreset === 'function') {
+        mesaAmpStage.setCabinetPreset(currentCabinetPresetIndex)
+            .catch(err => console.warn('Failed to initialize cabinet preset:', err));
+    }
+} else {
+    samplerMasterGain.connect(fxBusInput);
+    oscillatorMasterGain.connect(fxBusInput);
+}
 
 junoChorusEffect = createJunoChorus(audioCtx);
 window.junoChorusEffect = junoChorusEffect;
@@ -1578,6 +1624,393 @@ function createJunoChorus(ctx) {
     }
 }
 
+function buildMesaSaturationCurve(length = 4096, amount = 3) {
+    const curve = new Float32Array(length);
+    const drive = Math.max(0.5, amount);
+    for (let i = 0; i < length; i += 1) {
+        const x = (i / (length - 1)) * 2 - 1;
+        const asymmetric = x >= 0 ? x : x * 0.7;
+        const pushed = drive * 3.5 * asymmetric + 0.25 * asymmetric * asymmetric * asymmetric;
+        const evenBlend = Math.tanh((drive * 0.6 + 0.2) * (x + 0.12));
+        curve[i] = Math.tanh(pushed) * 0.85 + evenBlend * 0.15;
+    }
+    return curve;
+}
+
+function createMesaAmpStage(ctx) {
+    try {
+        const input = ctx.createGain();
+        const output = ctx.createGain();
+        output.gain.value = 1;
+
+        const preHighPass = ctx.createBiquadFilter();
+        preHighPass.type = 'highpass';
+        preHighPass.frequency.value = 70;
+        preHighPass.Q.value = 0.707;
+
+        const preLowShelf = ctx.createBiquadFilter();
+        preLowShelf.type = 'lowshelf';
+        preLowShelf.frequency.value = 110;
+        preLowShelf.gain.value = 4;
+
+        const preMidPeak = ctx.createBiquadFilter();
+        preMidPeak.type = 'peaking';
+        preMidPeak.frequency.value = 820;
+        preMidPeak.Q.value = 0.9;
+        preMidPeak.gain.value = 2;
+
+        const preHighShelf = ctx.createBiquadFilter();
+        preHighShelf.type = 'highshelf';
+        preHighShelf.frequency.value = 3200;
+        preHighShelf.gain.value = -2;
+
+        const driveGain = ctx.createGain();
+        driveGain.gain.value = 5;
+
+        const waveShaper = ctx.createWaveShaper();
+        waveShaper.curve = buildMesaSaturationCurve();
+        waveShaper.oversample = '4x';
+
+        const postLowShelf = ctx.createBiquadFilter();
+        postLowShelf.type = 'lowshelf';
+        postLowShelf.frequency.value = 95;
+        postLowShelf.gain.value = 3;
+
+        const fizzNotch = ctx.createBiquadFilter();
+        fizzNotch.type = 'peaking';
+        fizzNotch.frequency.value = 4200;
+        fizzNotch.Q.value = 2.5;
+        fizzNotch.gain.value = -3;
+
+        const presenceShelf = ctx.createBiquadFilter();
+        presenceShelf.type = 'highshelf';
+        presenceShelf.frequency.value = 5200;
+        presenceShelf.gain.value = 1.5;
+
+        const sagCompressor = ctx.createDynamicsCompressor();
+        sagCompressor.threshold.value = -16;
+        sagCompressor.knee.value = 12;
+        sagCompressor.ratio.value = 3.5;
+        sagCompressor.attack.value = 0.004;
+        sagCompressor.release.value = 0.18;
+
+        const levelTrim = ctx.createGain();
+        levelTrim.gain.value = 0.55;
+
+        const cabWetGain = ctx.createGain();
+        const cabWetSum = ctx.createGain();
+        const cabDryGain = ctx.createGain();
+        const cabSum = ctx.createGain();
+        cabDryGain.gain.value = 1;
+        cabWetGain.gain.value = 0;
+        cabWetSum.gain.value = 1;
+
+        input.connect(preHighPass);
+        preHighPass.connect(preLowShelf);
+        preLowShelf.connect(preMidPeak);
+        preMidPeak.connect(preHighShelf);
+        preHighShelf.connect(driveGain);
+        driveGain.connect(waveShaper);
+        waveShaper.connect(postLowShelf);
+        postLowShelf.connect(fizzNotch);
+        fizzNotch.connect(presenceShelf);
+        presenceShelf.connect(sagCompressor);
+        sagCompressor.connect(levelTrim);
+        levelTrim.connect(cabDryGain);
+
+        const cabFallbackLowpass = ctx.createBiquadFilter();
+        cabFallbackLowpass.type = 'lowpass';
+        cabFallbackLowpass.frequency.value = 6200;
+        cabFallbackLowpass.Q.value = 0.7;
+
+        const cabFallbackResPeak = ctx.createBiquadFilter();
+        cabFallbackResPeak.type = 'peaking';
+        cabFallbackResPeak.frequency.value = 140;
+        cabFallbackResPeak.Q.value = 0.9;
+        cabFallbackResPeak.gain.value = 3;
+
+        const cabFallbackUpperNotch = ctx.createBiquadFilter();
+        cabFallbackUpperNotch.type = 'peaking';
+        cabFallbackUpperNotch.frequency.value = 3200;
+        cabFallbackUpperNotch.Q.value = 2.2;
+        cabFallbackUpperNotch.gain.value = -4;
+
+        const cabFallbackPresence = ctx.createBiquadFilter();
+        cabFallbackPresence.type = 'highshelf';
+        cabFallbackPresence.frequency.value = 4200;
+        cabFallbackPresence.gain.value = -1.5;
+
+        const cabFallbackGain = ctx.createGain();
+        cabFallbackGain.gain.value = 0;
+
+        levelTrim.connect(cabFallbackResPeak);
+        cabFallbackResPeak.connect(cabFallbackUpperNotch);
+        cabFallbackUpperNotch.connect(cabFallbackLowpass);
+        cabFallbackLowpass.connect(cabFallbackPresence);
+        cabFallbackPresence.connect(cabFallbackGain);
+        cabFallbackGain.connect(cabWetSum);
+
+        const createCabSlot = () => {
+            const convolver = ctx.createConvolver();
+            convolver.normalize = true;
+            const slotGain = ctx.createGain();
+            slotGain.gain.value = 0;
+            convolver.connect(slotGain);
+            return { convolver, gain: slotGain };
+        };
+
+        const cabSlots = [createCabSlot(), createCabSlot()];
+        cabSlots.forEach((slot) => {
+            levelTrim.connect(slot.convolver);
+            slot.gain.connect(cabWetSum);
+        });
+
+        cabWetSum.connect(cabWetGain);
+
+        cabDryGain.connect(cabSum);
+        cabWetGain.connect(cabSum);
+
+        const processedGate = ctx.createGain();
+        processedGate.gain.value = 0;
+        cabSum.connect(processedGate);
+        processedGate.connect(output);
+
+        const bypassGain = ctx.createGain();
+        bypassGain.gain.value = 1;
+        input.connect(bypassGain);
+        bypassGain.connect(output);
+
+        let driveValue = 0;
+        let cabMixValue = 0;
+        let cabActive = false;
+        let fallbackActive = false;
+        let isBypassed = true;
+        let currentCabPresetIndex = 0;
+        let activeCabSlot = -1;
+        const slotBuffers = cabSlots.map(() => null);
+
+        const CABINET_CROSSFADE_TIME = 0.08;
+
+        const rampParam = (param, target, now, duration = CABINET_CROSSFADE_TIME) => {
+            param.cancelScheduledValues(now);
+            param.setValueAtTime(param.value, now);
+            param.linearRampToValueAtTime(target, now + duration);
+        };
+
+        const updateBypassState = (bypass, now = ctx.currentTime) => {
+            if (bypass === isBypassed) {
+                return;
+            }
+            isBypassed = bypass;
+            const bypassLevel = bypass ? 1 : 0;
+            const processedLevel = bypass ? 0 : 1;
+            bypassGain.gain.setTargetAtTime(bypassLevel, now, 0.02);
+            processedGate.gain.setTargetAtTime(processedLevel, now, 0.02);
+        };
+
+        updateBypassState(true, ctx.currentTime);
+
+        const setFallbackState = (active = false, now = ctx.currentTime) => {
+            fallbackActive = Boolean(active);
+            const target = fallbackActive ? 1 : 0;
+            rampParam(cabFallbackGain.gain, target, now, 0.05);
+        };
+
+        const activateCabSlot = (slotIndex, now = ctx.currentTime) => {
+            cabSlots.forEach((slot, idx) => {
+                const level = slotIndex >= 0 && idx === slotIndex ? 1 : 0;
+                rampParam(slot.gain.gain, level, now);
+            });
+            activeCabSlot = slotIndex;
+            cabActive = slotIndex >= 0;
+        };
+
+        const updateCabMix = (value = cabMixValue, now = ctx.currentTime) => {
+            const normalized = value >= 0.5 ? 1 : 0;
+            cabMixValue = normalized;
+            const hasEffect = normalized > 0 && (cabActive || fallbackActive);
+            const wet = hasEffect ? 1 : 0;
+            const dry = hasEffect ? 0 : 1;
+            rampParam(cabWetGain.gain, wet, now, 0.05);
+            rampParam(cabDryGain.gain, dry, now, 0.05);
+        };
+
+        const setDrive = (value = driveValue, now = ctx.currentTime) => {
+            const normalized = Math.max(0, Math.min(1, value));
+            driveValue = normalized;
+            const shouldBypass = normalized <= 0.0005;
+            updateBypassState(shouldBypass, now);
+            if (shouldBypass) {
+                return;
+            }
+            const driveDb = 10 + normalized * 26;
+            const linearGain = Math.pow(10, driveDb / 20);
+            driveGain.gain.setTargetAtTime(linearGain, now, 0.05);
+            const curveAmount = 1.8 + normalized * 4.2;
+            waveShaper.curve = buildMesaSaturationCurve(4096, curveAmount);
+            const bassTarget = 3.5 + normalized * 2.5;
+            preLowShelf.gain.setTargetAtTime(bassTarget, now, 0.1);
+            const midTarget = 1.8 + normalized * 1.7;
+            preMidPeak.gain.setTargetAtTime(midTarget, now, 0.1);
+            const trebleTarget = -1.5 - normalized * 1.5;
+            preHighShelf.gain.setTargetAtTime(trebleTarget, now, 0.1);
+            const presenceTarget = 1.2 + normalized * 1.2;
+            presenceShelf.gain.setTargetAtTime(presenceTarget, now, 0.1);
+            const fizzDepth = -2 - normalized * 2.2;
+            fizzNotch.gain.setTargetAtTime(fizzDepth, now, 0.1);
+        };
+
+        const setCabinetMix = (value = cabMixValue, now = ctx.currentTime) => {
+            const normalized = value >= 0.5 ? 1 : 0;
+            updateCabMix(normalized, now);
+        };
+
+        updateCabMix(cabMixValue, ctx.currentTime);
+
+        const resolveImpulseUrl = (resourcePath) => {
+            if (!resourcePath) return null;
+            try {
+                return new URL(resourcePath, window.location.href).toString();
+            } catch (err) {
+                console.warn('MesaCab: Falling back to raw resource path due to URL resolution error:', err?.message || err);
+                return resourcePath;
+            }
+        };
+
+        const FILE_PROTOCOL_ERROR = 'MESACAB_FILE_PROTOCOL';
+
+        const fetchImpulseBuffer = async (resourcePath) => {
+            if (!resourcePath) {
+                throw new Error('Cabinet IR path is required.');
+            }
+            if (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:') {
+                throw new Error(FILE_PROTOCOL_ERROR);
+            }
+            const resolvedUrl = resolveImpulseUrl(resourcePath);
+            console.log(`MesaCab: Loading cabinet IR from ${resolvedUrl}`);
+            const response = await fetch(resolvedUrl, { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error(`Failed to fetch cabinet IR (${response.status} ${response.statusText})`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            return ctx.decodeAudioData(arrayBuffer);
+        };
+
+        const applyCabinetBuffer = (buffer, now = ctx.currentTime) => {
+            const targetSlot = (activeCabSlot + 1) % cabSlots.length;
+            cabSlots[targetSlot].convolver.buffer = buffer;
+            slotBuffers[targetSlot] = buffer;
+            setFallbackState(false, now);
+            activateCabSlot(targetSlot, now);
+            updateCabMix(cabMixValue, now);
+            return targetSlot;
+        };
+
+        const combineStereoPair = (leftBuffer, rightBuffer) => {
+            if (!leftBuffer || !rightBuffer) {
+                throw new Error('Stereo pair requires left and right buffers.');
+            }
+            const sampleRate = leftBuffer.sampleRate;
+            if (Math.abs(rightBuffer.sampleRate - sampleRate) > 1) {
+                console.warn('MesaCab: Stereo pair sample rates differ; using left buffer rate.');
+            }
+            const frameCount = Math.max(leftBuffer.length, rightBuffer.length);
+            const stereoBuffer = ctx.createBuffer(2, frameCount, sampleRate);
+            const leftData = stereoBuffer.getChannelData(0);
+            const rightData = stereoBuffer.getChannelData(1);
+            const leftSource = leftBuffer.getChannelData(0);
+            const rightSource = rightBuffer.getChannelData(0);
+            leftData.set(leftSource.subarray(0, Math.min(leftSource.length, frameCount)));
+            rightData.set(rightSource.subarray(0, Math.min(rightSource.length, frameCount)));
+            return stereoBuffer;
+        };
+
+        const handleCabinetLoadError = (label, error) => {
+            const name = label ? ` "${label}"` : '';
+            if (error?.message === FILE_PROTOCOL_ERROR) {
+                console.warn(`MesaCab: Cannot load${name} over file://. Run a local server to enable cabinet IRs.`);
+            } else {
+                console.error(`MesaCab: Unable to load${name || ''} IR. Falling back to EQ cabinet.`, error);
+            }
+            activateCabSlot(-1, ctx.currentTime);
+            slotBuffers.fill(null);
+            setFallbackState(true, ctx.currentTime);
+            updateCabMix(cabMixValue, ctx.currentTime);
+        };
+
+        const loadCabinetImpulse = async (resourcePath = DEFAULT_CABINET_IR) => {
+            try {
+                const buffer = await fetchImpulseBuffer(resourcePath);
+                setCabinetMix(1, ctx.currentTime);
+                applyCabinetBuffer(buffer, ctx.currentTime);
+                console.log('MesaCab: Cabinet IR ready.');
+                return buffer;
+            } catch (error) {
+                handleCabinetLoadError(resourcePath, error);
+                return null;
+            }
+        };
+
+        const setCabinetPreset = async (index = 0) => {
+            const presetCount = CABINET_PRESETS.length;
+            const safeIndex = Math.max(0, Math.min(index, presetCount > 0 ? presetCount - 1 : 0));
+            const preset = CABINET_PRESETS[safeIndex] || CABINET_PRESETS[0] || { type: 'none', label: 'Direct' };
+            currentCabPresetIndex = safeIndex;
+            const now = ctx.currentTime;
+
+            if (preset.type === 'none' || !Array.isArray(preset.files) || preset.files.length === 0) {
+                activateCabSlot(-1, now);
+                slotBuffers.fill(null);
+                cabActive = false;
+                setFallbackState(false, now);
+                setCabinetMix(0, now);
+                console.log('MesaCab: Cabinet bypassed.');
+                return { preset, bypassed: true };
+            }
+
+            setCabinetMix(1, now);
+
+            try {
+                let buffer;
+                if (preset.stereoPair && preset.files.length >= 2) {
+                    const [leftBuffer, rightBuffer] = await Promise.all([
+                        fetchImpulseBuffer(preset.files[0]),
+                        fetchImpulseBuffer(preset.files[1])
+                    ]);
+                    buffer = combineStereoPair(leftBuffer, rightBuffer);
+                } else {
+                    buffer = await fetchImpulseBuffer(preset.files[0]);
+                }
+                applyCabinetBuffer(buffer, ctx.currentTime);
+                console.log(`MesaCab: Loaded preset "${preset.label}".`);
+                return { preset, bypassed: false };
+            } catch (error) {
+                handleCabinetLoadError(preset.label, error);
+                return { preset, bypassed: false, fallback: true };
+            }
+        };
+
+        updateCabMix(cabMixValue, ctx.currentTime);
+
+        return {
+            input,
+            output,
+            setDrive,
+            setCabinetPreset,
+            loadCabinetImpulse,
+            getState: () => ({
+                drive: driveValue,
+                cabinetPreset: currentCabPresetIndex,
+                hasCabinetIR: cabActive,
+                fallbackActive
+            })
+        };
+    } catch (error) {
+        console.error('Failed to create Mesa amp stage:', error);
+        return null;
+    }
+}
+
 let masterClockNode = null;
 let masterClockSharedBuffer = null;
 let masterClockPhases = null;
@@ -2372,6 +2805,8 @@ const knobDefaults = {
     'adsr-knob': 0.5, // 50% = unity
     'keytrack-knob': 0.5, // 50% = unity
     'drive-slider-range': 0.5,
+    'overload-knob': 0,
+        'cabinet-knob': 0,
 };
 // Try to create SharedArrayBuffer for clock synchronization
 function initializeMasterClock() {
@@ -3660,6 +4095,8 @@ const destinationToKnobMap = {
   'Cutoff': 'filter-cutoff',
   'Resonance': 'filter-resonance',
   'Variant': 'filter-variant',
+    'Overload': 'overload-knob',
+    'Cabinet': 'cabinet-knob',
   // Add more mappings as needed
 };
 
@@ -4377,6 +4814,48 @@ const knobInitializations = {
         tooltip.style.opacity = '1';
         masterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
         console.log('Master Volume:', value.toFixed(2));
+    },
+    'overload-knob': (value) => {
+        const tooltip = createTooltipForKnob('overload-knob', value, 'bottom');
+        if (value <= 0.0005) {
+            tooltip.textContent = 'Off';
+        } else if (value < 0.35) {
+            tooltip.textContent = `Crunch ${(value * 100).toFixed(0)}%`;
+        } else {
+            tooltip.textContent = `Gain ${(value * 100).toFixed(0)}%`;
+        }
+        tooltip.style.opacity = '1';
+        currentOverloadAmount = value;
+        if (mesaAmpStage && typeof mesaAmpStage.setDrive === 'function') {
+            mesaAmpStage.setDrive(value);
+        }
+        return value;
+    },
+    'cabinet-knob': (value) => {
+        const presetCount = CABINET_PRESETS.length;
+        if (!presetCount) {
+            return value;
+        }
+
+        const maxIndex = presetCount - 1;
+        const scaled = maxIndex > 0 ? value * maxIndex : 0;
+        const snappedIndex = maxIndex > 0 ? Math.round(scaled) : 0;
+        const preset = CABINET_PRESETS[snappedIndex] || CABINET_PRESETS[0];
+
+        const tooltip = createTooltipForKnob('cabinet-knob', value, 'bottom');
+        tooltip.textContent = preset.label;
+        tooltip.style.opacity = '1';
+
+        if (snappedIndex !== currentCabinetPresetIndex) {
+            currentCabinetPresetIndex = snappedIndex;
+            if (mesaAmpStage && typeof mesaAmpStage.setCabinetPreset === 'function') {
+                mesaAmpStage.setCabinetPreset(snappedIndex).catch(err => {
+                    console.error('Failed to apply cabinet preset:', err);
+                });
+            }
+        }
+
+        return value;
     },
     'adsr-knob': (value) => {
   // Convert to stepped values: 0, 0.5, or 1 only
@@ -6156,16 +6635,9 @@ const newTooltip = document.createElement('div');
 newTooltip.id = `${knobId}-tooltip`;
 newTooltip.className = 'tooltip';
 
-// Add position class
-if (position === 'right') {
-    newTooltip.classList.add('tooltip-right');
-} else if (position === 'bottom') {
-    newTooltip.classList.add('tooltip-bottom');
-}
-
 // Find the knob and append tooltip to its parent container
 const knob = D(knobId);
-const parent = knob.parentElement;
+const parent = knob?.parentElement;
 
 // Ensure parent has position relative
 if (parent && window.getComputedStyle(parent).position === 'static') {
@@ -6181,6 +6653,13 @@ if (parent) {
 
 return newTooltip;
 })();
+
+tooltip.classList.remove('tooltip-right', 'tooltip-bottom');
+if (position === 'right') {
+    tooltip.classList.add('tooltip-right');
+} else if (position === 'bottom') {
+    tooltip.classList.add('tooltip-bottom');
+}
 
 return tooltip;
 }
