@@ -199,6 +199,38 @@
   top: 2px;
 }
 
+/* Prevent touch-and-hold zoom/callout on interactive sequencer controls */
+.seq-button-container > div,
+.seq-top-record-button,
+.seq-steps-container .seq-step-button,
+#seq-record-button,
+#seq-motion-button,
+#seq-page-down,
+#seq-page-up,
+.seq-destination-range,
+.seq-pitch-column .seq-octave-buttons > div,
+.seq-buttons-column .seq-octave-buttons > div,
+.seq-direction-buttons > div {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.seq-button-container img,
+.seq-top-record-button img,
+.seq-direction-label-icons img,
+.seq-chorus-button img,
+#seq-record-button img,
+#seq-motion-button img,
+#seq-page-down img,
+#seq-page-up img {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
 .seq-top-record-button {
   width: 25px;
   min-width: 25px;
