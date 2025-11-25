@@ -27,7 +27,7 @@ const divisionDestinations = ['LOSS', 'DELAY', 'LFO', 'MOD', 'ARP', 'GLOBAL'];
 let currentDivisionDestination = 'GLOBAL'; // Currently highlighted destination
 let selectedDivisionDestination = null; // Currently selected destination (when select is on)
 let divisionConnections = {}; // { 'LOSS': true, 'DELAY': false, ... }
-let divisionSettings = {}; // { 'LOSS': { type: '1/64', modifier: 'regular' }, ... }
+let divisionSettings = {}; // { 'LOSS': { type: '1/2', modifier: 'regular' }, ... }
 let arpeggiatorInstance = null;
 
 export function setArpeggiatorInstance(instance) {
@@ -39,6 +39,9 @@ const rhythmDivisions = [
     '1/64', '1/32', '1/16', '1/8', '1/4', '1/2', '1/1', '2/1', '4/1', '8/1'
 ];
 const divisionModifiers = ['regular', 'dotted', 'triplet']; // regular, . (dotted), T (triplet)
+const LOSS_LOG_STYLE = 'color:#4dd0ff';
+const LOSS_WARN_STYLE = 'color:#ff9800';
+const LOSS_ERR_STYLE = 'color:#ff4d4f;font-weight:bold';
 
 // Global meter options
 const meterNumerators = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
@@ -2143,6 +2146,7 @@ function initializeDivisionSystem() {
     updateModRateKnobState();
     
     console.log('Division system initialized');
+    notifyLossIntervalChange('division-init');
 }
 
 function applyGlobalMeterSnapshot(numerator, denominator, options = {}) {
@@ -2520,6 +2524,7 @@ function handleTapTempo() {
     }
     
     console.log(`Tap tempo: ${globalTempo} BPM (${tapTimes.length} taps)`);
+    notifyLossIntervalChange('tap-tempo');
 }
 
 // --- Update Tempo ---
@@ -2532,10 +2537,12 @@ function setTempo(bpm) {
     updateRoutedRates();
     
     console.log(`Tempo set to ${globalTempo} BPM`);
+    notifyLossIntervalChange('set-tempo');
 }
 
 // --- Set Division for Destination ---
 function setDivision(destination, divisionIndex, modifierIndex = 0) {
+    const shouldSyncLoss = destination === 'LOSS' || destination === 'GLOBAL';
     if (destination === 'GLOBAL') {
         // Set meter
         const totalCombos = meterNumerators.length * meterDenominators.length;
@@ -2568,6 +2575,10 @@ function setDivision(destination, divisionIndex, modifierIndex = 0) {
     
     // Update visual display
     updateDivisionDisplay();
+
+    if (shouldSyncLoss) {
+        notifyLossIntervalChange(`set-division:${destination}`);
+    }
     
     // If tempo is playing, restart to apply new division
     if (isTempoPlaying && !isPaused) {
@@ -2758,7 +2769,11 @@ function fireDivisionEvent(destination, time) {
         case 'LOSS':
             // Trigger bit crusher/loss effect
             if (window.lossEffect && window.lossEffect.trigger) {
-                window.lossEffect.trigger();
+                const lossIntervalMs = calculateIntervalTime('LOSS');
+                console.log(`%c[LossFX] Division trigger fired: ${lossIntervalMs.toFixed(2)}ms`, LOSS_LOG_STYLE);
+                window.lossEffect.trigger(lossIntervalMs);
+            } else {
+                console.warn('%c[LossFX] Division trigger skipped: loss effect unavailable', LOSS_WARN_STYLE);
             }
             break;
         case 'DELAY':
@@ -2787,6 +2802,24 @@ function fireDivisionEvent(destination, time) {
                 console.log(`MOD synced to tempo: ${modHz.toFixed(2)} Hz`);
             }
             break;
+    }
+}
+
+function notifyLossIntervalChange(sourceLabel = 'sequencer') {
+    const source = sourceLabel || 'sequencer';
+    if (!window.lossEffect) {
+        console.warn(`%c[LossFX] Interval sync skipped (${source}) - loss effect unavailable`, LOSS_WARN_STYLE);
+        return;
+    }
+    if (typeof window.lossEffect.syncIntervalFromTempo !== 'function') {
+        console.warn(`%c[LossFX] Interval sync skipped (${source}) - syncIntervalFromTempo missing`, LOSS_WARN_STYLE);
+        return;
+    }
+    console.log(`%c[LossFX] Sequencer requesting interval sync (${source})`, LOSS_LOG_STYLE);
+    try {
+        window.lossEffect.syncIntervalFromTempo(source);
+    } catch (err) {
+        console.error(`%c[LossFX] Interval sync failed (${source})`, LOSS_ERR_STYLE, err);
     }
 }
 
@@ -3345,40 +3378,27 @@ function initializeSequencerUI() {
                 // Map to meter combinations
                 const totalCombos = meterNumerators.length * meterDenominators.length;
                 const index = Math.floor(value * (totalCombos - 1));
-                const numIndex = Math.floor(index / meterDenominators.length);
-                const denomIndex = index % meterDenominators.length;
-                
-                globalMeterNumerator = meterNumerators[numIndex];
-                globalMeterDenominator = meterDenominators[denomIndex];
-                
-                divisionSettings['GLOBAL'] = { 
-                    numerator: globalMeterNumerator, 
-                    denominator: globalMeterDenominator 
+                setDivision('GLOBAL', index);
+                const globalSettings = divisionSettings['GLOBAL'] || {
+                    numerator: globalMeterNumerator,
+                    denominator: globalMeterDenominator
                 };
-                rebuildStepButtons(); // Rebuild step buttons for new meter
-                rebuildQuantizeOptions();
-                requantizePattern();
-                
-                tooltipText = `${globalMeterNumerator}/${globalMeterDenominator}`;
+                tooltipText = `${globalSettings.numerator}/${globalSettings.denominator}`;
             } else {
                 // Map to rhythm divisions with modifiers
                 const totalOptions = rhythmDivisions.length * divisionModifiers.length;
                 const index = Math.floor(value * (totalOptions - 1));
                 const typeIndex = Math.floor(index / divisionModifiers.length);
                 const modifierIndex = index % divisionModifiers.length;
-                
-                const type = rhythmDivisions[typeIndex];
-                const modifier = divisionModifiers[modifierIndex];
-                
-                divisionSettings[destination] = { type, modifier };
-                
-                // Update routed rates if this destination is MOD or LFO
-                if (destination === 'MOD' || destination === 'LFO') {
-                    updateRoutedRates();
-                }
-                
-                const modSymbol = modifier === 'dotted' ? '.' : (modifier === 'triplet' ? 'T' : '');
-                tooltipText = `${type}${modSymbol}`;
+                setDivision(destination, typeIndex, modifierIndex);
+                const appliedSettings = divisionSettings[destination] || {
+                    type: rhythmDivisions[typeIndex],
+                    modifier: divisionModifiers[modifierIndex]
+                };
+                const modSymbol = appliedSettings.modifier === 'dotted'
+                    ? '.'
+                    : (appliedSettings.modifier === 'triplet' ? 'T' : '');
+                tooltipText = `${appliedSettings.type}${modSymbol}`;
             }
             
             // Show tooltip

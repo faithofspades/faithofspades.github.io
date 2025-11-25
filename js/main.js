@@ -158,6 +158,7 @@ const CABINET_PRESETS = [
 let junoChorusEffect = null;
 let chorusState = 0;
 let mesaAmpStage = null;
+let lossArtifactsStage = null;
 let currentOverloadAmount = 0;
 let currentCabinetPresetIndex = 0;
 const DEFAULT_CABINET_IR = 'cabinets/Mesa_OS_4x12_57_m160.wav';
@@ -185,7 +186,9 @@ const AUTOMATION_KNOB_IDS = new Set([
     'glide-time-knob',
     'filter-cutoff',
     'overload-knob',
-    'cabinet-knob'
+    'cabinet-knob',
+    'loss-knob',
+    'artifacts-knob'
 ]);
 
 const DISABLED_AUTOMATION_PARAMS = new Set([
@@ -436,13 +439,34 @@ if (mesaAmpStage) {
 
 junoChorusEffect = createJunoChorus(audioCtx);
 window.junoChorusEffect = junoChorusEffect;
+lossArtifactsStage = createLossArtifactsStage(audioCtx);
+window.lossEffect = lossArtifactsStage;
+if (lossArtifactsStage && typeof lossArtifactsStage.syncIntervalFromTempo === 'function') {
+    lossArtifactsStage.syncIntervalFromTempo('stage-init');
+}
+
 if (junoChorusEffect) {
     fxBusInput.connect(junoChorusEffect.input);
-    junoChorusEffect.output.connect(fxBusOutput);
+    junoChorusEffect.output.connect(lossArtifactsStage.input);
 } else {
     console.warn('Juno chorus failed to initialize - bypassing FX bus.');
-    fxBusInput.connect(fxBusOutput);
+    fxBusInput.connect(lossArtifactsStage.input);
 }
+
+lossArtifactsStage.output.connect(fxBusOutput);
+
+const lossProcessorPromise = audioCtx.audioWorklet.addModule('js/loss-artifacts-processor.js')
+    .then(() => {
+        if (lossArtifactsStage && typeof lossArtifactsStage.attachProcessorNode === 'function') {
+            lossArtifactsStage.attachProcessorNode();
+        }
+        console.log('Loss/Artifacts processor loaded.');
+        return true;
+    })
+    .catch(error => {
+        console.error('Failed to load loss/artifacts processor:', error);
+        return false;
+    });
 
 // Create masterGain node
 const masterGain = audioCtx.createGain();
@@ -1622,6 +1646,268 @@ function createJunoChorus(ctx) {
         console.error('Failed to create Juno chorus effect:', error);
         return null;
     }
+}
+
+function createLossArtifactsStage(ctx) {
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+
+    const dryGain = ctx.createGain();
+    dryGain.gain.value = 1;
+
+    const wetGain = ctx.createGain();
+    wetGain.gain.value = 0;
+
+    const effectSend = ctx.createGain();
+
+    input.connect(dryGain);
+    dryGain.connect(output);
+
+    input.connect(effectSend);
+    effectSend.connect(wetGain);
+    wetGain.connect(output);
+
+    const pendingParamMap = new Map();
+    let workletNode = null;
+    let isReady = false;
+    let pendingTriggers = 0;
+    let pendingRefresh = false;
+    let lastLossAmount = 0;
+    let lastArtifactAmount = 0;
+    let lastLossRefresh = Number.NaN;
+    let lastArtifactRefresh = Number.NaN;
+    let pendingIntervalSamples = null;
+    let lastIntervalMs = null;
+
+    const LOSS_INFO_STYLE = 'color:#4dd0ff';
+    const LOSS_WARN_STYLE = 'color:#ff9800';
+    const LOSS_ERROR_STYLE = 'color:#ff4d4f;font-weight:bold';
+
+    const lossInfo = (message, ...args) => {
+        console.log(`%c[LossFX] ${message}`, LOSS_INFO_STYLE, ...args);
+    };
+
+    const lossWarn = (message, ...args) => {
+        console.warn(`%c[LossFX] ${message}`, LOSS_WARN_STYLE, ...args);
+    };
+
+    const lossError = (message, ...args) => {
+        console.error(`%c[LossFX] ${message}`, LOSS_ERROR_STYLE, ...args);
+    };
+
+    const EPSILON = 0.001;
+    const REFRESH_THRESHOLD = 0.025;
+
+    const updateBlend = () => {
+        if (!isReady) {
+            dryGain.gain.setTargetAtTime(1, ctx.currentTime, 0.02);
+            wetGain.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+            return;
+        }
+        const engaged = (lastLossAmount > EPSILON) || (lastArtifactAmount > EPSILON);
+        dryGain.gain.setTargetAtTime(engaged ? 0 : 1, ctx.currentTime, 0.03);
+        wetGain.gain.setTargetAtTime(engaged ? 1 : 0, ctx.currentTime, 0.03);
+    };
+
+    const sendRefreshMessage = () => {
+        if (workletNode && workletNode.port) {
+            try {
+                workletNode.port.postMessage({ type: 'refresh' });
+            } catch (err) {
+                console.warn('LossArtifactsStage: failed to refresh worklet state', err);
+            }
+        }
+    };
+
+    const requestStateRefresh = () => {
+        if (workletNode && workletNode.port) {
+            sendRefreshMessage();
+        } else {
+            pendingRefresh = true;
+        }
+    };
+
+    const scheduleParamUpdate = (paramName, value) => {
+        const clamped = Math.max(0, Math.min(1, value ?? 0));
+        if (workletNode) {
+            const targetParam = workletNode.parameters.get(paramName);
+            if (targetParam) {
+                const now = ctx.currentTime;
+                targetParam.cancelScheduledValues(now);
+                targetParam.setTargetAtTime(clamped, now, 0.02);
+            }
+        } else {
+            pendingParamMap.set(paramName, clamped);
+        }
+    };
+
+    const flushPendingParams = () => {
+        if (!workletNode || !pendingParamMap.size) {
+            return;
+        }
+        pendingParamMap.forEach((value, name) => {
+            scheduleParamUpdate(name, value);
+        });
+        pendingParamMap.clear();
+    };
+
+    const flushPendingTriggers = () => {
+        if (!workletNode || pendingTriggers === 0) {
+            return;
+        }
+        for (let i = 0; i < pendingTriggers; i += 1) {
+            workletNode.port.postMessage({ type: 'trigger' });
+        }
+        pendingTriggers = 0;
+    };
+
+    const postIntervalSamples = (rawSamples, contextLabel = 'unspecified') => {
+        if (!Number.isFinite(rawSamples) || rawSamples <= 0) {
+            lossError(`Rejected interval update (${contextLabel}); samples=%o`, rawSamples);
+            return null;
+        }
+        const sanitized = Math.max(32, Math.round(rawSamples));
+        if (workletNode && workletNode.port) {
+            try {
+                workletNode.port.postMessage({ type: 'interval', intervalSamples: sanitized });
+                lossInfo(`Sent interval update (${contextLabel}): ${sanitized} samples`);
+            } catch (err) {
+                lossError(`Failed to send interval (${contextLabel}): %o`, err);
+            }
+        } else {
+            pendingIntervalSamples = sanitized;
+            lossInfo(`Queued interval (${contextLabel}): ${sanitized} samples (processor offline)`);
+        }
+        return sanitized;
+    };
+
+    const syncIntervalFromTempo = (reason = 'manual') => {
+        if (!sequencerTempo || typeof sequencerTempo.getIntervalTime !== 'function') {
+            lossWarn(`sequencerTempo unavailable; cannot sync interval (${reason}).`);
+            return null;
+        }
+        const intervalMs = sequencerTempo.getIntervalTime('LOSS');
+        if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+            lossError(`Invalid interval from sequencer (${reason}): %o ms`, intervalMs);
+            return null;
+        }
+        lastIntervalMs = intervalMs;
+        const intervalSamples = (intervalMs / 1000) * ctx.sampleRate;
+        const applied = postIntervalSamples(intervalSamples, reason);
+        if (applied) {
+            lossInfo(`Synced interval (${reason}): ${intervalMs.toFixed(2)}ms (${applied} samples)`);
+        }
+        return applied;
+    };
+
+    const attachProcessorNode = () => {
+        if (workletNode) {
+            try {
+                workletNode.disconnect();
+            } catch (err) {
+                console.warn('LossArtifactsStage: failed disconnecting previous node', err);
+            }
+            workletNode = null;
+        }
+
+        try {
+            effectSend.disconnect();
+        } catch (err) {
+            // No-op when no previous connection exists
+        }
+
+        try {
+            workletNode = new AudioWorkletNode(ctx, 'loss-artifacts-processor', {
+                numberOfInputs: 1,
+                numberOfOutputs: 1,
+                outputChannelCount: [2],
+                channelCount: 2,
+                channelCountMode: 'explicit',
+                channelInterpretation: 'speakers',
+                parameterData: {
+                    lossAmount: lastLossAmount,
+                    artifactAmount: lastArtifactAmount
+                }
+            });
+        } catch (error) {
+            console.error('LossArtifactsStage: Unable to create AudioWorkletNode', error);
+            effectSend.connect(wetGain);
+            isReady = false;
+            return null;
+        }
+
+        effectSend.connect(workletNode);
+        workletNode.connect(wetGain);
+        isReady = true;
+        flushPendingParams();
+        flushPendingTriggers();
+        if (pendingIntervalSamples !== null) {
+            try {
+                workletNode.port.postMessage({ type: 'interval', intervalSamples: pendingIntervalSamples });
+                lossInfo(`Applied pending interval after attach: ${pendingIntervalSamples} samples`);
+            } catch (err) {
+                lossWarn('Failed to push pending interval on attach: %o', err);
+            }
+            pendingIntervalSamples = null;
+        } else {
+            syncIntervalFromTempo('attach');
+        }
+        if (pendingRefresh) {
+            sendRefreshMessage();
+            pendingRefresh = false;
+        }
+        updateBlend();
+        lossInfo('Processor node attached.');
+        return workletNode;
+    };
+
+    const setLossAmount = (value = 0) => {
+        const clamped = Math.max(0, Math.min(1, value));
+        lastLossAmount = clamped;
+        scheduleParamUpdate('lossAmount', clamped);
+        if (!Number.isFinite(lastLossRefresh) || Math.abs(lastLossRefresh - clamped) > REFRESH_THRESHOLD) {
+            lastLossRefresh = clamped;
+            requestStateRefresh();
+        }
+        updateBlend();
+        return clamped;
+    };
+
+    const setArtifactAmount = (value = 0) => {
+        const clamped = Math.max(0, Math.min(1, value));
+        lastArtifactAmount = clamped;
+        scheduleParamUpdate('artifactAmount', clamped);
+        if (!Number.isFinite(lastArtifactRefresh) || Math.abs(lastArtifactRefresh - clamped) > REFRESH_THRESHOLD) {
+            lastArtifactRefresh = clamped;
+            requestStateRefresh();
+        }
+        updateBlend();
+        return clamped;
+    };
+
+    const trigger = (intervalMs) => {
+        if (Number.isFinite(intervalMs) && intervalMs > 0) {
+            postIntervalSamples((intervalMs / 1000) * ctx.sampleRate, 'trigger-hint');
+        }
+        if (workletNode && workletNode.port) {
+            workletNode.port.postMessage({ type: 'trigger' });
+            lossInfo(`Trigger fired${intervalMs ? ` (${intervalMs.toFixed(2)}ms hint)` : ''}.`);
+        } else {
+            pendingTriggers = Math.min(8, pendingTriggers + 1);
+            lossWarn('Trigger queued; processor node not ready.');
+        }
+    };
+
+    return {
+        input,
+        output,
+        attachProcessorNode,
+        setLossAmount,
+        setArtifactAmount,
+        trigger,
+        syncIntervalFromTempo,
+        isReady: () => isReady
+    };
 }
 
 function buildMesaSaturationCurve(length = 4096, amount = 3) {
@@ -2807,6 +3093,8 @@ const knobDefaults = {
     'drive-slider-range': 0.5,
     'overload-knob': 0,
         'cabinet-knob': 0,
+        'loss-knob': 0,
+        'artifacts-knob': 0,
 };
 // Try to create SharedArrayBuffer for clock synchronization
 function initializeMasterClock() {
@@ -4856,6 +5144,44 @@ const knobInitializations = {
         }
 
         return value;
+    },
+    'loss-knob': (value) => {
+        const normalized = clamp01(value);
+        const tooltip = createTooltipForKnob('loss-knob', normalized, 'bottom');
+        let descriptor = 'Clean';
+        if (normalized > 0.75) {
+            descriptor = 'Broken';
+        } else if (normalized > 0.45) {
+            descriptor = 'MP3';
+        } else if (normalized > 0.15) {
+            descriptor = 'Tape';
+        }
+        tooltip.textContent = `Loss ${(normalized * 100).toFixed(0)}% · ${descriptor}`;
+        tooltip.style.opacity = '1';
+
+        if (lossArtifactsStage && typeof lossArtifactsStage.setLossAmount === 'function') {
+            lossArtifactsStage.setLossAmount(normalized);
+        }
+        return normalized;
+    },
+    'artifacts-knob': (value) => {
+        const normalized = clamp01(value);
+        const tooltip = createTooltipForKnob('artifacts-knob', normalized, 'bottom');
+        let descriptor = 'Steady';
+        if (normalized > 0.8) {
+            descriptor = 'Spectral Shatter';
+        } else if (normalized > 0.5) {
+            descriptor = 'Flutter';
+        } else if (normalized > 0.2) {
+            descriptor = 'Wobble';
+        }
+        tooltip.textContent = `Artifacts ${(normalized * 100).toFixed(0)}% · ${descriptor}`;
+        tooltip.style.opacity = '1';
+
+        if (lossArtifactsStage && typeof lossArtifactsStage.setArtifactAmount === 'function') {
+            lossArtifactsStage.setArtifactAmount(normalized);
+        }
+        return normalized;
     },
     'adsr-knob': (value) => {
   // Convert to stepped values: 0, 0.5, or 1 only
