@@ -1,3 +1,6 @@
+const LOG_TO_DB = 4.342944819032518;
+const DB_TO_LN = Math.LN10 / 20;
+
 class LossArtifactsProcessor extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [
@@ -46,7 +49,14 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         this.prominentFreq = 0;
         this.bandpassCurrentFreq = 440;
         this.bandpassTargetFreq = 440;
-        this.bandpassQ = 20;
+        this.bandpassQBase = 20;
+        this.bandpassQMin = 6;
+        this.bandpassQ = this.bandpassQBase;
+        this.resonanceSuppression = 0;
+        this.resonanceSuppressionCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.05));
+        this.resonanceSlowInterval = 0.55;
+        this.focusSuppression = 1;
+        this.spreadSuppression = 1;
         this.bandpassCoeff = this._computeBandpassCoefficients(this.bandpassCurrentFreq, this.bandpassQ);
         this.bandpassSecondaryCurrentFreq = this.bandpassCurrentFreq;
         this.bandpassSecondaryTargetFreq = this.bandpassTargetFreq;
@@ -66,17 +76,18 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         this.bandpassCandidateThresholdRatio = 0.0125;
         this.bandpassCandidateStaleSamples = 0;
         this.bandpassAlternateNext = false;
-        this.bandpassPreferredMinFreq = 500;
+        this.bandpassPreferredMinFreq = 400;
         this.bandpassPreferredMaxFreq = 5000;
-        this.bandpassConfidenceStickiness = 0.85;
+        this.bandpassConfidenceStickiness = 0.15;
         this.bandpassAlternateTolerance = 0.15;
         this.bandpassCloudSlots = 8;
         this.bandpassCloudFreqs = new Float32Array(this.bandpassCloudSlots);
         this.bandpassCloudCoeffs = new Array(this.bandpassCloudSlots);
         this.bandpassCloudSpreadQ = 6;
 
-        this.laneCount = 2;
+        this.laneCount = 3;
         this.lanes = Array.from({ length: this.laneCount }, () => this._createLaneState());
+        this.bassLaneIndex = this.laneCount - 1;
 
         this.pitchWindowSize = 2048;
         this.pitchHop = 128;
@@ -106,6 +117,80 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         this.forceBandpassUpdate = true;
         this._updateBandpassCloud();
 
+        this.lossSmooth = 0;
+        this.lossSmoothInitialized = false;
+        this.lossSmoothCoef = 0.0008;
+        this.lossEngageThreshold = 0.0015;
+        this.artifactSmooth = 0;
+        this.artifactSmoothInitialized = false;
+        this.artifactSmoothCoef = 0.0004;
+        this.artifactEngageThreshold = 0.0015;
+        this.artifactDropLevel = 1;
+        this.artifactDropMinLevel = 0.25;
+        this.artifactDropThreshold = 0.08;
+        this.artifactDropHoldSamples = Math.max(1, Math.round(sampleRate * 0.02));
+        this.artifactDropHold = 0;
+        this.artifactDropRecoverCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.08));
+        this.lastLossBlock = 0;
+        this.lastArtifactBlock = 0;
+        this.knobFallbackThreshold = 0.02;
+        this.knobFallbackSamples = Math.round(sampleRate * 0.18);
+        this.knobFallbackRemaining = 0;
+        this.knobFallbackMaxBlend = 0.75;
+        this.knobFallbackBlendValue = 0;
+        this.knobFallbackAttackCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.004));
+        this.knobFallbackReleaseCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.08));
+        this.fallbackLowCoef = 0.01;
+        this.fallbackLow = new Float32Array(Math.max(1, this.laneCount));
+        this.resonanceFallbackMax = 0.65;
+        this.resonanceMakeupDrop = 0.55;
+        this.resonanceSpikeHold = 0;
+        this.resonanceSpikeHoldSamples = Math.max(1, Math.round(sampleRate * 0.32));
+        this.resonanceSpikeThreshold = 0.66;
+        this.resonanceSpikeBlendMax = 0.85;
+        this.resonanceSpikeGainDrop = 0.45;
+
+        this.dryEnv = 0;
+        this.wetEnv = 0;
+        this.levelFloor = 1e-7;
+        this.levelMatchCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.02));
+        this.makeupGain = 1;
+        this.makeupSlewCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.04));
+        this.makeupMinGain = 0.4;
+        this.makeupMaxGain = 18;
+        this.levelAggression = 1.15;
+        this.artifactLiftDb = 8;
+        this.artifactBaseDb = 1.2;
+
+        this.limiterEnv = new Float32Array(Math.max(1, this.laneCount));
+        this.limiterAttackCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.005));
+        this.limiterReleaseCoef = 1 - Math.exp(-1 / Math.max(1, sampleRate * 0.12));
+        this.limiterCeilingBase = 0.94;
+        this.limiterCeilingMin = 0.72;
+        this.limiterStressBoost = 0.85;
+        this.softClipThreshold = 0.88;
+        this.softClipShape = 0.55;
+
+        this.bassPitchWindowSize = 4096;
+        this.bassPitchHop = 256;
+        this.bassPitchBuffer = new Float32Array(this.bassPitchWindowSize);
+        this.bassPitchScratch = new Float32Array(this.bassPitchWindowSize);
+        this.bassPitchWriteIndex = 0;
+        this.bassPitchFilled = false;
+        this.samplesSinceBassPitch = 0;
+        this.bassMinFreq = 48;
+        this.bassMaxFreq = 331;
+        this.bassFreq = 110;
+        this.bassTargetFreq = 110;
+        this.bassHoldSamples = Math.round(sampleRate * 0.35);
+        this.samplesSinceBassChange = this.bassHoldSamples;
+        this.bassConfidenceThreshold = 0.25;
+        this.bassLargeJumpHz = 16;
+        this.bassUpdateBlend = 0.015;
+        this.bassQ = 45;
+        this.bassFilterState = this._createBandpassState();
+        this.bassFilterCoeff = this._computeBandpassCoefficients(this.bassFreq, this.bassQ);
+
         this.port.onmessage = (event) => {
             if (!event || !event.data || !event.data.type) {
                 return;
@@ -121,14 +206,7 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
                 this._resetLockState();
             }
         };
-    }
 
-    _resetLockState() {
-        this.lockedFreq = 0;
-        this.playbackRate = 1;
-        this.samplesSinceRetune = this.retuneSamples;
-        this.forceRetune = false;
-        this.forceBandpassUpdate = true;
         this._resetBandpassState();
     }
 
@@ -260,6 +338,29 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         state.y2 = state.y1;
         state.y1 = filtered;
         return filtered;
+    }
+
+    _updateBassFilter() {
+        if (!Number.isFinite(this.bassTargetFreq)) {
+            return;
+        }
+        const target = Math.max(this.bassMinFreq, Math.min(this.bassMaxFreq, this.bassTargetFreq));
+        const previous = this.bassFreq || target;
+        const blend = Math.max(0.001, this.bassUpdateBlend || 0.01);
+        const next = previous + (target - previous) * blend;
+        this.bassFreq = next;
+        this.bassFilterCoeff = this._computeBandpassCoefficients(next, this.bassQ || this.bandpassQ || 20);
+    }
+
+    _applyBassFilter(sample) {
+        if (!this.bassFilterState) {
+            this.bassFilterState = this._createBandpassState();
+        }
+        if (!this.bassFilterCoeff) {
+            const freq = this.bassFreq || this.bassMinFreq || 60;
+            this.bassFilterCoeff = this._computeBandpassCoefficients(freq, this.bassQ || this.bandpassQ || 20);
+        }
+        return this._processBandpassSample(sample, this.bassFilterState, this.bassFilterCoeff);
     }
 
     _dampenBandpassStates(amount, which = 'both') {
@@ -520,6 +621,22 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         }
     }
 
+    _writeBassPitchSample(sample) {
+        if (!this.bassPitchBuffer) {
+            return;
+        }
+        this.bassPitchBuffer[this.bassPitchWriteIndex] = sample;
+        this.bassPitchWriteIndex = (this.bassPitchWriteIndex + 1) % this.bassPitchWindowSize;
+        if (!this.bassPitchFilled && this.bassPitchWriteIndex === 0) {
+            this.bassPitchFilled = true;
+        }
+        this.samplesSinceBassPitch++;
+        if (this.bassPitchFilled && this.samplesSinceBassPitch >= this.bassPitchHop) {
+            this.samplesSinceBassPitch = 0;
+            this._updateBassTracker();
+        }
+    }
+
     _updatePitchLock() {
         const estimate = this._estimatePitch();
         if (!estimate || estimate.frequency <= 0 || !Number.isFinite(estimate.frequency)) {
@@ -555,6 +672,76 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         this.playbackRate += (desiredRate - this.playbackRate) * this.rateSlew;
     }
 
+    _updateBassTracker() {
+        const estimate = this._estimateBassPitch();
+        if (!estimate) {
+            return;
+        }
+        const confidence = estimate.confidence;
+        if (confidence < this.bassConfidenceThreshold) {
+            return;
+        }
+        const freq = Math.max(this.bassMinFreq, Math.min(this.bassMaxFreq, estimate.frequency));
+        const delta = Math.abs(freq - this.bassTargetFreq);
+        const largeMove = delta >= this.bassLargeJumpHz;
+        if (!largeMove && delta < 0.6) {
+            return;
+        }
+        if (this.samplesSinceBassChange < this.bassHoldSamples && !largeMove) {
+            return;
+        }
+        this.bassTargetFreq = freq;
+        this.samplesSinceBassChange = 0;
+    }
+
+    _estimateBassPitch() {
+        if (!this.bassPitchFilled) {
+            return null;
+        }
+        const size = this.bassPitchWindowSize;
+        let srcIndex = this.bassPitchWriteIndex;
+        for (let i = 0; i < size; i++) {
+            this.bassPitchScratch[i] = this.bassPitchBuffer[srcIndex];
+            srcIndex++;
+            if (srcIndex >= size) {
+                srcIndex = 0;
+            }
+        }
+        const data = this.bassPitchScratch;
+        let energy = 0;
+        for (let i = 0; i < size; i++) {
+            const sample = data[i];
+            energy += sample * sample;
+        }
+        if (energy < 1e-8) {
+            return null;
+        }
+        const minLag = Math.max(1, Math.floor(sampleRate / this.bassMaxFreq));
+        const maxLag = Math.min(size - 1, Math.floor(sampleRate / Math.max(1, this.bassMinFreq)));
+        let bestLag = 0;
+        let bestScore = -Infinity;
+        for (let lag = minLag; lag <= maxLag; lag++) {
+            let corr = 0;
+            for (let i = 0; i < size - lag; i += 2) {
+                corr += data[i] * data[i + lag];
+            }
+            if (corr > bestScore) {
+                bestScore = corr;
+                bestLag = lag;
+            }
+        }
+        if (bestLag === 0) {
+            return null;
+        }
+        const frequency = sampleRate / bestLag;
+        if (!Number.isFinite(frequency) || frequency < this.bassMinFreq || frequency > this.bassMaxFreq) {
+            return null;
+        }
+        const normalized = bestScore / (energy + 1e-9);
+        const confidence = Math.max(0, Math.min(1, normalized));
+        return { frequency, confidence };
+    }
+
     _configureResponse(lossValue) {
         const normalized = Math.min(1, Math.max(0, lossValue || 0));
         const division = 1 + normalized * 96;
@@ -570,6 +757,54 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         this.artifactAmount = clamped;
         this.artifactTarget = clamped;
         this.artifactLowCoefTarget = this.artifactLowCoefBase + clamped * this.artifactLowCoefRange;
+    }
+
+    _updateResonanceSuppression(lossValue) {
+        const normalizedLoss = Math.min(1, Math.max(0, lossValue || 0));
+        const lowLossFactor = Math.max(0, (0.55 - normalizedLoss) / 0.55);
+        const intervalSeconds = Math.max(0, this.retuneSamples / sampleRate);
+        const slowTempoFactor = Math.min(1, intervalSeconds / this.resonanceSlowInterval);
+        const holdFactor = Math.min(1, this.samplesSinceRetune / Math.max(1, this.retuneSamples));
+        const stress = lowLossFactor * Math.max(holdFactor, slowTempoFactor);
+        const targetSuppression = Math.max(0, Math.min(1, stress));
+        this.resonanceSuppression += (targetSuppression - this.resonanceSuppression) * this.resonanceSuppressionCoef;
+        const baseQ = this.bandpassQBase || 20;
+        const minQ = this.bandpassQMin || 6;
+        const qRange = Math.max(0, baseQ - minQ);
+        const dynamicQ = baseQ - qRange * this.resonanceSuppression;
+        this.bandpassQ = Math.max(minQ, Math.min(baseQ, dynamicQ));
+        this.focusSuppression = Math.max(0.25, 1 - 0.7 * this.resonanceSuppression);
+        this.spreadSuppression = Math.max(0.15, 1 - 0.8 * this.resonanceSuppression);
+        if (this.resonanceSpikeHold > 0) {
+            this.bandpassQ = Math.max(this.bandpassQMin, this.bandpassQ * 0.5);
+            this.focusSuppression = Math.min(this.focusSuppression, 0.45);
+            this.spreadSuppression = Math.min(this.spreadSuppression, 0.45);
+        }
+    }
+
+    _computeResonanceMakeupScale() {
+        const dropAmount = Math.max(0, Math.min(1, this.resonanceSuppression * this.resonanceMakeupDrop));
+        const scale = 1 - dropAmount;
+        return Math.max(0.3, scale);
+    }
+
+    _applySoftClip(sample) {
+        const threshold = this.softClipThreshold || 1;
+        if (Math.abs(sample) <= threshold) {
+            return sample;
+        }
+        const shape = Math.max(0.01, this.softClipShape || 0.5);
+        const excess = Math.abs(sample) - threshold;
+        const clipped = threshold + Math.tanh(excess * (1 / shape)) * shape;
+        return sample < 0 ? -clipped : clipped;
+    }
+
+    _currentLimiterCeiling() {
+        const base = this.limiterCeilingBase || 0.94;
+        const min = this.limiterCeilingMin || 0.72;
+        const stress = Math.max(0, Math.min(1, this.resonanceSuppression * (this.limiterStressBoost || 1)));
+        const range = Math.max(0, base - min);
+        return Math.max(min, base - range * stress);
     }
 
     _random() {
@@ -787,6 +1022,26 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         return this._applyBandpass(laneIndex, tilted);
     }
 
+    _renderArtifactsOnly(laneIndex, sample) {
+        return this._applyBandpass(laneIndex, this._applySpectralTilt(laneIndex, sample));
+    }
+
+    _suspendGrains(laneIndex) {
+        const lane = this.lanes[laneIndex];
+        if (!lane || !lane.grains) {
+            return;
+        }
+        lane.grainCountdown = 0;
+        for (let i = 0; i < lane.grains.length; i++) {
+            const grain = lane.grains[i];
+            if (!grain) {
+                continue;
+            }
+            grain.active = false;
+            grain.position = 0;
+        }
+    }
+
     _applySpectralTilt(laneIndex, sample) {
         const lane = this.lanes[laneIndex];
         if (!lane) {
@@ -817,6 +1072,10 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         if (!lane) {
             return sample;
         }
+        if (laneIndex === this.bassLaneIndex) {
+            this._updateBassFilter();
+            return this._applyBassFilter(sample);
+        }
         if (!lane.bandpass) {
             lane.bandpass = {
                 primary: this._createBandpassState(),
@@ -839,7 +1098,8 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         if (this.bandpassSecondaryActive) {
             combined = (primaryFiltered + secondaryFiltered) * 0.5;
         }
-        const spreadAmount = Math.max(0, 1 - intensity);
+        const spreadLimiter = Math.max(0, Math.min(1, this.spreadSuppression || 1));
+        const spreadAmount = Math.max(0, Math.min(1, (1 - intensity) * spreadLimiter));
         let cloudAverage = sample;
         const cloudSlots = this.bandpassCloudSlots || 0;
         const activeCloud = cloudSlots > 0 ? Math.min(cloudSlots, Math.max(0, Math.round(spreadAmount * cloudSlots))) : 0;
@@ -862,8 +1122,10 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         if (spreadAmount >= 0.999) {
             cloudAverage = sample;
         }
-        const focusWeight = Math.pow(Math.max(0, intensity), 0.9);
-        const spreadWeight = 1 - focusWeight;
+        const focusBase = Math.pow(Math.max(0, intensity), 0.9);
+        const focusLimiter = Math.max(0.25, Math.min(1, this.focusSuppression || 1));
+        const focusWeight = Math.max(0, Math.min(1, focusBase * focusLimiter));
+        const spreadWeight = Math.max(0, 1 - focusWeight);
         return combined * focusWeight + cloudAverage * spreadWeight;
     }
 
@@ -923,7 +1185,7 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         const blockLoss = lossValues[0] ?? 0;
         const hasArtifactAutomation = artifactValues.length > 1;
         const blockArtifact = artifactValues[0] ?? 0;
-        const engaged = blockLoss > 0.0001 || hasAutomation;
+        const engaged = blockLoss > 0.0001 || blockArtifact > 0.0001 || hasAutomation || hasArtifactAutomation;
         if (!engaged) {
             for (let ch = 0; ch < channelCount; ch++) {
                 output[ch].set(input[ch]);
@@ -931,25 +1193,96 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
             return true;
         }
 
-        if (!hasAutomation) {
-            this._configureResponse(blockLoss);
-        }
-        if (!hasArtifactAutomation) {
-            this._configureArtifact(blockArtifact);
+        for (let ch = 0; ch < outputChannels; ch++) {
+            output[ch].fill(0);
         }
 
-        const laneInputCount = Math.min(this.lanes.length, Math.max(channelCount, 1));
-        const laneOutputCount = Math.min(outputChannels, this.lanes.length);
+        if (!this.lossSmoothInitialized) {
+            this.lossSmooth = blockLoss;
+            this.lossSmoothInitialized = true;
+        }
+        if (!this.artifactSmoothInitialized) {
+            this.artifactSmooth = blockArtifact;
+            this.artifactSmoothInitialized = true;
+        }
+
+        const lossDelta = Math.abs(blockLoss - this.lastLossBlock);
+        const artifactDelta = Math.abs(blockArtifact - this.lastArtifactBlock);
+        this.lastLossBlock = blockLoss;
+        this.lastArtifactBlock = blockArtifact;
+        if (lossDelta > this.knobFallbackThreshold || artifactDelta > this.knobFallbackThreshold) {
+            this.knobFallbackRemaining = this.knobFallbackSamples;
+        }
+
+        const laneInputCount = this.lanes.length;
+        const laneOutputCount = this.lanes.length;
+        const fallbackChannels = Math.max(1, laneOutputCount);
+        if (!this.fallbackLow || this.fallbackLow.length < fallbackChannels) {
+            const replacement = new Float32Array(fallbackChannels);
+            replacement.set(this.fallbackLow ?? []);
+            this.fallbackLow = replacement;
+        }
+        if (!this.limiterEnv || this.limiterEnv.length < fallbackChannels) {
+            const limiter = new Float32Array(fallbackChannels);
+            limiter.set(this.limiterEnv ?? []);
+            this.limiterEnv = limiter;
+        }
+
+        const fallbackWindow = Math.max(1, this.knobFallbackSamples);
+        let previousLossTarget = blockLoss;
+        let previousArtifactTarget = blockArtifact;
 
         for (let i = 0; i < frames; i++) {
-            const currentLoss = hasAutomation ? (lossValues[i] ?? blockLoss) : blockLoss;
-            const currentArtifact = hasArtifactAutomation ? (artifactValues[i] ?? blockArtifact) : blockArtifact;
-            if (hasAutomation) {
-                this._configureResponse(currentLoss);
+            const lossTarget = hasAutomation ? (lossValues[i] ?? blockLoss) : blockLoss;
+            const artifactTarget = hasArtifactAutomation ? (artifactValues[i] ?? blockArtifact) : blockArtifact;
+            if (Math.abs(lossTarget - previousLossTarget) > this.knobFallbackThreshold ||
+                Math.abs(artifactTarget - previousArtifactTarget) > this.knobFallbackThreshold) {
+                this.knobFallbackRemaining = this.knobFallbackSamples;
             }
-            if (hasArtifactAutomation) {
-                this._configureArtifact(currentArtifact);
+            const artifactDrop = previousArtifactTarget - artifactTarget;
+            if (artifactDrop > this.artifactDropThreshold) {
+                this.artifactDropLevel = Math.min(this.artifactDropLevel, this.artifactDropMinLevel);
+                this.artifactDropHold = this.artifactDropHoldSamples;
             }
+            if (this.artifactDropHold > 0) {
+                this.artifactDropHold--;
+            } else {
+                this.artifactDropLevel += (1 - this.artifactDropLevel) * this.artifactDropRecoverCoef;
+            }
+            this.artifactDropLevel = Math.max(0, Math.min(1, this.artifactDropLevel));
+            previousLossTarget = lossTarget;
+            previousArtifactTarget = artifactTarget;
+
+            this.lossSmooth += (lossTarget - this.lossSmooth) * this.lossSmoothCoef;
+            this.artifactSmooth += (artifactTarget - this.artifactSmooth) * this.artifactSmoothCoef;
+
+            this._configureResponse(this.lossSmooth);
+            this._configureArtifact(this.artifactSmooth);
+            const lossInstant = Math.max(lossTarget, this.lossSmooth);
+            const artifactInstant = Math.max(artifactTarget, this.artifactSmooth);
+            const lossEngaged = lossInstant > this.lossEngageThreshold;
+            const artifactEngaged = artifactInstant > this.artifactEngageThreshold;
+
+            const fallbackTarget = this.knobFallbackRemaining > 0
+                ? this.knobFallbackMaxBlend * (this.knobFallbackRemaining / fallbackWindow)
+                : 0;
+            const fallbackCoef = fallbackTarget > this.knobFallbackBlendValue
+                ? this.knobFallbackAttackCoef
+                : this.knobFallbackReleaseCoef;
+            this.knobFallbackBlendValue += (fallbackTarget - this.knobFallbackBlendValue) * fallbackCoef;
+            const fallbackBlend = this.knobFallbackBlendValue;
+            if (this.knobFallbackRemaining > 0) {
+                this.knobFallbackRemaining--;
+            }
+            const spikeSamples = Math.max(1, this.resonanceSpikeHoldSamples || 1);
+            const spikePhase = this.resonanceSpikeHold > 0 ? this.resonanceSpikeHold / spikeSamples : 0;
+            const spikeBlend = this.resonanceSpikeBlendMax * spikePhase;
+            const spikeGainScale = Math.max(0.15, 1 - this.resonanceSpikeGainDrop * spikePhase);
+            if (this.resonanceSpikeHold > 0) {
+                this.resonanceSpikeHold--;
+            }
+            let wetEnergy = 0;
+            this.samplesSinceBassChange++;
             this.samplesSinceRetune++;
             this.samplesSinceBandpass++;
             if (this.forceBandpassUpdate || this.samplesSinceBandpass >= this.retuneSamples) {
@@ -963,31 +1296,131 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
             const divisor = channelCount || 1;
             monoSample /= divisor;
 
+            const dryEnergy = monoSample * monoSample;
+            this.dryEnv += (dryEnergy - this.dryEnv) * this.levelMatchCoef;
+            const dryPower = Math.max(this.dryEnv, this.levelFloor);
+            const wetPower = Math.max(this.wetEnv, this.levelFloor);
+            const dryDb = LOG_TO_DB * Math.log(dryPower);
+            const wetDb = LOG_TO_DB * Math.log(wetPower);
+            const deficitDb = Math.max(0, dryDb - wetDb);
+            const artifactDrive = this.artifactSmooth * this.artifactDropLevel;
+            const artifactDb = artifactDrive * this.artifactLiftDb;
+            const baseDb = artifactDrive > 0.02 ? this.artifactBaseDb : 0;
+            const desiredDbGain = (deficitDb * this.levelAggression) + artifactDb + baseDb;
+            const desiredGainRaw = Math.exp(DB_TO_LN * desiredDbGain);
+            const desiredGain = Math.min(this.makeupMaxGain, Math.max(this.makeupMinGain, desiredGainRaw));
+            this.makeupGain += (desiredGain - this.makeupGain) * this.makeupSlewCoef;
+
             for (let laneIndex = 0; laneIndex < laneInputCount; laneIndex++) {
                 const sourceIndex = channelCount ? Math.min(laneIndex, channelCount - 1) : 0;
-                const laneSample = channelCount ? (input[sourceIndex][i] || 0) : monoSample;
+                let laneSample;
+                if (laneIndex === this.bassLaneIndex) {
+                    laneSample = monoSample;
+                } else if (channelCount) {
+                    laneSample = input[sourceIndex][i] || 0;
+                } else {
+                    laneSample = monoSample;
+                }
                 this._writeInputSample(laneIndex, laneSample);
             }
 
+            this._writeBassPitchSample(monoSample);
             this._writePitchSample(monoSample);
+            this._updateResonanceSuppression(this.lossSmooth);
             this._prepareArtifactFrame();
 
             for (let laneIndex = 0; laneIndex < laneOutputCount; laneIndex++) {
-                output[laneIndex][i] = this._renderGrains(laneIndex);
+                const dryIndex = channelCount ? Math.min(laneIndex, channelCount - 1) : 0;
+                const drySample = channelCount ? (input[dryIndex][i] || 0) : monoSample;
+                if (!lossEngaged) {
+                    this._suspendGrains(laneIndex);
+                }
+                let effectedSample;
+                if (lossEngaged) {
+                    effectedSample = this._renderGrains(laneIndex);
+                } else if (artifactEngaged) {
+                    const artifactSample = this._renderArtifactsOnly(laneIndex, drySample);
+                    if (this.artifactDropLevel < 0.999) {
+                        const dropBlend = 1 - this.artifactDropLevel;
+                        effectedSample = artifactSample * this.artifactDropLevel + drySample * dropBlend;
+                    } else {
+                        effectedSample = artifactSample;
+                    }
+                } else {
+                    effectedSample = drySample;
+                }
+                const previousLow = this.fallbackLow[laneIndex] || 0;
+                const lowSample = previousLow + this.fallbackLowCoef * (drySample - previousLow);
+                this.fallbackLow[laneIndex] = lowSample;
+                const fallbackSample = fallbackBlend > 0
+                    ? (effectedSample * (1 - fallbackBlend)) + (lowSample * fallbackBlend)
+                    : effectedSample;
+                const stressBlendBase = Math.max(0, Math.min(1, this.resonanceSuppression * this.resonanceFallbackMax));
+                const combinedBlend = 1 - (1 - stressBlendBase) * (1 - spikeBlend);
+                const stressedSample = combinedBlend > 0
+                    ? (fallbackSample * (1 - combinedBlend)) + (lowSample * combinedBlend)
+                    : fallbackSample;
+                const resonanceGain = this._computeResonanceMakeupScale() * spikeGainScale;
+                const wetSample = stressedSample * this.makeupGain * resonanceGain;
+                const clippedSample = Math.abs(wetSample) > this.softClipThreshold
+                    ? this._applySoftClip(wetSample)
+                    : wetSample;
+                const limitedSample = this._applyLimiter(clippedSample, laneIndex);
+                wetEnergy += limitedSample * limitedSample;
+                if (laneIndex === this.bassLaneIndex) {
+                    for (let ch = 0; ch < outputChannels; ch++) {
+                        if (!output[ch]) {
+                            continue;
+                        }
+                        output[ch][i] += limitedSample;
+                    }
+                } else if (laneIndex < outputChannels) {
+                    output[laneIndex][i] += limitedSample;
+                } else if (outputChannels > 0) {
+                    output[outputChannels - 1][i] += limitedSample;
+                }
             }
 
-            const fallbackValue = laneOutputCount > 0 ? output[Math.min(laneOutputCount - 1, outputChannels - 1)][i] : monoSample;
-            for (let ch = laneOutputCount; ch < channelCount; ch++) {
-                output[ch][i] = fallbackValue;
-            }
-            for (let ch = Math.max(channelCount, laneOutputCount); ch < outputChannels; ch++) {
-                output[ch][i] = fallbackValue;
+            const wetSampleCount = laneOutputCount || 1;
+            const avgWetEnergy = wetEnergy / wetSampleCount;
+            this.wetEnv += (avgWetEnergy - this.wetEnv) * this.levelMatchCoef;
+
+            if (outputChannels > laneOutputCount) {
+                const refIndex = Math.min(outputChannels - 1, laneOutputCount - 1);
+                const fallbackValue = output[refIndex] ? output[refIndex][i] : monoSample;
+                for (let ch = laneOutputCount; ch < outputChannels; ch++) {
+                    output[ch][i] = fallbackValue;
+                }
             }
         }
 
         this._ageBandpassCandidates(frames);
 
         return true;
+    }
+
+    _applyLimiter(sample, laneIndex) {
+        if (!this.limiterEnv || laneIndex >= this.limiterEnv.length) {
+            return sample;
+        }
+        const env = this.limiterEnv[laneIndex] || 0;
+        const absSample = Math.abs(sample);
+        const coef = absSample > env ? this.limiterAttackCoef : this.limiterReleaseCoef;
+        const nextEnv = env + (absSample - env) * coef;
+        this.limiterEnv[laneIndex] = nextEnv;
+        const ceiling = this._currentLimiterCeiling();
+        const spikeThreshold = this.resonanceSpikeThreshold || 0.66;
+        if (nextEnv > spikeThreshold) {
+            const holdSamples = this.resonanceSpikeHoldSamples || 0;
+            if (holdSamples > 0) {
+                this.resonanceSpikeHold = Math.max(this.resonanceSpikeHold, holdSamples);
+            }
+        }
+        if (nextEnv <= ceiling) {
+            return sample;
+        }
+        const gain = ceiling / (nextEnv + this.levelFloor);
+        return sample * gain;
     }
 }
 
