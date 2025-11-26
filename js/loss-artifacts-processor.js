@@ -210,6 +210,27 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
         this._resetBandpassState();
     }
 
+    _resetLockState() {
+        // Clear pitch tracking buffers so the next block re-detects from scratch
+        if (this.pitchBuffer) {
+            this.pitchBuffer.fill(0);
+        }
+        if (this.pitchScratch) {
+            this.pitchScratch.fill(0);
+        }
+
+        this.pitchWriteIndex = 0;
+        this.pitchFilled = false;
+        this.samplesSincePitch = 0;
+
+        this.detectedFreq = 0;
+        this.prominentFreq = 0;
+        this.lockedFreq = 0;
+        this.playbackRate = 1;
+        this.samplesSinceRetune = this.retuneSamples;
+        this.forceRetune = false;
+    }
+
     _resetBandpassState() {
         this.bandpassCurrentFreq = Math.max(this.minFreq, Math.min(this.maxFreq, this.bandpassTargetFreq || this.bandpassCurrentFreq || this.minFreq));
         this.bandpassTargetFreq = this.bandpassCurrentFreq;

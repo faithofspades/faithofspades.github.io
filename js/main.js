@@ -185,10 +185,7 @@ const AUTOMATION_KNOB_IDS = new Set([
     'osc2-gain-knob',
     'glide-time-knob',
     'filter-cutoff',
-    'overload-knob',
-    'cabinet-knob',
-    'loss-knob',
-    'artifacts-knob'
+    'overload-knob'
 ]);
 
 const DISABLED_AUTOMATION_PARAMS = new Set([
@@ -468,13 +465,102 @@ const lossProcessorPromise = audioCtx.audioWorklet.addModule('js/loss-artifacts-
         return false;
     });
 
-// Create masterGain node
+// Create masterGain node (user volume control feeding safety limiter)
 const masterGain = audioCtx.createGain();
-masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+const MASTER_MIN_GAIN = 0.02;
+const MASTER_MAX_GAIN = 0.75; // Keep plenty of headroom before safety stages
+const MASTER_RESPONSE = 1.15;
+function mapMasterKnobToGain(value) {
+    const clamped = Math.max(0, Math.min(1, value || 0));
+    const curved = Math.pow(clamped, MASTER_RESPONSE); // more resolution near lower range
+    return MASTER_MIN_GAIN + (MASTER_MAX_GAIN - MASTER_MIN_GAIN) * curved;
+}
 
-// CORRECT ROUTING: Connect FX output through masterGain to destination
+function createSoftClipperNode(ctx, options = {}) {
+    const {
+        knee = 0.9,
+        drive = 1.4,
+        mix = 0.22
+    } = options;
+    const ws = ctx.createWaveShaper();
+    const resolution = 4097;
+    const curve = new Float32Array(resolution);
+    const norm = Math.tanh(drive);
+    for (let i = 0; i < resolution; i++) {
+        const x = (i / (resolution - 1)) * 2 - 1;
+        const ax = Math.abs(x);
+        let shaped;
+        if (ax <= knee) {
+            shaped = x;
+        } else {
+            const over = (ax - knee) / Math.max(1e-6, 1 - knee);
+            const sat = knee + (Math.tanh(over * drive) / norm) * (1 - knee);
+            shaped = Math.sign(x) * Math.min(1, sat);
+        }
+        curve[i] = x * (1 - mix) + shaped * mix;
+    }
+    ws.curve = curve;
+    ws.oversample = '4x';
+    return ws;
+}
+masterGain.gain.setValueAtTime(mapMasterKnobToGain(0.5), audioCtx.currentTime);
+
+const mixSoftClipper = createSoftClipperNode(audioCtx);
 fxBusOutput.connect(masterGain);
-masterGain.connect(audioCtx.destination);
+masterGain.connect(mixSoftClipper);
+// Temporary routing until limiter engages (soft clipper feeds destination directly)
+mixSoftClipper.connect(audioCtx.destination);
+
+let safetyLimiterNode = null;
+audioCtx.audioWorklet.addModule('js/safety-limiter-processor.js')
+    .then(() => {
+        safetyLimiterNode = new AudioWorkletNode(audioCtx, 'safety-limiter-processor', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            channelCount: 2,
+            channelCountMode: 'explicit',
+            channelInterpretation: 'speakers'
+        });
+
+        // Configure limiter envelope: fast lookahead/attack, gentle recovery
+        safetyLimiterNode.port.postMessage({
+            type: 'config',
+            thresholdDb: -1.2,
+            kneeDb: 5,
+            attackMs: 0.6,
+            holdMs: 0.25,
+            releaseMs: 55,
+            lookaheadMs: 1,
+            detectorAttackMs: 0.18,
+            detectorReleaseMs: 140
+        });
+
+        // Reroute so soft clipper feeds limiter, which then feeds destination
+        try {
+            mixSoftClipper.disconnect(audioCtx.destination);
+        } catch (err) {
+            console.warn('Safety limiter: destination already rerouted?', err);
+        }
+        mixSoftClipper.connect(safetyLimiterNode);
+        safetyLimiterNode.connect(audioCtx.destination);
+
+        safetyLimiterNode.port.onmessage = (event) => {
+            if (!event?.data) return;
+            if (event.data.type === 'gainReduction') {
+                const reductionDb = (event.data.reduction > 0)
+                    ? -(20 * Math.log10(1 - Math.min(event.data.reduction, 0.9999)))
+                    : 0;
+                console.log(`Safety limiter GR: -${reductionDb.toFixed(2)} dB`);
+            }
+        };
+
+        window.safetyLimiterNode = safetyLimiterNode;
+        window.mixSoftClipper = mixSoftClipper;
+        console.log('Safety limiter initialized with 1ms lookahead before master output.');
+    })
+    .catch(error => {
+        console.error('Failed to initialize safety limiter:', error);
+    });
 // Don't connect masterGain yet - we'll do it selectively below
 let isWorkletReady = false;
 let pendingInitialization = true;
@@ -2301,8 +2387,8 @@ let masterClockNode = null;
 let masterClockSharedBuffer = null;
 let masterClockPhases = null;
 // Add this after the masterGain initialization
-let currentVolume = 0.5; // Initial volume
-masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime, 0.01);
+let currentVolume = 0.5; // Normalized 0-1 knob value
+masterGain.gain.setValueAtTime(mapMasterKnobToGain(currentVolume), audioCtx.currentTime, 0.01);
 // Add these global variables at the top with other audio-related variables
 // Add to your global variables
 let currentSampleDetune = 0; // Range will be -1200 to +1200 cents
@@ -5100,24 +5186,42 @@ const knobInitializations = {
         const tooltip = createTooltipForKnob('master-volume-knob', value);
         tooltip.textContent = `Volume: ${(value * 100).toFixed(0)}%`;
         tooltip.style.opacity = '1';
-        masterGain.gain.setTargetAtTime(value, audioCtx.currentTime, 0.01);
+        const appliedGain = mapMasterKnobToGain(value);
+        currentVolume = value;
+        masterGain.gain.setTargetAtTime(appliedGain, audioCtx.currentTime, 0.01);
         console.log('Master Volume:', value.toFixed(2));
     },
     'overload-knob': (value) => {
+        // Check if this knob has active modulation
+        const destination = knobToDestinationMap['overload-knob'];
+        let finalValue = value;
+        
+        if (destination && destinationConnections[destination] && destinationModulations[destination] !== undefined) {
+            const multiplier = destinationModulations[destination];
+            
+            // Apply multiplier directly to the knob value
+            finalValue = value * multiplier;
+            
+            // Clamp to 0-1 range
+            finalValue = Math.max(0, Math.min(1, finalValue));
+            
+            console.log(`Overload modulated: base=${(value*100).toFixed(0)}%, multiplier=${multiplier.toFixed(2)}, final=${(finalValue*100).toFixed(0)}%`);
+        }
+        
         const tooltip = createTooltipForKnob('overload-knob', value, 'bottom');
-        if (value <= 0.0005) {
+        if (finalValue <= 0.0005) {
             tooltip.textContent = 'Off';
-        } else if (value < 0.35) {
-            tooltip.textContent = `Crunch ${(value * 100).toFixed(0)}%`;
+        } else if (finalValue < 0.35) {
+            tooltip.textContent = `Crunch ${(finalValue * 100).toFixed(0)}%`;
         } else {
-            tooltip.textContent = `Gain ${(value * 100).toFixed(0)}%`;
+            tooltip.textContent = `Gain ${(finalValue * 100).toFixed(0)}%`;
         }
         tooltip.style.opacity = '1';
-        currentOverloadAmount = value;
+        currentOverloadAmount = finalValue;
         if (mesaAmpStage && typeof mesaAmpStage.setDrive === 'function') {
-            mesaAmpStage.setDrive(value);
+            mesaAmpStage.setDrive(finalValue);
         }
-        return value;
+        console.log('Overload:', finalValue.toFixed(2));
     },
     'cabinet-knob': (value) => {
         const presetCount = CABINET_PRESETS.length;
