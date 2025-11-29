@@ -159,6 +159,9 @@ let junoChorusEffect = null;
 let chorusState = 0;
 let mesaAmpStage = null;
 let lossArtifactsStage = null;
+let delayReverbNode = null;
+let delayStageInput = null;
+let delayStageOutput = null;
 let currentOverloadAmount = 0;
 let currentCabinetPresetIndex = 0;
 const DEFAULT_CABINET_IR = 'cabinets/Mesa_OS_4x12_57_m160.wav';
@@ -185,7 +188,10 @@ const AUTOMATION_KNOB_IDS = new Set([
     'osc2-gain-knob',
     'glide-time-knob',
     'filter-cutoff',
-    'overload-knob'
+    'overload-knob',
+    'low-cut-knob',
+    'high-cut-knob',
+    'mix-knob'
 ]);
 
 const DISABLED_AUTOMATION_PARAMS = new Set([
@@ -202,6 +208,486 @@ const DISABLED_AUTOMATION_PARAMS = new Set([
 
 let suppressAutomationCapture = false;
 let automationCaptureReady = false;
+
+const DELAY_TIME_MIN = 0.02;
+const DELAY_TIME_MAX = 2.8;
+
+function normalizedToDelaySeconds(value) {
+    const clamped = clamp01(value);
+    const curved = Math.pow(clamped, 1.75);
+    return DELAY_TIME_MIN + (DELAY_TIME_MAX - DELAY_TIME_MIN) * curved;
+}
+
+function delaySecondsToNormalized(seconds) {
+    const clamped = Math.max(DELAY_TIME_MIN, Math.min(DELAY_TIME_MAX, seconds || DELAY_TIME_MIN));
+    const normalized = (clamped - DELAY_TIME_MIN) / (DELAY_TIME_MAX - DELAY_TIME_MIN);
+    return Math.pow(normalized, 1 / 1.75);
+}
+
+function normalizedToTailSeconds(value) {
+    const curved = Math.pow(clamp01(value), 1.15);
+    return 0.2 + 7.8 * curved;
+}
+
+function normalizedToFeedback(value) {
+    const curved = Math.pow(clamp01(value), 1.05);
+    return 0.08 + 0.9 * curved;
+}
+
+function normalizedToDensity(value) {
+    return Math.pow(clamp01(value), 1.05);
+}
+
+function normalizedToLowCutHz(value) {
+    const curved = Math.pow(clamp01(value), 1.1);
+    const min = Math.log10(30);
+    const max = Math.log10(2000);
+    return Math.pow(10, min + (max - min) * curved);
+}
+
+function normalizedToHighCutHz(value) {
+    const curved = Math.pow(clamp01(value), 0.9);
+    const min = Math.log10(200);
+    const max = Math.log10(18000);
+    return Math.pow(10, min + (max - min) * curved);
+}
+
+function normalizedToMix(value) {
+    return Math.pow(clamp01(value), 1.35);
+}
+
+function computeDelayInputTrim(mixValue, feedbackGain) {
+    const mixAttenuation = mixValue * 0.6;
+    const feedbackPad = feedbackGain * 0.18;
+    return Math.max(0.18, 1 - mixAttenuation - feedbackPad);
+}
+
+const delayFxDefaults = {
+    timeNormalized: 0.25,
+    lengthNormalized: 0.25,
+    feedbackNormalized: 0.4,
+    densityNormalized: 0.5,
+    lowCutNormalized: 0.15,
+    highCutNormalized: 0.7,
+    mixNormalized: 0.0
+};
+
+const delayUiState = {
+    ...delayFxDefaults,
+    freeze: false,
+    reverse: false,
+    synced: false,
+    currentSyncedSeconds: null
+};
+
+const DEFAULT_LOW_CUT_HZ = normalizedToLowCutHz(delayFxDefaults.lowCutNormalized);
+const DEFAULT_HIGH_CUT_HZ = normalizedToHighCutHz(delayFxDefaults.highCutNormalized);
+
+const delayProcessorState = {
+    delayTime: normalizedToDelaySeconds(delayFxDefaults.timeNormalized),
+    tailSeconds: normalizedToTailSeconds(delayFxDefaults.lengthNormalized),
+    feedbackGain: normalizedToFeedback(delayFxDefaults.feedbackNormalized),
+    density: normalizedToDensity(delayFxDefaults.densityNormalized),
+    lowCutHz: DEFAULT_LOW_CUT_HZ,
+    highCutHz: DEFAULT_HIGH_CUT_HZ,
+    mix: normalizedToMix(delayFxDefaults.mixNormalized),
+    freeze: false,
+    reverse: false,
+    inputTrim: computeDelayInputTrim(
+        normalizedToMix(delayFxDefaults.mixNormalized),
+        normalizedToFeedback(delayFxDefaults.feedbackNormalized)
+    )
+};
+let pendingDelayPayload = { ...delayProcessorState };
+const delayUiElements = {
+    timeSlider: null,
+    lengthSlider: null,
+    feedbackSlider: null,
+    densitySlider: null,
+    reverseSwitch: null,
+    freezeSwitch: null,
+    lowCutControl: null,
+    highCutControl: null,
+    mixControl: null
+};
+
+const ROOM_IR_FILE_PROTOCOL_ERROR = 'ROOM_IR_FILE_PROTOCOL';
+const ROOM_IR_PRESETS = [
+    {
+        id: 'room-00-bedroom-short',
+        label: 'Room-00 Bedroom Short',
+        forwardPath: 'reverb-ir/short-Room-01_Bedroom_dc_2.wav',
+        reversePath: 'reverb-ir/reverse-short-Room-01_Bedroom_dc_3.wav',
+        position: 0.1,
+        forwardGain: 1,
+        reverseGain: 1
+    },
+    {
+        id: 'room-01-bedroom',
+        label: 'Room-01 Bedroom',
+        forwardPath: 'reverb-ir/Room-01_Bedroom_dc.wav',
+        reversePath: 'reverb-ir/reverse-Room-01_Bedroom_dc_2.wav',
+        position: 0.25,
+        forwardGain: 1,
+        reverseGain: 1
+    },
+    {
+        id: 'room-07-studio-a',
+        label: 'Room-07 Studio A',
+        forwardPath: 'reverb-ir/Room-07_Studio A_dc.wav',
+        reversePath: 'reverb-ir/reverse-Room-07_Studio A_dc.wav',
+        position: 0.5,
+        forwardGain: 1.82,
+        reverseGain: 1.32
+    },
+    {
+        id: 'hall-02-small-church',
+        label: 'Hall-02 Small Church',
+        forwardPath: 'reverb-ir/Hall-02_Small Church_dc.wav',
+        reversePath: 'reverb-ir/reverse-Hall-02_Small Church_dc.wav',
+        position: 0.75,
+        forwardGain: 1.45,
+        reverseGain: 1.15
+    },
+    {
+        id: 'hall-08-large-church',
+        label: 'Hall-08 Large Church',
+        forwardPath: 'reverb-ir/Hall-08_Large Church_dc.wav',
+        reversePath: 'reverb-ir/reverse-Hall-08_Large Church_dc.wav',
+        position: 1,
+        forwardGain: 0.78,
+        reverseGain: 0.62
+    }
+];
+
+class RoomImpulseConvolutionStage {
+    constructor(ctx, configs = []) {
+        this.ctx = ctx;
+        this.configs = configs.slice();
+        this.wetInput = ctx.createGain();
+        this.freezeLoopDelay = ctx.createDelay(4);
+        this.freezeLoopGain = ctx.createGain();
+        this.wetSum = ctx.createGain();
+        this.output = ctx.createGain();
+        this.freezeLoopDelay.delayTime.setValueAtTime(0.25, ctx.currentTime);
+        this.freezeLoopGain.gain.setValueAtTime(0, ctx.currentTime);
+        this.configureStereoNode(this.wetInput);
+        this.configureStereoNode(this.freezeLoopDelay);
+        this.configureStereoNode(this.freezeLoopGain);
+        this.configureStereoNode(this.wetSum);
+        this.configureStereoNode(this.output);
+        this.weightRampTime = 0.08;
+        this.lengthValue = 0.45;
+        this.reverseActive = false;
+        this.freezeLoopFeedback = 0.995;
+        this.isFrozen = false;
+        this.paths = this.configs.map((cfg) => {
+            const forward = { convolver: ctx.createConvolver(), gain: ctx.createGain() };
+            const reverse = { convolver: ctx.createConvolver(), gain: ctx.createGain() };
+            [forward, reverse].forEach((node) => {
+                node.convolver.normalize = false;
+                this.configureStereoNode(node.convolver);
+                this.wetInput.connect(node.convolver);
+                node.convolver.connect(node.gain);
+                node.gain.connect(this.wetSum);
+                node.gain.gain.setValueAtTime(0, ctx.currentTime);
+            });
+            return {
+                forward,
+                reverse,
+                forwardGain: typeof cfg.forwardGain === 'number' ? cfg.forwardGain : (typeof cfg.level === 'number' ? cfg.level : 1),
+                reverseGain: typeof cfg.reverseGain === 'number' ? cfg.reverseGain : (typeof cfg.level === 'number' ? cfg.level : 1)
+            };
+        });
+        this.wetSum.connect(this.output);
+        this.output.connect(this.freezeLoopDelay);
+        this.freezeLoopDelay.connect(this.freezeLoopGain);
+        this.freezeLoopGain.connect(this.wetSum);
+        this.wetInput.gain.setValueAtTime(1, ctx.currentTime);
+        this.wetSum.gain.setValueAtTime(1, ctx.currentTime);
+        this.output.gain.setValueAtTime(1, ctx.currentTime);
+        this.loaded = false;
+    }
+
+    configureStereoNode(node) {
+        if (!node) return;
+        if (typeof node.channelCount === 'number') {
+            node.channelCount = 2;
+        }
+        if (typeof node.channelCountMode === 'string') {
+            node.channelCountMode = 'explicit';
+        }
+        if (typeof node.channelInterpretation === 'string') {
+            node.channelInterpretation = 'speakers';
+        }
+    }
+
+    setFrozenState(active) {
+        const next = !!active;
+        if (this.isFrozen === next) {
+            return;
+        }
+        this.isFrozen = next;
+        const now = this.ctx.currentTime;
+        const targetSendGain = next ? 0 : 1;
+        this.wetInput.gain.cancelScheduledValues(now);
+        this.wetInput.gain.setTargetAtTime(targetSendGain, now, 0.01);
+        const targetLoopGain = next ? this.freezeLoopFeedback : 0;
+        this.freezeLoopGain.gain.cancelScheduledValues(now);
+        this.freezeLoopGain.gain.setTargetAtTime(targetLoopGain, now, 0.01);
+    }
+
+    async loadImpulses() {
+        const buffers = await Promise.all(this.configs.map((cfg) => Promise.all([
+            this.fetchImpulse(cfg.forwardPath),
+            this.fetchImpulse(cfg.reversePath || cfg.forwardPath)
+        ])));
+        buffers.forEach(([forwardBuffer, reverseBuffer], index) => {
+            const path = this.paths[index];
+            if (!path) return;
+            path.forward.convolver.buffer = this.ensureStereoBuffer(forwardBuffer);
+            path.reverse.convolver.buffer = this.ensureStereoBuffer(reverseBuffer);
+        });
+        this.loaded = true;
+        this.applyWeights(true);
+    }
+
+    ensureStereoBuffer(buffer) {
+        if (!buffer) {
+            return buffer;
+        }
+        if (buffer.numberOfChannels === 2) {
+            return buffer;
+        }
+        const stereoBuffer = this.ctx.createBuffer(2, buffer.length, buffer.sampleRate);
+        if (buffer.numberOfChannels <= 1) {
+            const monoData = buffer.getChannelData(0);
+            stereoBuffer.copyToChannel(monoData, 0);
+            stereoBuffer.copyToChannel(monoData, 1);
+        } else {
+            const leftData = buffer.getChannelData(0);
+            const rightData = buffer.getChannelData(1);
+            stereoBuffer.copyToChannel(leftData, 0);
+            stereoBuffer.copyToChannel(rightData, 1);
+        }
+        return stereoBuffer;
+    }
+
+    async fetchImpulse(resourcePath) {
+        if (!resourcePath) {
+            throw new Error('Impulse path required.');
+        }
+        if (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:') {
+            const error = new Error(ROOM_IR_FILE_PROTOCOL_ERROR);
+            error.code = ROOM_IR_FILE_PROTOCOL_ERROR;
+            throw error;
+        }
+        const resolvedUrl = this.resolveResourceUrl(resourcePath);
+        const response = await fetch(resolvedUrl, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Failed to fetch impulse ${resourcePath} (${response.status})`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        return this.ctx.decodeAudioData(arrayBuffer);
+    }
+
+    resolveResourceUrl(resourcePath) {
+        if (!resourcePath) return resourcePath;
+        try {
+            return new URL(resourcePath, window.location.href).toString();
+        } catch (err) {
+            return resourcePath;
+        }
+    }
+
+    setLengthNormalized(value) {
+        const normalized = Math.max(0, Math.min(1, value ?? 0));
+        this.lengthValue = normalized;
+        if (!this.loaded) {
+            return;
+        }
+        this.applyWeights(false);
+    }
+
+    setReverseActive(active, immediate = false) {
+        const next = !!active;
+        if (this.reverseActive === next) return;
+        this.reverseActive = next;
+        if (this.loaded) {
+            this.applyWeights(immediate);
+        }
+    }
+
+    applyWeights(immediate) {
+        const weights = this.computeWeights(this.lengthValue);
+        const now = this.ctx.currentTime;
+        const ramp = immediate ? 0.0001 : this.weightRampTime;
+        const reverseBlend = this.reverseActive ? 1 : 0;
+        const reverseAnchorIndex = reverseBlend ? this.selectAnchorIndex(this.lengthValue) : -1;
+        for (let i = 0; i < this.paths.length; i++) {
+            const path = this.paths[i];
+            const baseWeight = weights[i] || 0;
+            const forwardTarget = baseWeight * (path.forwardGain || 1) * (1 - reverseBlend);
+            const reverseBase = reverseAnchorIndex === i ? (path.reverseGain || 1) : 0;
+            const reverseTarget = reverseBase * reverseBlend;
+            const forwardParam = path.forward.gain.gain;
+            const reverseParam = path.reverse.gain.gain;
+            forwardParam.cancelScheduledValues(now);
+            forwardParam.setValueAtTime(forwardParam.value, now);
+            forwardParam.linearRampToValueAtTime(forwardTarget, now + ramp);
+            reverseParam.cancelScheduledValues(now);
+            reverseParam.setValueAtTime(reverseParam.value, now);
+            reverseParam.linearRampToValueAtTime(reverseTarget, now + ramp);
+        }
+    }
+
+    computeWeights(value) {
+        if (!this.configs.length) return [];
+        const n = Math.max(0, Math.min(1, value ?? 0));
+        const anchors = this.configs;
+        if (n <= anchors[0].position) {
+            return anchors.map((_, index) => (index === 0 ? 1 : 0));
+        }
+        for (let i = 0; i < anchors.length - 1; i++) {
+            const left = anchors[i];
+            const right = anchors[i + 1];
+            if (n <= right.position) {
+                const span = Math.max(1e-5, right.position - left.position);
+                const t = (n - left.position) / span;
+                return anchors.map((_, index) => {
+                    if (index === i) return 1 - t;
+                    if (index === i + 1) return t;
+                    return 0;
+                });
+            }
+        }
+        return anchors.map((_, index) => (index === anchors.length - 1 ? 1 : 0));
+    }
+
+    selectAnchorIndex(value) {
+        if (!this.configs.length) return -1;
+        const n = Math.max(0, Math.min(1, value ?? 0));
+        let selected = 0;
+        for (let i = 0; i < this.configs.length; i++) {
+            const anchor = this.configs[i];
+            const position = typeof anchor.position === 'number'
+                ? anchor.position
+                : (this.configs.length === 1 ? 0 : i / (this.configs.length - 1));
+            if (n >= position) {
+                selected = i;
+            } else {
+                break;
+            }
+        }
+        return selected;
+    }
+
+    dispose() {
+        try { this.wetInput.disconnect(); } catch (err) {}
+        try { this.freezeLoopDelay.disconnect(); } catch (err) {}
+        try { this.wetSum.disconnect(); } catch (err) {}
+        try { this.output.disconnect(); } catch (err) {}
+        try { this.freezeLoopGain.disconnect(); } catch (err) {}
+        this.paths.forEach((path) => {
+            try { path.forward.convolver.disconnect(); } catch (err) {}
+            try { path.forward.gain.disconnect(); } catch (err) {}
+            try { path.reverse.convolver.disconnect(); } catch (err) {}
+            try { path.reverse.gain.disconnect(); } catch (err) {}
+            path.forward.convolver.buffer = null;
+            path.reverse.convolver.buffer = null;
+        });
+        this.loaded = false;
+    }
+}
+
+let roomImpulseStage = null;
+let roomImpulseStageLoadPromise = null;
+
+const ensureRoomImpulseStage = () => {
+    if (!audioCtx || !delayReverbNode || !delayStageOutput) {
+        return;
+    }
+    if (roomImpulseStage) {
+        if (roomImpulseStage.loaded) {
+            roomImpulseStage.setLengthNormalized(delayUiState.lengthNormalized);
+            roomImpulseStage.setReverseActive(delayUiState.reverse, true);
+        }
+        return;
+    }
+    if (roomImpulseStageLoadPromise) {
+        return;
+    }
+    const stage = new RoomImpulseConvolutionStage(audioCtx, ROOM_IR_PRESETS);
+    roomImpulseStageLoadPromise = stage.loadImpulses()
+        .then(() => {
+            if (!delayReverbNode) {
+                throw new Error('Delay processor unavailable for convolution stage.');
+            }
+            delayReverbNode.connect(stage.wetInput, 1, 0);
+            stage.output.connect(delayReverbNode, 0, 1);
+            roomImpulseStage = stage;
+            roomImpulseStage.setLengthNormalized(delayUiState.lengthNormalized);
+            roomImpulseStage.setReverseActive(delayUiState.reverse, true);
+            roomImpulseStage.setFrozenState(delayUiState.freeze);
+            if (delayReverbNode.port) {
+                delayReverbNode.port.postMessage({ type: 'convolution-mode', enabled: true });
+            }
+            console.log('Room convolution stage engaged.');
+        })
+        .catch((error) => {
+            stage.dispose();
+            roomImpulseStage = null;
+            if (delayReverbNode?.port) {
+                delayReverbNode.port.postMessage({ type: 'convolution-mode', enabled: false });
+            }
+            if (error && (error.code === ROOM_IR_FILE_PROTOCOL_ERROR || error.message === ROOM_IR_FILE_PROTOCOL_ERROR)) {
+                console.warn('Room convolution IRs require http/https. Run a local server to enable them.');
+            } else {
+                console.error('Room convolution stage failed to initialize:', error);
+            }
+        })
+        .finally(() => {
+            roomImpulseStageLoadPromise = null;
+        });
+};
+
+function buildDelayParamPayload(overrides = {}) {
+    const effectiveTime = delayUiState.synced && delayUiState.currentSyncedSeconds
+        ? delayUiState.currentSyncedSeconds
+        : normalizedToDelaySeconds(delayUiState.timeNormalized);
+
+    const payload = {
+        delayTime: effectiveTime,
+        tailSeconds: normalizedToTailSeconds(delayUiState.lengthNormalized),
+        feedbackGain: normalizedToFeedback(delayUiState.feedbackNormalized),
+        density: normalizedToDensity(delayUiState.densityNormalized),
+        lowCutHz: normalizedToLowCutHz(delayUiState.lowCutNormalized),
+        highCutHz: normalizedToHighCutHz(delayUiState.highCutNormalized),
+        mix: normalizedToMix(delayUiState.mixNormalized),
+        freeze: !!delayUiState.freeze,
+        reverse: !!delayUiState.reverse
+    };
+    payload.inputTrim = computeDelayInputTrim(payload.mix, payload.feedbackGain);
+    return { ...payload, ...overrides };
+}
+
+function postDelayParams(partial = {}) {
+    if (!partial || typeof partial !== 'object') return;
+    Object.assign(delayProcessorState, partial);
+    if (delayReverbNode) {
+        delayReverbNode.port.postMessage({ type: 'params', values: partial });
+    } else {
+        pendingDelayPayload = { ...pendingDelayPayload, ...partial };
+    }
+}
+
+function refreshDelayProcessor(reason = 'ui-change') {
+    const payload = buildDelayParamPayload();
+    if (roomImpulseStage) {
+        roomImpulseStage.setLengthNormalized(delayUiState.lengthNormalized);
+    }
+    postDelayParams(payload);
+}
 
 function emitAutomationValue(paramId, value) {
     if (!paramId) return;
@@ -450,7 +936,19 @@ if (junoChorusEffect) {
     fxBusInput.connect(lossArtifactsStage.input);
 }
 
-lossArtifactsStage.output.connect(fxBusOutput);
+delayStageInput = audioCtx.createGain();
+delayStageOutput = audioCtx.createGain();
+delayStageInput.gain.setValueAtTime(1.0, audioCtx.currentTime);
+delayStageOutput.gain.setValueAtTime(1.0, audioCtx.currentTime);
+
+if (lossArtifactsStage && lossArtifactsStage.output) {
+    lossArtifactsStage.output.connect(delayStageInput);
+} else {
+    fxBusInput.connect(delayStageInput);
+}
+
+delayStageInput.connect(delayStageOutput);
+delayStageOutput.connect(fxBusOutput);
 
 const lossProcessorPromise = audioCtx.audioWorklet.addModule('js/loss-artifacts-processor.js')
     .then(() => {
@@ -462,6 +960,42 @@ const lossProcessorPromise = audioCtx.audioWorklet.addModule('js/loss-artifacts-
     })
     .catch(error => {
         console.error('Failed to load loss/artifacts processor:', error);
+        return false;
+    });
+
+const delayProcessorPromise = audioCtx.audioWorklet.addModule('js/stereo-delay-reverb-processor.js')
+    .then(() => {
+        delayReverbNode = new AudioWorkletNode(audioCtx, 'stereo-delay-reverb-processor', {
+            numberOfInputs: 2,
+            numberOfOutputs: 2,
+            outputChannelCount: [2, 2],
+            inputChannelCount: [2, 2],
+            channelCount: 2,
+            channelCountMode: 'explicit',
+            channelInterpretation: 'speakers'
+        });
+
+        try {
+            delayStageInput.disconnect();
+        } catch (disconnectError) {
+            console.warn('Delay stage bypass disconnect failed', disconnectError);
+        }
+
+        delayStageInput.connect(delayReverbNode);
+        delayReverbNode.connect(delayStageOutput, 0, 0);
+        window.delayFxNode = delayReverbNode;
+
+        const bootstrapPayload = Object.keys(pendingDelayPayload || {}).length
+            ? pendingDelayPayload
+            : delayProcessorState;
+        delayReverbNode.port.postMessage({ type: 'params', values: bootstrapPayload });
+        pendingDelayPayload = {};
+        console.log('Stereo delay/reverb processor ready.');
+        ensureRoomImpulseStage();
+        return true;
+    })
+    .catch(error => {
+        console.error('Failed to load stereo delay/reverb processor:', error);
         return false;
     });
 
@@ -1501,6 +2035,239 @@ function setupVoiceSpreadControl() {
         updateSpreadKnobRotation();
     }
     setVoicePanSpread(voicePanSpread, { forceUpdate: true });
+}
+
+function setDelayTimeSliderDisabled(disabled, syncedSeconds = null) {
+    const slider = delayUiElements.timeSlider;
+    if (!slider) return;
+    slider.disabled = !!disabled;
+    slider.classList.toggle('delay-slider-disabled', !!disabled);
+    if (disabled) {
+        slider.setAttribute('data-sync-active', 'true');
+        slider.title = 'Tempo-synced via sequencer division knob';
+    } else {
+        slider.removeAttribute('data-sync-active');
+        updateDelayControlTooltip(slider, 'timeNormalized', delayUiState.timeNormalized);
+    }
+    if (typeof syncedSeconds === 'number' && Number.isFinite(syncedSeconds)) {
+        const sliderMax = parseFloat(slider.max || 100) || 100;
+        const normalized = delaySecondsToNormalized(syncedSeconds);
+        slider.value = Math.round(normalized * sliderMax);
+    }
+}
+
+function formatDelayTimeDisplay(seconds) {
+    if (!Number.isFinite(seconds)) {
+        return '';
+    }
+    if (seconds < 1) {
+        return `${Math.round(seconds * 1000)} ms`;
+    }
+    return `${seconds.toFixed(2)} s`;
+}
+
+function formatFrequencyLabel(hz) {
+    if (!Number.isFinite(hz)) {
+        return '';
+    }
+    if (hz >= 1000) {
+        return `${(hz / 1000).toFixed(hz >= 10000 ? 1 : 2)} kHz`;
+    }
+    return `${Math.round(hz)} Hz`;
+}
+
+function getDelayControlTooltip(stateKey, normalizedValue) {
+    const value = Math.max(0, Math.min(1, normalizedValue ?? delayUiState[stateKey] ?? 0));
+    switch (stateKey) {
+        case 'timeNormalized': {
+            const seconds = normalizedToDelaySeconds(value);
+            return formatDelayTimeDisplay(seconds);
+        }
+        case 'lengthNormalized': {
+            const seconds = normalizedToTailSeconds(value);
+            return seconds < 1 ? `${Math.round(seconds * 1000)} ms` : `${seconds.toFixed(2)} s`;
+        }
+        case 'feedbackNormalized': {
+            const feedback = normalizedToFeedback(value);
+            return feedback.toFixed(2);
+        }
+        case 'densityNormalized': {
+            return `${Math.round(value * 100)}%`;
+        }
+        case 'lowCutNormalized': {
+            const hz = normalizedToLowCutHz(value);
+            return formatFrequencyLabel(hz);
+        }
+        case 'highCutNormalized': {
+            const hz = normalizedToHighCutHz(value);
+            return formatFrequencyLabel(hz);
+        }
+        case 'mixNormalized': {
+            const mixPercent = Math.round(normalizedToMix(value) * 100);
+            return `${mixPercent}%`;
+        }
+        default:
+            return '';
+    }
+}
+
+function updateDelayControlTooltip(target, stateKey, normalizedValue, options = {}) {
+    if (!target || !stateKey) {
+        return;
+    }
+    const text = getDelayControlTooltip(stateKey, normalizedValue);
+    if (!text) {
+        return;
+    }
+    target.title = text;
+    if (options.useKnobTooltip && target.id) {
+        const position = options.position || 'bottom';
+        const tooltip = createTooltipForKnob(target.id, text, position);
+        if (tooltip) {
+            tooltip.textContent = text;
+            tooltip.style.display = 'block';
+            tooltip.style.opacity = '1';
+        }
+    } else if (options.showBubble) {
+        const position = options.position || 'top';
+        createTooltipForSlider(target, text, position);
+    }
+}
+
+function setupDelayModuleControls() {
+    const timeSlider = document.getElementById('delay-time-slider');
+    const lengthSlider = document.getElementById('delay-length-slider');
+    const feedbackSlider = document.getElementById('delay-feedback-slider');
+    const densitySlider = document.getElementById('delay-density-slider');
+    const reverseSwitch = document.getElementById('reverse-switch');
+    const freezeSwitch = document.getElementById('freeze-switch');
+    const lowCutKnob = document.getElementById('low-cut-knob');
+    const highCutKnob = document.getElementById('high-cut-knob');
+    const mixKnob = document.getElementById('mix-knob');
+
+    if (!timeSlider || !lengthSlider || !feedbackSlider || !densitySlider) {
+        console.warn('Delay module sliders missing - skipping setup.');
+        return;
+    }
+
+    delayUiElements.timeSlider = timeSlider;
+    delayUiElements.lengthSlider = lengthSlider;
+    delayUiElements.feedbackSlider = feedbackSlider;
+    delayUiElements.densitySlider = densitySlider;
+    delayUiElements.reverseSwitch = reverseSwitch;
+    delayUiElements.freezeSwitch = freezeSwitch;
+
+    const applySliderDefault = (slider, normalized, stateKey) => {
+        const sliderMax = parseFloat(slider.max || 100) || 100;
+        slider.value = Math.round(clamp01(normalized) * sliderMax);
+        if (stateKey) {
+            updateDelayControlTooltip(slider, stateKey, clamp01(normalized));
+        }
+    };
+
+    applySliderDefault(timeSlider, delayUiState.timeNormalized, 'timeNormalized');
+    applySliderDefault(lengthSlider, delayUiState.lengthNormalized, 'lengthNormalized');
+    applySliderDefault(feedbackSlider, delayUiState.feedbackNormalized, 'feedbackNormalized');
+    applySliderDefault(densitySlider, delayUiState.densityNormalized, 'densityNormalized');
+
+    const installSliderHandler = (slider, stateKey) => {
+        if (!slider) return;
+        slider.addEventListener('input', () => {
+            if (stateKey === 'timeNormalized' && delayUiState.synced) {
+                createTooltipForSlider(slider, 'Tempo Sync Enabled', 'left');
+                return;
+            }
+            const max = parseFloat(slider.max || 100) || 100;
+            const normalized = clamp01(parseFloat(slider.value) / max);
+            delayUiState[stateKey] = normalized;
+            refreshDelayProcessor(stateKey);
+            updateDelayControlTooltip(slider, stateKey, normalized, { showBubble: true });
+        });
+    };
+
+    installSliderHandler(timeSlider, 'timeNormalized');
+    installSliderHandler(lengthSlider, 'lengthNormalized');
+    installSliderHandler(feedbackSlider, 'feedbackNormalized');
+    installSliderHandler(densitySlider, 'densityNormalized');
+
+    if (reverseSwitch) {
+        reverseSwitch.addEventListener('click', () => {
+            delayUiState.reverse = reverseSwitch.classList.contains('active');
+            if (roomImpulseStage) {
+                roomImpulseStage.setReverseActive(delayUiState.reverse);
+            }
+            refreshDelayProcessor('reverse');
+        });
+    }
+    if (freezeSwitch) {
+        freezeSwitch.addEventListener('click', () => {
+            delayUiState.freeze = freezeSwitch.classList.contains('active');
+            if (roomImpulseStage && typeof roomImpulseStage.setFrozenState === 'function') {
+                roomImpulseStage.setFrozenState(delayUiState.freeze);
+            }
+            refreshDelayProcessor('freeze');
+        });
+    }
+
+    const initDelayKnob = (knobElement, stateKey, storeKey) => {
+        if (!knobElement) return null;
+        const control = initializeKnob(knobElement, (value) => {
+            delayUiState[stateKey] = clamp01(value);
+            refreshDelayProcessor(stateKey);
+            updateDelayControlTooltip(knobElement, stateKey, delayUiState[stateKey], {
+                showBubble: true,
+                useKnobTooltip: true,
+                position: 'bottom'
+            });
+            return value;
+        }, knobDefaults);
+        if (control && typeof control.setValue === 'function') {
+            control.setValue(delayUiState[stateKey], false);
+        }
+        updateDelayControlTooltip(knobElement, stateKey, delayUiState[stateKey], {
+            useKnobTooltip: true,
+            position: 'bottom'
+        });
+        if (storeKey) {
+            delayUiElements[storeKey] = control;
+        }
+        return control;
+    };
+
+    initDelayKnob(lowCutKnob, 'lowCutNormalized', 'lowCutControl');
+    initDelayKnob(highCutKnob, 'highCutNormalized', 'highCutControl');
+    initDelayKnob(mixKnob, 'mixNormalized', 'mixControl');
+
+    refreshDelayProcessor('init');
+}
+
+function updateDelaySyncState(reason = 'manual') {
+    const routed = isTempoRouted('DELAY');
+    if (!routed) {
+        if (delayUiState.synced) {
+            delayUiState.synced = false;
+            delayUiState.currentSyncedSeconds = null;
+            setDelayTimeSliderDisabled(false);
+            const slider = delayUiElements.timeSlider;
+            if (slider) {
+                const sliderMax = parseFloat(slider.max || 100) || 100;
+                slider.value = Math.round(delayUiState.timeNormalized * sliderMax);
+            }
+            refreshDelayProcessor('sync-off');
+        }
+        return;
+    }
+    const intervalMs = sequencerTempo && typeof sequencerTempo.getIntervalTime === 'function'
+        ? sequencerTempo.getIntervalTime('DELAY')
+        : null;
+    if (!Number.isFinite(intervalMs)) {
+        return;
+    }
+    const seconds = Math.max(DELAY_TIME_MIN, Math.min(DELAY_TIME_MAX, intervalMs / 1000));
+    delayUiState.synced = true;
+    delayUiState.currentSyncedSeconds = seconds;
+    setDelayTimeSliderDisabled(true, seconds);
+    refreshDelayProcessor(reason);
 }
 
 function updateChorusButtonUi(state = chorusState) {
@@ -3181,6 +3948,9 @@ const knobDefaults = {
         'cabinet-knob': 0,
         'loss-knob': 0,
         'artifacts-knob': 0,
+        'low-cut-knob': 0.15,
+        'high-cut-knob': 0.7,
+        'mix-knob': 0.0,
 };
 // Try to create SharedArrayBuffer for clock synchronization
 function initializeMasterClock() {
@@ -7060,38 +7830,48 @@ initializeKeyboard('keyboard', noteOn, noteOff, updateKeyboardDisplay_Pool)
 
 
 function createTooltipForKnob(knobId, value, position = 'top') {
-const tooltip = document.getElementById(`${knobId}-tooltip`) || (() => {
-const newTooltip = document.createElement('div');
-newTooltip.id = `${knobId}-tooltip`;
-newTooltip.className = 'tooltip';
+    const tooltip = document.getElementById(`${knobId}-tooltip`) || (() => {
+        const newTooltip = document.createElement('div');
+        newTooltip.id = `${knobId}-tooltip`;
+        newTooltip.className = 'tooltip';
 
-// Find the knob and append tooltip to its parent container
-const knob = D(knobId);
-const parent = knob?.parentElement;
+        const knob = D(knobId);
+        const parent = knob?.parentElement;
+        if (parent && window.getComputedStyle(parent).position === 'static') {
+            parent.style.position = 'relative';
+        }
+        if (parent) {
+            parent.appendChild(newTooltip);
+        } else {
+            document.body.appendChild(newTooltip);
+        }
+        return newTooltip;
+    })();
 
-// Ensure parent has position relative
-if (parent && window.getComputedStyle(parent).position === 'static') {
-    parent.style.position = 'relative';
-}
+    tooltip.classList.remove('tooltip-right', 'tooltip-bottom', 'tooltip-top');
+    if (position === 'right') {
+        tooltip.classList.add('tooltip-right');
+    } else if (position === 'bottom') {
+        tooltip.classList.add('tooltip-bottom');
+    } else {
+        tooltip.classList.add('tooltip-top');
+    }
 
-// Append to parent instead of body
-if (parent) {
-    parent.appendChild(newTooltip);
-} else {
-    document.body.appendChild(newTooltip);
-}
+    const knob = D(knobId);
+    if (knob) {
+        const offset = 8;
+        if (position === 'bottom') {
+            tooltip.style.setProperty('top', `${knob.offsetHeight + offset}px`, 'important');
+        } else if (position === 'top') {
+            tooltip.style.setProperty('top', `-${(tooltip.offsetHeight || 24) + offset}px`, 'important');
+        } else {
+            tooltip.style.removeProperty('top');
+        }
+        tooltip.style.left = '50%';
+        tooltip.style.transform = 'translateX(-50%)';
+    }
 
-return newTooltip;
-})();
-
-tooltip.classList.remove('tooltip-right', 'tooltip-bottom');
-if (position === 'right') {
-    tooltip.classList.add('tooltip-right');
-} else if (position === 'bottom') {
-    tooltip.classList.add('tooltip-bottom');
-}
-
-return tooltip;
+    return tooltip;
 }
 
 // Create tooltip for sliders
@@ -10039,6 +10819,7 @@ initializeModulationRouting();
 // Initialize Sequencer Tempo System (must be before LFO/MOD so they can sync)
 initializeSequencerModule();
 console.log('Sequencer tempo system initialized from main.js');
+updateDelaySyncState('post-init');
 setupSequenceSaveLoadControls();
 setupVoiceSpreadControl();
 
@@ -10061,6 +10842,27 @@ window.addEventListener('sequencer:quantize-changed', () => {
 
 window.addEventListener('sequencer:transport-stopped', () => {
     releaseSequencerVoices('transport-stop');
+});
+
+window.addEventListener('sequencer:division-routing-change', (event) => {
+    const detail = event && event.detail ? event.detail : {};
+    if (detail.destination === 'DELAY') {
+        updateDelaySyncState('routing-change');
+    }
+});
+
+window.addEventListener('sequencer:division-setting-change', (event) => {
+    if (!delayUiState.synced) return;
+    const detail = event && event.detail ? event.detail : {};
+    if (detail.destination === 'DELAY') {
+        updateDelaySyncState('division-change');
+    }
+});
+
+window.addEventListener('sequencer:tempo-change', () => {
+    if (delayUiState.synced) {
+        updateDelaySyncState('tempo-change');
+    }
 });
 
 // Initialize LFO system
@@ -10300,6 +11102,7 @@ if (modCanvasElement) {
 }
 // Initialize Placeholder UI Elements
 initializeUiPlaceholders();
+setupDelayModuleControls();
 setupChorusButton();
 // Initialize Oscillator 1 Octave Slider
 const osc1OctaveSelector = D('osc1-octave-selector');

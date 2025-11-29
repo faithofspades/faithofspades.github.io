@@ -2538,6 +2538,7 @@ function setTempo(bpm) {
     
     console.log(`Tempo set to ${globalTempo} BPM`);
     notifyLossIntervalChange('set-tempo');
+    dispatchSequencerEvent('sequencer:tempo-change', { tempo: globalTempo });
 }
 
 // --- Set Division for Destination ---
@@ -2584,6 +2585,12 @@ function setDivision(destination, divisionIndex, modifierIndex = 0) {
     if (isTempoPlaying && !isPaused) {
         startTempo();
     }
+
+    dispatchSequencerEvent('sequencer:division-setting-change', {
+        destination,
+        settings: divisionSettings[destination],
+        meter: destination === 'GLOBAL' ? divisionSettings['GLOBAL'] : undefined
+    });
 }
 
 // --- Toggle Division Routing ---
@@ -2604,6 +2611,11 @@ function toggleDivisionRouting(destination) {
     
     // Update mod rate knob state if MOD or LFO is toggled
     updateModRateKnobState();
+
+    dispatchSequencerEvent('sequencer:division-routing-change', {
+        destination,
+        routed: !!divisionConnections[destination]
+    });
 }
 
 // --- Update Mod Rate Knob State ---

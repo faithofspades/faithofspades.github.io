@@ -96,6 +96,11 @@
   top: 294px; /* Adjust as needed */
   z-index: 1;
 }
+.delay-slider:disabled,
+.delay-slider.delay-slider-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* Slider thumb */
 .delay-slider::-webkit-slider-thumb {

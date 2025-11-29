@@ -1218,6 +1218,8 @@ class LossArtifactsProcessor extends AudioWorkletProcessor {
             output[ch].fill(0);
         }
 
+        this._prepareArtifactFrame();
+
         if (!this.lossSmoothInitialized) {
             this.lossSmooth = blockLoss;
             this.lossSmoothInitialized = true;
