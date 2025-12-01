@@ -150,7 +150,8 @@ export function initializeSpecialButtons(
     activeVoicesRef,
     heldNotesRef
 ) {
-    // Fix for LoFi button
+    let controls = null;
+
     const emuModeSwitch = D('emu-mode-switch');
     if (emuModeSwitch) {
         const newEmuSwitch = emuModeSwitch.cloneNode(true);
@@ -158,6 +159,43 @@ export function initializeSpecialButtons(
 
         let touchLock = false;
         let touchTimeout;
+
+        const applyEmuModeState = (nextState, options = {}) => {
+            const { suppressCallbacks = false, force = false } = options;
+            const targetState = !!nextState;
+            const wasActive = newEmuSwitch.classList.contains('active');
+            if (!force && wasActive === targetState) {
+                return;
+            }
+
+            newEmuSwitch.classList.toggle('active', targetState);
+            const led = D('emu-led');
+            if (led) {
+                led.classList.toggle('on', targetState);
+            }
+
+            if (suppressCallbacks) {
+                return;
+            }
+
+            onEmuModeToggle(targetState);
+            updateSampleProcessingCallback();
+
+            setTimeout(() => {
+                if (!activeVoicesRef) {
+                    return;
+                }
+                Object.values(activeVoicesRef).forEach(voice => {
+                    if (voice && voice.samplerNote) {
+                        const isHeld = Array.isArray(heldNotesRef) && heldNotesRef.includes(voice.noteNumber);
+                        console.log(`Lo-Fi Toggle: Updating sampler note ${voice.samplerNote.id} (held: ${isHeld})`);
+                        updatePlaybackParamsCallback(voice.samplerNote);
+                    }
+                });
+            }, 50);
+
+            console.log('Lo-Fi Mode:', targetState ? 'ON' : 'OFF');
+        };
 
         const handleClick = function(e) {
             if (touchLock) {
@@ -167,36 +205,7 @@ export function initializeSpecialButtons(
             }
             touchLock = true;
 
-            const isActive = newEmuSwitch.classList.contains('active');
-            const newState = !isActive; // The state *after* the toggle
-
-            // Update internal state via callback
-            onEmuModeToggle(newState);
-
-            // Update UI
-            const led = D('emu-led');
-            if (led) led.classList.toggle('on', newState);
-            newEmuSwitch.classList.toggle('active', newState);
-
-            // Trigger necessary updates
-            updateSampleProcessingCallback(); // Regenerate buffers (emu/non-emu)
-
-            // Update ALL active SAMPLER notes when Lo-Fi toggles
-            // Use setTimeout to allow updateSampleProcessingCallback's async part to potentially finish
-            setTimeout(() => {
-                Object.values(activeVoicesRef).forEach(voice => { // Use renamed parameter
-                    // Target the samplerNote within the voice
-                    if (voice && voice.samplerNote) {
-                        // Check if the note is held (using heldNotesRef which maps to main.js heldNotes)
-                        const isHeld = heldNotesRef.includes(voice.noteNumber);
-                        console.log(`Lo-Fi Toggle: Updating sampler note ${voice.samplerNote.id} (held: ${isHeld})`);
-                        // Call the update function specifically for the sampler note
-                        updatePlaybackParamsCallback(voice.samplerNote);
-                    }
-                });
-            }, 50); // Small delay
-
-            console.log('Lo-Fi Mode:', newState ? 'ON' : 'OFF');
+            applyEmuModeState(!newEmuSwitch.classList.contains('active'));
 
             clearTimeout(touchTimeout);
             touchTimeout = setTimeout(() => { touchLock = false; }, 300);
@@ -205,19 +214,23 @@ export function initializeSpecialButtons(
         newEmuSwitch.addEventListener('click', handleClick);
 
         newEmuSwitch.addEventListener('touchstart', function(e) {
-            e.stopPropagation(); // Prevent potential parent handlers
+            e.stopPropagation();
         }, { passive: true });
 
         newEmuSwitch.addEventListener('touchend', function(e) {
             if (!touchLock) {
-                handleClick(e); // Simulate click on touchend if not locked
+                handleClick(e);
             }
             e.preventDefault();
             e.stopPropagation();
         }, { passive: false });
+
+        controls = {
+            setEmuModeState: (state, options = {}) => applyEmuModeState(state, options)
+        };
     }
 
-    // Add initialization for other special buttons (like Rec) here if needed
+    return controls;
 }
 
 

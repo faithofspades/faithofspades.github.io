@@ -40,6 +40,9 @@ class StereoDelayReverbProcessor extends AudioWorkletProcessor {
         this.lowCutAlphaTarget = this.lowCutAlphaCurrent = this.computeFilterAlpha(this.params.lowCutHz);
         this.highCutAlphaTarget = this.highCutAlphaCurrent = this.computeFilterAlpha(this.params.highCutHz);
         this.filterSlew = this.computeSlewCoef(0.05, 0.0005, 2);
+        this.reverbLengthMixTarget = 1;
+        this.reverbLengthMixCurrent = 1;
+        this.reverbLengthMixSlew = this.computeSlewCoef(0.02, 0.0005, 0.5);
         this.lowCutStateL = 0;
         this.lowCutStateR = 0;
         this.highCutStateL = 0;
@@ -112,6 +115,10 @@ class StereoDelayReverbProcessor extends AudioWorkletProcessor {
             }
             if (typeof values.density === 'number') {
                 this.setDensity(values.density);
+            }
+            if (typeof values.reverbLengthMix === 'number') {
+                const trimmed = Math.max(0, Math.min(1, values.reverbLengthMix));
+                this.reverbLengthMixTarget = trimmed;
             }
             if (typeof values.lowCutHz === 'number') {
                 this.lowCutAlphaTarget = this.computeFilterAlpha(values.lowCutHz);
@@ -656,6 +663,9 @@ class StereoDelayReverbProcessor extends AudioWorkletProcessor {
         const reverbDirectBypass = 1;
         const baseConvolutionSendComp = convolutionActive ? this.convolutionSendComp : 1;
         const allowNewWet = freezeActive ? 0 : 1;
+        let reverbLengthMix = this.reverbLengthMixCurrent;
+        const reverbLengthMixTarget = this.reverbLengthMixTarget;
+        const reverbLengthMixSlew = this.reverbLengthMixSlew;
 
         for (let i = 0; i < frames; i++) {
             const dryL = inL ? inL[i] : 0;
@@ -693,6 +703,9 @@ class StereoDelayReverbProcessor extends AudioWorkletProcessor {
                 reverseAwareReverbLevel = reverseEnabled ? 1 : reverbLevelScale;
             }
             const densityMix = Math.max(0, Math.min(1, this.densityTarget));
+            reverbLengthMix += (reverbLengthMixTarget - reverbLengthMix) * reverbLengthMixSlew;
+            if (reverbLengthMix < 0) reverbLengthMix = 0;
+            else if (reverbLengthMix > 1) reverbLengthMix = 1;
 
             lowCutAlpha += (lowCutTarget - lowCutAlpha) * filterSlew;
             highCutAlpha += (highCutTarget - highCutAlpha) * filterSlew;
@@ -863,10 +876,13 @@ class StereoDelayReverbProcessor extends AudioWorkletProcessor {
             outL[i] = dryL * dryMix + wetL * wetMix;
             outR[i] = dryR * dryMix + wetR * wetMix;
 
-            const dryDelayInjectionL = allowNewWet ? dryL * inputTrim * (1 - reverseAwareReverbLevel) : 0;
-            const dryDelayInjectionR = allowNewWet ? dryR * inputTrim * (1 - reverseAwareReverbLevel) : 0;
-            const writeValueL = Math.max(-1, Math.min(1, dryDelayInjectionL + processedReverbWetL + delayedL * delayFeedback));
-            const writeValueR = Math.max(-1, Math.min(1, dryDelayInjectionR + processedReverbWetR + delayedR * delayFeedback));
+            const reverbRemovalFactor = Math.max(0, Math.min(1, reverseAwareReverbLevel * reverbLengthMix));
+            const dryDelayInjectionL = allowNewWet ? dryL * inputTrim * (1 - reverbRemovalFactor) : 0;
+            const dryDelayInjectionR = allowNewWet ? dryR * inputTrim * (1 - reverbRemovalFactor) : 0;
+            const reverbFeedbackWetL = processedReverbWetL * reverbLengthMix;
+            const reverbFeedbackWetR = processedReverbWetR * reverbLengthMix;
+            const writeValueL = Math.max(-1, Math.min(1, dryDelayInjectionL + reverbFeedbackWetL + delayedL * delayFeedback));
+            const writeValueR = Math.max(-1, Math.min(1, dryDelayInjectionR + reverbFeedbackWetR + delayedR * delayFeedback));
             bufferL[writeIndex] = writeValueL;
             bufferR[writeIndex] = writeValueR;
 
@@ -891,6 +907,7 @@ class StereoDelayReverbProcessor extends AudioWorkletProcessor {
         this.highCutAlphaCurrent = highCutAlpha;
         this.tailSecondsCurrent = tailSeconds;
         this.densityCurrent = density;
+        this.reverbLengthMixCurrent = reverbLengthMix;
         return true;
     }
 }

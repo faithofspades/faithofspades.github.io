@@ -129,7 +129,7 @@
       </div>
       <div class="tick-with-label">
         <div class="tick"></div>
-        <span class="tick-label">Speed</span>
+        <span class="tick-label">Dropouts</span>
       </div>
       <div class="tick-with-label">
         <div class="tick"></div>
@@ -145,19 +145,19 @@
       </div>
       <div class="tick-with-label">
         <div class="tick"></div>
-        <span class="tick-label">Pitch</span>
+        <span class="tick-label">Time</span>
       </div>
       <div class="tick-with-label">
         <div class="tick"></div>
-        <span class="tick-label">Delay Time</span>
-      </div>
-      <div class="tick-with-label">
-        <div class="tick"></div>
-        <span class="tick-label">Warp</span>
+        <span class="tick-label">Length</span>
       </div>
       <div class="tick-with-label">
         <div class="tick"></div>
         <span class="tick-label">Feedback</span>
+      </div>
+      <div class="tick-with-label">
+        <div class="tick"></div>
+        <span class="tick-label">Density</span>
       </div>
       <div class="tick-with-label">
         <div class="tick"></div>
@@ -173,7 +173,7 @@
       </div>
       <div class="tick-with-label">
         <div class="tick"></div>
-        <span class="tick-label">Lo-Fi Amt</span>
+        <span class="tick-label">Pitchwheel</span>
       </div>
       
     </div>
@@ -1266,6 +1266,7 @@
                           <div class="seq-sequence-button" id="seq-state-save-button">SAVE</div>
                           <div class="seq-sequence-button" id="seq-state-load-button">LOAD</div>
                       </div>
+                      <input type="file" id="seq-preset-file-input" accept="application/json,.json" class="hidden-file-input">
                       <label for="seq-state-buttons">STATE</label>
                   </div>
                   
@@ -1474,7 +1475,7 @@
                           
                           <!-- Pitch Bend Slider -->
                           <div class="seq-pitch-slider-container">
-                            <input type="range" class="seq-pitch-slider" min="-2" max="2" step="0.01" value="0" orient="vertical">
+                            <input type="range" id="seq-pitch-slider" class="seq-pitch-slider" min="-2" max="2" step="0.01" value="0" orient="vertical">
                             <label for="seq-pitch-slider">PITCH</label>
                           </div>
                       </div>

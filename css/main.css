@@ -200,6 +200,48 @@ margin-left: 5.5px;
 margin-right: 11px;
 }
 
+/* ---------- Global Tips Overlay Styles ---------- */
+body.tips-mode-active {
+  cursor: help;
+}
+
+.synth-tip-overlay {
+  position: absolute;
+  max-width: 260px;
+  background: rgba(33, 26, 18, 0.96);
+  color: #fdf1c6;
+  border: 2px solid #f6e4a8;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 9999;
+}
+
+.synth-tip-overlay.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+body.tips-mode-active [data-synth-tip] {
+  transition: box-shadow 0.15s ease, outline 0.15s ease;
+}
+
+body.tips-mode-active [data-synth-tip].is-tip-target {
+  box-shadow: 0 0 0 2px rgba(246, 228, 168, 0.7);
+  outline: 2px solid rgba(246, 228, 168, 0.4);
+  border-radius: 6px;
+}
+
+body.tips-mode-active .polyhymn-logo {
+  filter: drop-shadow(0 0 10px rgba(246, 228, 168, 0.8)) brightness(1.1);
+}
+
 .polyhymn-title {
 font-family: 'ofelia-text', sans-serif;
 font-weight: 600;

@@ -4,6 +4,14 @@ import { LP12FilterNode } from './LP-12-filter-node.js';
 import { LH12FilterNode } from './lh-12-filter-node.js';
 import { LH18FilterNode } from './lh-18-filter-node.js';
 import { LH24FilterNode } from './lh-24-filter-node.js';
+
+const clamp01 = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, numeric));
+};
 class FilterManager {
   constructor(audioContext) {
     this.audioCtx = audioContext;
@@ -561,6 +569,80 @@ class FilterManager {
     });
     
     console.log(`Filter input gain set to ${(normalizedValue * 100).toFixed(0)}%`);
+  }
+
+  getState() {
+    return {
+      type: this.currentFilterType,
+      cutoff: this.cutoff,
+      resonance: this.resonance,
+      variant: this.variant,
+      drive: clamp01(this.drive),
+      inputGainNormalized: clamp01(this.inputGain / 2),
+      envelopeAmount: clamp01(this.envelopeAmount),
+      keytrackAmount: clamp01(this.keytrackAmount),
+      cutoffModulation: Math.max(-1, Math.min(1, this.cutoffModulation || 0)),
+      adsr: {
+        attack: this.attackTime,
+        decay: this.decayTime,
+        sustain: this.sustainLevel,
+        release: this.releaseTime,
+        classicMode: !!this.classicMode
+      }
+    };
+  }
+
+  async applyState(state = {}) {
+    if (!state || typeof state !== 'object') {
+      return;
+    }
+
+    if (typeof state.type === 'string' && state.type !== this.currentFilterType) {
+      await this.setFilterType(state.type);
+    }
+
+    const applyNumeric = (value, setter) => {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) {
+        setter(numeric);
+      }
+    };
+
+    applyNumeric(state.cutoff, (v) => this.setCutoff(v));
+    applyNumeric(state.resonance, (v) => this.setResonance(v));
+    if (state.variant !== undefined) {
+      applyNumeric(state.variant, (v) => this.setVariant(clamp01(v)));
+    }
+    if (state.drive !== undefined) {
+      applyNumeric(state.drive, (v) => this.setDrive(clamp01(v)));
+    }
+
+    if (state.inputGainNormalized !== undefined) {
+      this.setInputGain(clamp01(state.inputGainNormalized));
+    } else if (state.inputGain !== undefined) {
+      this.setInputGain(clamp01(state.inputGain / 2));
+    }
+
+    if (state.envelopeAmount !== undefined) {
+      this.setEnvelopeAmount(clamp01(state.envelopeAmount));
+    }
+    if (state.keytrackAmount !== undefined) {
+      this.setKeytrackAmount(clamp01(state.keytrackAmount));
+    }
+    if (state.cutoffModulation !== undefined) {
+      const numeric = Number(state.cutoffModulation);
+      if (Number.isFinite(numeric)) {
+        this.setCutoffModulation(Math.max(-1, Math.min(1, numeric)));
+      }
+    }
+
+    if (state.adsr && typeof state.adsr === 'object') {
+      const attack = Number.isFinite(Number(state.adsr.attack)) ? Number(state.adsr.attack) : this.attackTime;
+      const decay = Number.isFinite(Number(state.adsr.decay)) ? Number(state.adsr.decay) : this.decayTime;
+      const sustain = Number.isFinite(Number(state.adsr.sustain)) ? Number(state.adsr.sustain) : this.sustainLevel;
+      const release = Number.isFinite(Number(state.adsr.release)) ? Number(state.adsr.release) : this.releaseTime;
+      this.setADSR(attack, decay, sustain, release, !!state.adsr.classicMode);
+    }
   }
   
   setAmplitudeGainNode(voiceId, gainNode) {

@@ -10,6 +10,9 @@ const SPEED_MIN = 0.25;
 const SPEED_MAX = 2.0;
 const PITCH_MIN = -24;
 const PITCH_MAX = 24;
+const FILTER_LP_MAX_HZ = 20000;
+const FILTER_LP_MIN_RATIO = 0.00005;
+const FILTER_HP_MIN_HZ = 20;
 
 const defaultKnobValues = () => ({
     volume: 0.75,
@@ -35,9 +38,10 @@ const defaultLayerState = () => ({
 });
 
 export class LayeredLooperEngine {
-    constructor(audioCtx, node) {
+    constructor(audioCtx, node, options = {}) {
         this.audioCtx = audioCtx;
         this.node = node;
+        this.integrationCallbacks = options.integrationCallbacks || null;
         this.state = {
             playing: false,
             recording: false,
@@ -61,11 +65,24 @@ export class LayeredLooperEngine {
             undoStack: [],
             redoStack: [],
             pendingRequests: new Map(),
-            requestId: 0,
-            recordSource: 'internal'
+            requestId: 0
         };
         this.buttons = {};
         this.knobs = {};
+        this.knobTooltipElements = new Map();
+        this.paramToKnobId = {
+            volume: 'looper-volume-knob',
+            start: 'looper-start-knob',
+            end: 'looper-end-knob',
+            lofi: 'looper-lofi-knob',
+            repeats: 'looper-repeats-knob',
+            speed: 'looper-speed-knob',
+            filter: 'looper-filter-knob',
+            dropouts: 'looper-dropouts-knob',
+            jump: 'looper-jump-knob',
+            stutter: 'looper-stutter-knob',
+            pitch: 'looper-pitch-knob'
+        };
         this.layersKnob = null;
         this.layerMarkers = [];
         this.statusTextEl = null;
@@ -99,15 +116,10 @@ export class LayeredLooperEngine {
         if (this.node?.port) {
             this.node.port.onmessage = (event) => this.handlePortMessage(event.data);
         }
-        this.micCapture = {
-            stream: null,
-            source: null
-        };
         this.setupUi();
         this.statusTextEl = document.getElementById('looper-status-text');
         this.layerInfoEl = document.getElementById('looper-layer-info');
         this.layerMarkers = Array.from(document.querySelectorAll('.layer-marker'));
-        this.buttons.record?.addEventListener('contextmenu', (event) => this.handleRecordSourceContext(event));
         this.syncUiState();
         this.updateLayerInfo();
         this.updateLayerMarkers();
@@ -120,7 +132,6 @@ export class LayeredLooperEngine {
         this.layerProcessingTimers.clear();
         this.layerProcessingState.clear();
         this.layerOriginalAudio.clear();
-        this.disableMicCapture();
         if (this.node?.port) {
             this.node.port.onmessage = null;
         }
@@ -245,6 +256,7 @@ export class LayeredLooperEngine {
             this.syncKnobsToLayer();
             this.updateLayerInfo();
             this.updateLayerMarkers();
+            this.updateLayerSelectorTooltip(index, { show: true });
         };
         const handleMove = (clientY) => {
             if (!dragging) return;
@@ -281,32 +293,193 @@ export class LayeredLooperEngine {
         }, { passive: false });
         document.addEventListener('touchend', () => { dragging = false; });
         this.postSelectedLayer(index);
+        this.updateLayerSelectorTooltip(index, { show: false });
         return knob;
     }
 
     initializeKnobs() {
-        this.knobs.volume = this.createKnob('looper-volume-knob', (value) => this.updateLayerParam('volume', value));
-        this.knobs.start = this.createKnob('looper-start-knob', (value) => this.updateLayerParam('start', value));
-        this.knobs.end = this.createKnob('looper-end-knob', (value) => this.updateLayerParam('end', value));
-        this.knobs.lofi = this.createKnob('looper-lofi-knob', (value) => this.updateLayerParam('lofi', value));
-        this.knobs.repeats = this.createKnob('looper-repeats-knob', (value) => this.updateLayerParam('repeats', value));
-        this.knobs.speed = this.createKnob('looper-speed-knob', (value) => this.updateLayerParam('speed', value));
-        this.knobs.filter = this.createKnob('looper-filter-knob', (value) => this.updateLayerParam('filter', value));
-        this.knobs.dropouts = this.createKnob('looper-dropouts-knob', (value) => this.updateLayerParam('dropouts', value));
-        this.knobs.jump = this.createKnob('looper-jump-knob', (value) => this.updateLayerParam('jump', value));
-        this.knobs.stutter = this.createKnob('looper-stutter-knob', (value) => this.updateLayerParam('stutter', value));
-        this.knobs.pitch = this.createKnob('looper-pitch-knob', (value) => this.updateLayerParam('pitch', value));
+        this.knobs.volume = this.createKnob('looper-volume-knob', 'volume');
+        this.knobs.start = this.createKnob('looper-start-knob', 'start');
+        this.knobs.end = this.createKnob('looper-end-knob', 'end');
+        this.knobs.lofi = this.createKnob('looper-lofi-knob', 'lofi');
+        this.knobs.repeats = this.createKnob('looper-repeats-knob', 'repeats');
+        this.knobs.speed = this.createKnob('looper-speed-knob', 'speed');
+        this.knobs.filter = this.createKnob('looper-filter-knob', 'filter');
+        this.knobs.dropouts = this.createKnob('looper-dropouts-knob', 'dropouts');
+        this.knobs.jump = this.createKnob('looper-jump-knob', 'jump');
+        this.knobs.stutter = this.createKnob('looper-stutter-knob', 'stutter');
+        this.knobs.pitch = this.createKnob('looper-pitch-knob', 'pitch');
         this.applyStartEndDefaultTargets();
     }
 
-    createKnob(id, handler) {
+    createKnob(id, param) {
         const node = document.getElementById(id);
         if (!node) return null;
         const defaults = this.looperKnobDefaults || {};
         return initializeKnob(node, (value) => {
-            handler(value);
+            if (param) {
+                this.updateLayerParam(param, value);
+            }
+            this.reportKnobValue(id, value);
             return value;
         }, defaults);
+    }
+
+    reportKnobValue(knobId, value) {
+        if (!knobId || !this.integrationCallbacks?.onKnobValueChange) {
+            return;
+        }
+        try {
+            this.integrationCallbacks.onKnobValueChange(knobId, value);
+        } catch (error) {
+            console.warn('Looper integration callback failed for', knobId, error);
+        }
+    }
+
+    ensureKnobTooltipElement(knobId) {
+        if (!knobId) {
+            return null;
+        }
+        const cached = this.knobTooltipElements.get(knobId);
+        if (cached && cached.isConnected) {
+            return cached;
+        }
+        const knob = document.getElementById(knobId);
+        if (!knob) {
+            return null;
+        }
+        const tooltip = document.createElement('div');
+        tooltip.id = `${knobId}-tooltip`;
+        tooltip.classList.add('tooltip', 'tooltip-bottom');
+        const parent = knob.parentElement;
+        if (parent && window.getComputedStyle(parent).position === 'static') {
+            parent.style.position = 'relative';
+        }
+        (parent || document.body).appendChild(tooltip);
+        tooltip.style.opacity = '0';
+        tooltip.style.left = '50%';
+        tooltip.style.transform = 'translateX(-50%)';
+        this.knobTooltipElements.set(knobId, tooltip);
+        return tooltip;
+    }
+
+    applyTooltipText(knobId, text, options = {}) {
+        if (!knobId) return;
+        const tooltip = this.ensureKnobTooltipElement(knobId);
+        if (!tooltip) return;
+        if (!text) {
+            tooltip.textContent = '';
+            tooltip.style.opacity = '0';
+            return;
+        }
+        tooltip.textContent = text;
+        tooltip.style.display = 'block';
+        if (options.show !== false) {
+            tooltip.style.opacity = '1';
+        }
+    }
+
+    updateKnobTooltip(param, value, options = {}) {
+        const knobId = this.paramToKnobId?.[param];
+        if (!knobId) {
+            return;
+        }
+        const text = this.formatKnobTooltipValue(param, value);
+        if (!text) {
+            this.applyTooltipText(knobId, '', { show: false });
+            return;
+        }
+        this.applyTooltipText(knobId, text, options);
+    }
+
+    formatKnobTooltipValue(param, value) {
+        switch (param) {
+            case 'volume':
+            case 'lofi':
+            case 'repeats':
+            case 'dropouts':
+            case 'jump':
+            case 'stutter':
+                return this.formatPercent(value);
+            case 'start':
+            case 'end':
+                return this.formatPercent(value, 1);
+            case 'speed': {
+                const speedRatio = this.mapSpeedNormalizedToActual(this.clamp01(value));
+                if (!Number.isFinite(speedRatio)) {
+                    return '';
+                }
+                return `${Math.round(speedRatio * 100)}%`;
+            }
+            case 'pitch': {
+                const cents = Math.round(this.normalizedPitchToSemitones(this.clamp01(value)) * 100);
+                const sign = cents > 0 ? '+' : '';
+                return `${sign}${cents}c`;
+            }
+            case 'filter':
+                return this.formatFilterTooltip(value);
+            default:
+                if (typeof value === 'number') {
+                    return this.formatPercent(value);
+                }
+                return '';
+        }
+    }
+
+    updateLayerSelectorTooltip(index, options = {}) {
+        const knobId = 'looper-layers-knob';
+        const safeIndex = typeof index === 'number' && index >= 0 ? index : (this.state.selectedLayer ?? 0);
+        const label = `Layer ${safeIndex + 1}`;
+        this.applyTooltipText(knobId, label, options);
+    }
+
+    formatFilterTooltip(value) {
+        const mode = this.clamp01(value ?? 0.5);
+        const nyquist = (this.audioCtx?.sampleRate || 44100) * 0.5;
+        const lpMax = Math.min(FILTER_LP_MAX_HZ, nyquist * 0.99);
+        const lpMin = Math.max(0.1, nyquist * FILTER_LP_MIN_RATIO);
+        const hpMax = Math.max(FILTER_HP_MIN_HZ, nyquist * 0.999);
+        const epsilon = 0.0005;
+        if (mode < 0.5 - epsilon) {
+            const strength = Math.min(1, (0.5 - mode) * 2);
+            const cutoff = lpMin + (lpMax - lpMin) * Math.pow(1 - strength, 2);
+            return `LP: ${this.formatFrequencyLabel(cutoff)}`;
+        }
+        if (mode > 0.5 + epsilon) {
+            const strength = Math.min(1, (mode - 0.5) * 2);
+            const cutoff = FILTER_HP_MIN_HZ + (hpMax - FILTER_HP_MIN_HZ) * Math.pow(strength, 2);
+            return `HP: ${this.formatFrequencyLabel(cutoff)}`;
+        }
+        return `LP: ${this.formatFrequencyLabel(lpMax)}`;
+    }
+
+    formatFrequencyLabel(hz) {
+        if (!Number.isFinite(hz) || hz <= 0) {
+            return '';
+        }
+        if (hz >= 1000) {
+            const value = hz / 1000;
+            const digits = value >= 10 ? 1 : 2;
+            return `${value.toFixed(digits)} kHz`;
+        }
+        return `${Math.round(hz)} Hz`;
+    }
+
+    formatPercent(value, decimals = 0) {
+        const clamped = this.clamp01(Number.isFinite(value) ? value : 0);
+        const percent = clamped * 100;
+        if (decimals > 0) {
+            return `${percent.toFixed(decimals)}%`;
+        }
+        return `${Math.round(percent)}%`;
+    }
+
+    clamp01(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            return 0;
+        }
+        return Math.max(0, Math.min(1, numeric));
     }
 
     getMasterLayerIndex() {
@@ -395,13 +568,18 @@ export class LayeredLooperEngine {
         const layer = this.state.layers[layerIndex];
         const knobs = layer.knobValues;
         knobs[param] = value;
+        this.updateKnobTooltip(param, knobs[param]);
         if (param === 'start' && value >= knobs.end - 0.01) {
             knobs.end = Math.min(1, value + 0.01);
             this.knobs.end?.setValue(knobs.end, false);
+            this.updateKnobTooltip('end', knobs.end, { show: false });
+            this.reportKnobValue(this.paramToKnobId?.end, knobs.end);
         }
         if (param === 'end' && value <= knobs.start + 0.01) {
             knobs.start = Math.max(0, value - 0.01);
             this.knobs.start?.setValue(knobs.start, false);
+            this.updateKnobTooltip('start', knobs.start, { show: false });
+            this.reportKnobValue(this.paramToKnobId?.start, knobs.start);
         }
         if ((param === 'start' || param === 'end') && layerIndex === this.getMasterLayerIndex()) {
             this.masterDefaultsNeedCommit = true;
@@ -412,6 +590,10 @@ export class LayeredLooperEngine {
         this.sendLayerParams(layerIndex);
         if ((param === 'start' || param === 'end')) {
             this.maybeRemindMasterAfterWindowReset(layerIndex);
+        }
+        const knobId = this.paramToKnobId?.[param];
+        if (knobId) {
+            this.reportKnobValue(knobId, knobs[param]);
         }
         if (param === 'speed' && this.state.layers[layerIndex]?.active) {
             const speedKnobDefault = this.knobs.speed?.getDefaultValue?.();
@@ -476,6 +658,7 @@ export class LayeredLooperEngine {
         if (this.state.selectedLayer === index) return;
         this.state.selectedLayer = index;
         this.postSelectedLayer(index);
+        this.updateLayerSelectorTooltip(index, { show: false });
         this.syncKnobsToLayer();
         this.updateLayerInfo();
         this.updateLayerMarkers();
@@ -1532,6 +1715,11 @@ export class LayeredLooperEngine {
         Object.entries(this.knobs).forEach(([key, controller]) => {
             if (!controller) return;
             controller.setValue(layer.knobValues[key], false);
+            this.updateKnobTooltip(key, layer.knobValues[key], { show: false });
+            const knobId = this.paramToKnobId?.[key];
+            if (knobId) {
+                this.reportKnobValue(knobId, layer.knobValues[key]);
+            }
         });
         this.updateLayerInfo();
         this.updateLayerMarkers();
@@ -1546,73 +1734,6 @@ export class LayeredLooperEngine {
         this.updateStatusText();
         this.updateLayerMarkers();
         this.updateLayerInfo();
-        this.updateRecordSourceUi();
-    }
-
-    updateRecordSourceUi() {
-        if (!this.buttons.record) return;
-        this.buttons.record.dataset.source = this.state.recordSource;
-        const label = this.state.recordSource === 'external' ? 'Mic' : 'Internal';
-        this.buttons.record.title = `Record • ${label}`;
-    }
-
-    handleRecordSourceContext(event) {
-        event.preventDefault();
-        this.toggleRecordSource();
-    }
-
-    async toggleRecordSource() {
-        const next = this.state.recordSource === 'internal' ? 'external' : 'internal';
-        if (next === 'external') {
-            const enabled = await this.enableMicCapture();
-            if (!enabled) {
-                return;
-            }
-        } else {
-            this.disableMicCapture();
-        }
-        this.state.recordSource = next;
-        this.updateRecordSourceUi();
-    }
-
-    async enableMicCapture() {
-        if (this.micCapture.source) {
-            return true;
-        }
-        if (!navigator.mediaDevices?.getUserMedia) {
-            alert('Microphone access is not supported in this browser.');
-            return false;
-        }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            await this.audioCtx.resume().catch(() => {});
-            const source = this.audioCtx.createMediaStreamSource(stream);
-            source.connect(this.node);
-            this.micCapture = { stream, source };
-            return true;
-        } catch (error) {
-            console.error('Failed to enable microphone for looper recording:', error);
-            alert('Unable to access the microphone. Please check permissions and try again.');
-            return false;
-        }
-    }
-
-    disableMicCapture() {
-        if (this.micCapture.source) {
-            try {
-                this.micCapture.source.disconnect(this.node);
-            } catch (error) {
-                console.warn('Mic source disconnect failed', error);
-            }
-        }
-        if (this.micCapture.stream) {
-            try {
-                this.micCapture.stream.getTracks().forEach((track) => track.stop());
-            } catch (error) {
-                console.warn('Mic stream shutdown failed', error);
-            }
-        }
-        this.micCapture = { stream: null, source: null };
     }
 
     disableAddButton(disabled) {

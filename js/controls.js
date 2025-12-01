@@ -26,7 +26,17 @@ export function initializeKnob(knob, onChange, knobDefaults) {
     knob.style.transform = `rotate(${rotation}deg)`;
     knob.style.cursor = 'grab';
 
-    const applyRotationFromValue = (value) => {
+        const notifyKnobInteraction = () => {
+            if (typeof window !== 'undefined' && typeof window.__handleKnobInteraction === 'function' && knob?.id) {
+                try {
+                    window.__handleKnobInteraction(knob.id);
+                } catch (err) {
+                    console.warn('Knob interaction handler failed', err);
+                }
+            }
+        };
+
+        const applyRotationFromValue = (value) => {
         const clamped = clamp01(value);
         rotation = Math.min(150, Math.max(-150, -150 + clamped * 300));
         knob.style.transform = `rotate(${rotation}deg)`;
@@ -46,6 +56,7 @@ export function initializeKnob(knob, onChange, knobDefaults) {
     };
 
     function resetToDefault() {
+        notifyKnobInteraction();
         const appliedValue = dispatchChange(defaultValue);
         applyRotationFromValue(appliedValue);
         console.log(`Knob ${knob.id} reset to default: ${appliedValue}`);
@@ -70,6 +81,7 @@ export function initializeKnob(knob, onChange, knobDefaults) {
         knob.style.transform = `rotate(${rotation}deg)`;
 
         const normalizedValue = (rotation + 150) / 300;
+            notifyKnobInteraction();
         const appliedValue = dispatchChange(normalizedValue);
         if (Math.abs(appliedValue - normalizedValue) > 0.0005) {
             applyRotationFromValue(appliedValue);

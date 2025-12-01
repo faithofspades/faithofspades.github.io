@@ -873,12 +873,31 @@
   background-color: #d99261;
 }
 
+#seq-tips-button.active {
+  background-color: #e4a26f;
+  box-shadow: 0 0 8px rgba(234, 183, 115, 0.85);
+}
+
+#seq-tips-button.active .seq-chorus-icon {
+  filter: invert(100%) sepia(5%) saturate(0%) hue-rotate(14deg) brightness(110%) contrast(105%);
+}
+
 #seq-precision-button:hover {
   background-color: #c85a46;
 }
 
 #seq-link-params-button:hover {
   background-color: #729759;
+}
+
+/* Active glow for Link Params to match other green toggles */
+#seq-link-params-button.active {
+  background-color: #7da263;
+  box-shadow: 0 0 8px rgba(158, 198, 129, 0.85);
+}
+
+#seq-link-params-button.active .seq-chorus-icon {
+  filter: invert(94%) sepia(8%) saturate(289%) hue-rotate(347deg) brightness(105%) contrast(92%);
 }
 
 .seq-chorus-icon {

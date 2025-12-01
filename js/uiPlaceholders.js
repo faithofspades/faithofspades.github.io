@@ -1,4 +1,3 @@
-// filepath: d:\Dropbox\Github Computer Programming Class\faithofspades.github.io\js\uiPlaceholders.js
 
 // Helper (if not globally available)
 const D = x => document.getElementById(x);
@@ -327,113 +326,140 @@ console.log('LFO Delay:', delaySlider.value);
 
     // ----------------------------------------
     //  Mod Shape Knob (Discrete)
-    // ----------------------------------------
     const shapeKnob = document.getElementById('mod-shape-knob');
     if (shapeKnob) {
-        let currentPosition = 0; // 0-4
-        let isDragging = false;
-        let lastY;
-        let accumulatedDelta = 0;
-        const positions = [0, 72, 144, 216, 288];
+        const SHAPE_POSITIONS = [0, 72, 144, 216, 288];
+        const SHAPE_NAMES = ['Triangle', 'Square', 'Random', 'Sine', 'Sawtooth'];
         const positionChangeThreshold = 15;
+        let currentPosition = 0;
+        let isDragging = false;
+        let lastY = 0;
+        let accumulatedDelta = 0;
 
-        function updateShapeKnobPosition() { shapeKnob.style.transform = `rotate(${positions[currentPosition]}deg)`; }
-        updateShapeKnobPosition(); // Initial
+        function updateShapeVisual() {
+            shapeKnob.style.transform = `rotate(${SHAPE_POSITIONS[currentPosition]}deg)`;
+        }
 
-        function handleShapeMouseDown(e) { isDragging = true; lastY = e.clientY; accumulatedDelta = 0; shapeKnob.style.cursor = 'grabbing'; e.preventDefault(); }
-        function handleShapeMouseMove(e) {
-            if (!isDragging) return;
-            const deltaY = lastY - e.clientY; lastY = e.clientY;
+        function showShapeTooltip() {
+            let tooltip = document.getElementById('mod-shape-knob-tooltip');
+            if (!tooltip) {
+                tooltip = document.createElement('div');
+                tooltip.id = 'mod-shape-knob-tooltip';
+                tooltip.className = 'tooltip';
+                document.body.appendChild(tooltip);
+            }
+            const knobRect = shapeKnob.getBoundingClientRect();
+            tooltip.style.left = `${knobRect.left + knobRect.width + 5}px`;
+            tooltip.style.top = `${knobRect.top + (knobRect.height / 2) - 10}px`;
+            tooltip.textContent = `LFO: ${SHAPE_NAMES[currentPosition]}`;
+            tooltip.style.opacity = '1';
+            setTimeout(() => { tooltip.style.opacity = '0'; }, 1500);
+        }
+
+        function applyShapePosition(options = {}) {
+            updateShapeVisual();
+            if (!options.suppressShapeUpdate) {
+                window.lfoShape = currentPosition;
+            }
+            if (!options.suppressRestart && typeof restartLFO === 'function') {
+                restartLFO();
+            }
+            if (!options.suppressTooltip) {
+                showShapeTooltip();
+            }
+            if (!options.suppressLog) {
+                console.log(`LFO Shape changed to: ${SHAPE_NAMES[currentPosition]}`);
+            }
+        }
+
+        function setShapePosition(position, options = {}) {
+            const maxIndex = SHAPE_POSITIONS.length;
+            const wrapped = ((Math.round(position) % maxIndex) + maxIndex) % maxIndex;
+            if (!options.force && wrapped === currentPosition) {
+                if (options.syncEvenIfSame) {
+                    applyShapePosition(options);
+                }
+                return currentPosition;
+            }
+            currentPosition = wrapped;
+            applyShapePosition(options);
+            return currentPosition;
+        }
+
+        function stepShape(direction) {
+            setShapePosition(currentPosition + direction);
+        }
+
+        function beginDrag(clientY) {
+            isDragging = true;
+            lastY = clientY;
+            accumulatedDelta = 0;
+            shapeKnob.style.cursor = 'grabbing';
+        }
+
+        function updateDrag(clientY) {
+            const deltaY = lastY - clientY;
+            lastY = clientY;
             if (Math.abs(deltaY) >= 1) {
                 accumulatedDelta += deltaY;
                 if (Math.abs(accumulatedDelta) >= positionChangeThreshold) {
                     const direction = accumulatedDelta > 0 ? 1 : -1;
-                    let newPosition = (currentPosition + direction + 5) % 5; // Wrap around 0-4
-                    if (newPosition !== currentPosition) { 
-                        currentPosition = newPosition; 
-                        updateShapeKnobPosition(); 
-                        
-                        // Update LFO shape
-                        const shapeNames = ['Triangle', 'Square', 'Random', 'Sine', 'Sawtooth'];
-                        if (typeof window.lfoShape !== 'undefined') {
-                            window.lfoShape = currentPosition;
-                            if (typeof restartLFO === 'function') {
-                                restartLFO();
-                            }
-                        }
-                        
-                        console.log(`LFO Shape changed to: ${shapeNames[currentPosition]}`);
-                        
-                        // Show tooltip using the same system as other knobs
-                        const tooltip = document.getElementById('mod-shape-knob-tooltip') || (() => {
-                            const newTooltip = document.createElement('div');
-                            newTooltip.id = 'mod-shape-knob-tooltip';
-                            newTooltip.className = 'tooltip';
-                            document.body.appendChild(newTooltip);
-                            const knobRect = shapeKnob.getBoundingClientRect();
-                            newTooltip.style.left = `${knobRect.left + knobRect.width + 5}px`;
-                            newTooltip.style.top = `${knobRect.top + (knobRect.height / 2) - 10}px`;
-                            return newTooltip;
-                        })();
-                        tooltip.textContent = `LFO: ${shapeNames[currentPosition]}`;
-                        tooltip.style.opacity = '1';
-                        setTimeout(() => { tooltip.style.opacity = '0'; }, 1500);
-                    }
+                    stepShape(direction);
                     accumulatedDelta = 0;
                 }
             }
-            e.preventDefault();
         }
-        function handleShapeMouseUp() { isDragging = false; accumulatedDelta = 0; shapeKnob.style.cursor = 'pointer'; }
 
-        shapeKnob.addEventListener('mousedown', handleShapeMouseDown);
-        document.addEventListener('mousemove', handleShapeMouseMove);
-        document.addEventListener('mouseup', handleShapeMouseUp);
-        shapeKnob.addEventListener('touchstart', function(e) { if (e.touches.length === 1) { isDragging = true; lastY = e.touches[0].clientY; accumulatedDelta = 0; } e.preventDefault(); }, { passive: false });
-        document.addEventListener('touchmove', function(e) {
-            if (!isDragging || e.touches.length !== 1) return;
-            const deltaY = lastY - e.touches[0].clientY; lastY = e.touches[0].clientY;
-            if (Math.abs(deltaY) >= 1) {
-                accumulatedDelta += deltaY;
-                if (Math.abs(accumulatedDelta) >= positionChangeThreshold) {
-                    const direction = accumulatedDelta > 0 ? 1 : -1; let newPosition = (currentPosition + direction + 5) % 5;
-                    if (newPosition !== currentPosition) { 
-                        currentPosition = newPosition; 
-                        updateShapeKnobPosition(); 
-                        
-                        // Update LFO shape
-                        const shapeNames = ['Triangle', 'Square', 'Random', 'Sine', 'Sawtooth'];
-                        if (typeof lfoShape !== 'undefined') {
-                            lfoShape = currentPosition;
-                            if (typeof restartLFO === 'function') {
-                                restartLFO();
-                            }
-                        }
-                        
-                        console.log(`LFO Shape changed to: ${shapeNames[currentPosition]}`);
-                        
-                        // Show tooltip directly
-                        let tooltip = document.querySelector('.knob-tooltip[data-knob="mod-shape-knob"]');
-                        if (!tooltip) {
-                            tooltip = document.createElement('div');
-                            tooltip.className = 'knob-tooltip';
-                            tooltip.setAttribute('data-knob', 'mod-shape-knob');
-                            document.body.appendChild(tooltip);
-                        }
-                        tooltip.textContent = `LFO: ${shapeNames[currentPosition]}`;
-                        const rect = shapeKnob.getBoundingClientRect();
-                        tooltip.style.left = rect.left + rect.width / 2 + 'px';
-                        tooltip.style.top = rect.top - 10 + 'px';
-                        tooltip.style.opacity = '1';
-                        setTimeout(() => { tooltip.style.opacity = '0'; }, 1000);
-                    }
-                    accumulatedDelta = 0;
-                }
-            }
+        function endDrag() {
+            isDragging = false;
+            accumulatedDelta = 0;
+            shapeKnob.style.cursor = 'pointer';
+        }
+
+        shapeKnob.addEventListener('mousedown', (e) => {
+            beginDrag(e.clientY);
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            updateDrag(e.clientY);
+            e.preventDefault();
+        });
+        document.addEventListener('mouseup', endDrag);
+
+        shapeKnob.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            beginDrag(e.touches[0].clientY);
             e.preventDefault();
         }, { passive: false });
-        document.addEventListener('touchend', handleShapeMouseUp);
-        document.addEventListener('touchcancel', handleShapeMouseUp);
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging || e.touches.length !== 1) return;
+            updateDrag(e.touches[0].clientY);
+            e.preventDefault();
+        }, { passive: false });
+        document.addEventListener('touchend', endDrag);
+        document.addEventListener('touchcancel', endDrag);
+
+        const initialShape = typeof window.pendingLfoShapeIndex === 'number'
+            ? window.pendingLfoShapeIndex
+            : (typeof window.lfoShape === 'number' ? window.lfoShape : 0);
+        setShapePosition(initialShape, {
+            suppressRestart: true,
+            suppressTooltip: true,
+            suppressLog: true,
+            force: true
+        });
+        window.pendingLfoShapeIndex = null;
+
+        window.__setLfoShapeKnobPosition = (position, options = {}) => setShapePosition(position, {
+            suppressRestart: options.suppressRestart !== false,
+            suppressTooltip: options.suppressTooltip !== false,
+            suppressLog: options.suppressLog !== false,
+            suppressShapeUpdate: options.suppressShapeUpdate === true,
+            force: options.force === true,
+            syncEvenIfSame: options.syncEvenIfSame === true
+        });
+        window.__getLfoShapeKnobPosition = () => currentPosition;
     }
 
     // ----------------------------------------

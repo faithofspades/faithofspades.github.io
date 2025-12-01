@@ -1,84 +1,15 @@
-window.loadPresetSample = function(filename) {
-    console.log(`Loading preset sample: ${filename}`);
-
-    // Determine if we're running on GitHub Pages
-    const isGitHubPages = window.location.hostname.includes('github.io');
-    
-    // FIX: Don't duplicate the repository name in the path
-    const basePath = isGitHubPages ? '/samples/' : '/samples/';
-    const sampleUrl = new URL(basePath + filename, window.location.origin).href;
-    
-    console.log(`Loading sample from: ${sampleUrl}`);
-
-    // Rest of your function remains the same...
-    fetch(sampleUrl)
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
-        }
-        return response.arrayBuffer();
-    })
-    .then(arrayBuffer => {
-        return audioCtx.decodeAudioData(arrayBuffer);
-    })
-    .then(buffer => {
-        audioBuffer = buffer;
-        originalBuffer = buffer.slice();
-        
-        // Apply reverse if needed
-        if (isSampleReversed) {
-            reverseBufferIfNeeded(false);
-        }
-        
-        // Process fades and crossfades
-        updateSampleProcessing();
-        
-        // Create new source node
-        if (sampleSource) {
-            sampleSource.stop();
-        }
-        sampleSource = audioCtx.createBufferSource();
-        sampleSource.buffer = buffer;
-        sampleSource.connect(sampleGainNode);
-        sampleSource.start();
-        
-        // UPDATE LABEL
-        const fileLabel = document.querySelector('label[for="audio-file"]');
-        if (fileLabel) {
-            fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
-        }
-        
-        // Force FM connection update
-        setTimeout(() => {
-            // Update any active sampler notes
-            voicePool.forEach(voice => {
-                if (voice.state !== 'inactive' && voice.samplerNote) {
-                    if (!heldNotes.includes(voice.noteNumber)) {
-                        updateSamplePlaybackParameters(voice.samplerNote);
-                    }
-                }
-            });
-        }, 100);
-
-        console.log(`Sample ${filename} loaded successfully, length: ${buffer.length} samples, duration: ${buffer.duration.toFixed(2)}s`);
-    })
-    .catch(error => {
-        console.error('Error loading preset sample:', error);
-        alert(`Failed to load sample: ${filename}`);
-    });
-};
 import { createiOSStartupOverlay } from './ios.js';
 import { initializeKnob } from './controls.js';
 import { registerDebugReference } from './debug-registry.js';
-import { fixMicRecording, createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
-import { initializeModCanvas, getModulationPoints } from './modCanvas.js';
+import { createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
+import { initializeModCanvas, getModulationPoints, setModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
 import FilterManager from './filter-manager.js';
 import { LayeredLooperEngine } from './looper-engine.js';
 import { createArpeggiator } from './arpeggiator-module.js';
-import { sequencerTempo, initializeSequencerModule, setArpeggiatorInstance, handleLiveSequencerNoteInput, handleLiveSequencerNoteRelease, registerSequencerPlaybackHandlers, registerModAutomationTarget, recordModAutomationValue, updateAutomationBaselineValue, getSequencerStateSnapshot, loadSequencerStateSnapshot } from './sequencer-module.js';
+import { sequencerTempo, initializeSequencerModule, setArpeggiatorInstance, handleLiveSequencerNoteInput, handleLiveSequencerNoteRelease, registerSequencerPlaybackHandlers, registerModAutomationTarget, recordModAutomationValue, updateAutomationBaselineValue, getSequencerStateSnapshot, loadSequencerStateSnapshot, applyPitchBend, getArpDivisionSnapshot, applyArpDivisionSnapshot } from './sequencer-module.js';
 const D = x => document.getElementById(x);
 const TR2 = 2 ** (1.0 / 12.0);
 const STANDARD_FADE_TIME = 0.000; // 0ms standard fade time
@@ -91,9 +22,40 @@ Tone.setContext(audioCtx);
 window.voicePool = null;
 
 let arpeggiator = null;
+let pendingArpeggiatorPresetState = null;
+
+const midiControllerLinks = new Map(); // key: "channel:cc" -> controlId
+const controlToMidiLink = new Map(); // controlId -> { channel, controller }
+const sliderControlRegistry = new Map(); // controlId -> slider element reference
+let linkParamsModeActive = false;
+let pendingLinkTarget = null; // { id, sourceType }
+
+function isControlLinkable(controlId) {
+    if (!controlId) {
+        return false;
+    }
+    return !LINK_PARAMS_EXCLUDED_CONTROLS.has(controlId);
+}
+
+window.__handleKnobInteraction = function handleKnobInteractionForLinking(knobId) {
+    handleLinkableControlInteraction(knobId, 'knob');
+};
 
 // Initialize pitch bend to 0
 window.sequencerPitchBend = 0;
+
+function clamp01(value) {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+    if (value < 0) {
+        return 0;
+    }
+    if (value > 1) {
+        return 1;
+    }
+    return value;
+}
 
 const JUNO_CHORUS_MODES = {
     0: {
@@ -166,8 +128,70 @@ let delayStageInput = null;
 let delayStageOutput = null;
 let looperNode = null;
 let looperEngine = null;
+
+let pendingAdsrFollowValue = null;
+let pendingLfoShapeIndex = null;
+window.pendingLfoShapeIndex = pendingLfoShapeIndex;
+
+function setFilterEnvelopeFollowValue(value, options = {}) {
+    const normalized = clamp01(Number.isFinite(value) ? value : 0.5);
+    const control = window.__adsrFollowControl;
+    const controlOptions = {
+        suppressFilterUpdate: options.suppressFilterUpdate !== false,
+        suppressTooltip: options.suppressTooltip !== false,
+        force: options.force !== false
+    };
+
+    if (control && typeof control.setValue === 'function') {
+        control.setValue(normalized, controlOptions);
+        pendingAdsrFollowValue = null;
+    } else {
+        pendingAdsrFollowValue = normalized;
+    }
+}
+
+function setLfoShapeFromPreset(shapeIndex, options = {}) {
+    const numeric = Number(shapeIndex);
+    if (!Number.isFinite(numeric)) {
+        return;
+    }
+    const shapeCount = 5;
+    const normalizedIndex = ((Math.round(numeric) % shapeCount) + shapeCount) % shapeCount;
+    window.lfoShape = normalizedIndex;
+
+    if (typeof window.__setLfoShapeKnobPosition === 'function') {
+        window.__setLfoShapeKnobPosition(normalizedIndex, {
+            suppressRestart: true,
+            suppressTooltip: options.suppressTooltip !== false,
+            suppressLog: true,
+            suppressShapeUpdate: true,
+            force: true
+        });
+        pendingLfoShapeIndex = null;
+        window.pendingLfoShapeIndex = null;
+    } else {
+        pendingLfoShapeIndex = normalizedIndex;
+        window.pendingLfoShapeIndex = normalizedIndex;
+    }
+
+    if (!options.suppressRestart && typeof restartLFO === 'function') {
+        restartLFO();
+    }
+}
+
+function handleLooperKnobValueChange(knobId, normalizedValue) {
+    if (!knobId || !Number.isFinite(normalizedValue)) {
+        return;
+    }
+    setDestinationBaseValueFromParam(knobId, clamp01(normalizedValue));
+}
+
+const looperIntegrationCallbacks = {
+    onKnobValueChange: handleLooperKnobValueChange
+};
 let currentOverloadAmount = 0;
 let currentCabinetPresetIndex = 0;
+let preDelaySource = null;
 const DEFAULT_CABINET_IR = 'cabinets/Mesa_OS_4x12_57_m160.wav';
 
 const AUTOMATION_KNOB_IDS = new Set([
@@ -210,11 +234,31 @@ const DISABLED_AUTOMATION_PARAMS = new Set([
     'filter-release'
 ]);
 
+const LINK_PARAMS_EXCLUDED_CONTROLS = new Set([
+    'looper-volume-knob',
+    'looper-start-knob',
+    'looper-end-knob',
+    'looper-lofi-knob',
+    'looper-repeats-knob',
+    'looper-speed-knob',
+    'looper-filter-knob',
+    'looper-dropouts-knob',
+    'looper-jump-knob',
+    'looper-stutter-knob',
+    'looper-pitch-knob',
+    'looper-layers-knob'
+]);
+
+const MIDI_PITCH_BEND_CONTROLLER_ID = 128; // Sentinel outside CC range
+const DEFAULT_PITCH_WHEEL_CHANNEL = 0; // MIDI channel 1
+const MIDI_PITCH_BEND_MAX = 16383;
+
 let suppressAutomationCapture = false;
 let automationCaptureReady = false;
 
 const DELAY_TIME_MIN = 0.02;
 const DELAY_TIME_MAX = 2.8;
+const LENGTH_REVERB_MUTE_THRESHOLD = 1e-4;
 
 function normalizedToDelaySeconds(value) {
     const clamped = clamp01(value);
@@ -231,6 +275,10 @@ function delaySecondsToNormalized(seconds) {
 function normalizedToTailSeconds(value) {
     const curved = Math.pow(clamp01(value), 1.15);
     return 0.2 + 7.8 * curved;
+}
+
+function computeLengthReverbMix(value) {
+    return clamp01(value) <= LENGTH_REVERB_MUTE_THRESHOLD ? 0 : 1;
 }
 
 function normalizedToFeedback(value) {
@@ -295,6 +343,7 @@ const delayProcessorState = {
     lowCutHz: DEFAULT_LOW_CUT_HZ,
     highCutHz: DEFAULT_HIGH_CUT_HZ,
     mix: normalizedToMix(delayFxDefaults.mixNormalized),
+    reverbLengthMix: computeLengthReverbMix(delayFxDefaults.lengthNormalized),
     freeze: false,
     reverse: false,
     inputTrim: computeDelayInputTrim(
@@ -668,6 +717,7 @@ function buildDelayParamPayload(overrides = {}) {
         lowCutHz: normalizedToLowCutHz(delayUiState.lowCutNormalized),
         highCutHz: normalizedToHighCutHz(delayUiState.highCutNormalized),
         mix: normalizedToMix(delayUiState.mixNormalized),
+        reverbLengthMix: computeLengthReverbMix(delayUiState.lengthNormalized),
         freeze: !!delayUiState.freeze,
         reverse: !!delayUiState.reverse
     };
@@ -842,20 +892,38 @@ function registerSliderAutomationBinding(slider, paramId) {
 }
 
 function attachAutomationToSlider(slider, paramId, valueExtractor) {
-    if (!slider) return;
-    if (DISABLED_AUTOMATION_PARAMS.has(paramId)) return;
+    if (!slider || !paramId) return;
+    if (!LINK_PARAMS_EXCLUDED_CONTROLS.has(paramId)) {
+        sliderControlRegistry.set(paramId, slider);
+    }
     const getter = typeof valueExtractor === 'function'
         ? valueExtractor
         : (el) => parseFloat(el.value);
-    slider.addEventListener('input', () => {
-        const raw = getter(slider);
-        const normalized = getNormalizedSliderValue(slider);
-        if (normalized !== null) {
-            setDestinationBaseValueFromParam(paramId, normalized);
+    const automationEnabled = !DISABLED_AUTOMATION_PARAMS.has(paramId);
+    const notifyLinkIntent = (event) => {
+        if (event && event.isTrusted === false) {
+            return;
         }
-        emitAutomationValue(paramId, raw);
+        handleLinkableControlInteraction(paramId, 'slider');
+    };
+    slider.addEventListener('pointerdown', notifyLinkIntent);
+    slider.addEventListener('touchstart', notifyLinkIntent, { passive: true });
+    slider.addEventListener('input', (event) => {
+        if (event && event.isTrusted) {
+            handleLinkableControlInteraction(paramId, 'slider');
+        }
+        const raw = getter(slider);
+        if (automationEnabled) {
+            const normalized = getNormalizedSliderValue(slider);
+            if (normalized !== null) {
+                setDestinationBaseValueFromParam(paramId, normalized);
+            }
+            emitAutomationValue(paramId, raw);
+        }
     });
-    registerSliderAutomationBinding(slider, paramId);
+    if (automationEnabled) {
+        registerSliderAutomationBinding(slider, paramId);
+    }
 }
 
 function registerKnobAutomationControl(id, control, callback) {
@@ -947,14 +1015,12 @@ delayStageOutput = audioCtx.createGain();
 delayStageInput.gain.setValueAtTime(1.0, audioCtx.currentTime);
 delayStageOutput.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
-if (lossArtifactsStage && lossArtifactsStage.output) {
-    lossArtifactsStage.output.connect(delayStageInput);
-} else {
-    fxBusInput.connect(delayStageInput);
-}
+preDelaySource = lossArtifactsStage && lossArtifactsStage.output
+    ? lossArtifactsStage.output
+    : fxBusInput;
+preDelaySource.connect(delayStageInput);
 
 delayStageInput.connect(delayStageOutput);
-delayStageOutput.connect(fxBusOutput);
 
 const lossProcessorPromise = audioCtx.audioWorklet.addModule('js/loss-artifacts-processor.js')
     .then(() => {
@@ -1012,7 +1078,9 @@ function maybeInitializeLooperEngine() {
     if (document.readyState === 'loading') {
         return;
     }
-    looperEngine = new LayeredLooperEngine(audioCtx, looperNode);
+    looperEngine = new LayeredLooperEngine(audioCtx, looperNode, {
+        integrationCallbacks: looperIntegrationCallbacks
+    });
     registerDebugReference('layeredLooperEngine', looperEngine);
     console.log('LayeredLooperEngine UI bound to worklet.');
 }
@@ -1038,17 +1106,21 @@ const looperProcessorPromise = audioCtx.audioWorklet.addModule('js/looper-proces
 
         registerDebugReference('layeredLooperNode', looperNode);
 
-        try {
-            fxBusOutput.disconnect(masterGain);
-        } catch (err) {
-            console.warn('Looper tap reroute skipped, masterGain already disconnected?', err);
+        const upstreamSource = preDelaySource || fxBusInput;
+        if (upstreamSource) {
+            try {
+                upstreamSource.disconnect(delayStageInput);
+            } catch (err) {
+                console.warn('Looper tap reroute skipped, source already detached?', err);
+            }
+            upstreamSource.connect(looperNode);
+            preDelaySource = looperNode;
         }
-        fxBusOutput.connect(looperNode);
-        looperNode.connect(masterGain);
+        looperNode.connect(delayStageInput);
 
         looperNode.port.postMessage({ type: 'configure', maxLoopSeconds: 64 });
         maybeInitializeLooperEngine();
-        console.log('Looper processor ready and inserted post-delay / pre-master.');
+        console.log('Looper processor ready and inserted pre-delay / pre-master.');
         return true;
     })
     .catch((error) => {
@@ -1098,7 +1170,7 @@ function createSoftClipperNode(ctx, options = {}) {
 masterGain.gain.setValueAtTime(mapMasterKnobToGain(0.5), audioCtx.currentTime);
 
 const mixSoftClipper = createSoftClipperNode(audioCtx);
-fxBusOutput.connect(masterGain);
+delayStageOutput.connect(masterGain);
 masterGain.connect(mixSoftClipper);
 // Temporary routing until limiter engages (soft clipper feeds destination directly)
 mixSoftClipper.connect(audioCtx.destination);
@@ -1239,6 +1311,24 @@ workletReadyPromise.then(() => {
     filterManager.setADSR(filterAttack, filterDecay, filterSustain, filterRelease, false);
     console.log(`Filter ADSR initialized: A:${filterAttack}s D:${filterDecay}s S:${filterSustain} R:${filterRelease}s`);
   }
+
+    if (pendingFilterManagerState && filterManager && typeof filterManager.applyState === 'function') {
+        const pendingState = pendingFilterManagerState;
+        pendingFilterManagerState = null;
+        filterManager.applyState(pendingState)
+            .then(() => {
+                if (pendingState && pendingState.envelopeAmount !== undefined) {
+                    setFilterEnvelopeFollowValue(clamp01(pendingState.envelopeAmount), {
+                        suppressFilterUpdate: true,
+                        suppressTooltip: true,
+                        force: true
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Failed to apply pending filter preset state', error);
+            });
+    }
   
   console.log("Initializing oscillator and sampler voice pools...");
   initializeVoicePool();
@@ -1409,7 +1499,7 @@ function setupNonLinearADSRSliders() {
         attachAutomationToSlider(slider, id);
     
     // Set initial values
-    let initialTime = 0.00;
+    let initialTime = id === 'attack' ? 0.006 : 0.00;
     const initialPosition = timeToPosition(initialTime);
     slider.value = initialPosition * parseFloat(slider.max);
     slider.dataset.mappedTime = initialTime.toFixed(3);
@@ -1475,7 +1565,7 @@ function setupNonLinearADSRSliders() {
         attachAutomationToSlider(slider, id);
     
     // Set initial values
-    let initialTime = 0.00;
+    let initialTime = id === 'filter-attack' ? 0.006 : 0.00;
     const initialPosition = timeToPosition(initialTime);
     slider.value = initialPosition * parseFloat(slider.max);
     slider.dataset.mappedTime = initialTime.toFixed(3);
@@ -1850,10 +1940,14 @@ if (driveSlider) {
       filterControls.appendChild(knobContainer);
     }
   }
+    filterControlsInitialized = true;
+    if (pendingFilterUiState) {
+        const pendingState = pendingFilterUiState;
+        pendingFilterUiState = null;
+        applyFilterUiSnapshot(pendingState);
+    }
   
-  
-  
-  console.log("Filter controls initialized with correct defaults");
+    console.log("Filter controls initialized with correct defaults");
 }
 // --- Handle AudioContext Suspension/Resumption ---
 function handleVisibilityChange() {
@@ -2086,6 +2180,7 @@ function setupVoiceSpreadControl() {
         setVoicePanSpread(value);
         showSpreadTooltip(voicePanSpread);
     }, knobDefaults);
+    registerKnobControl(knob.id, control);
     spreadKnobElement = document.getElementById('seq-spread-knob');
     if (control && typeof control.setValue === 'function') {
         control.setValue(voicePanSpread, false);
@@ -2216,10 +2311,15 @@ function setupDelayModuleControls() {
     delayUiElements.freezeSwitch = freezeSwitch;
 
     const applySliderDefault = (slider, normalized, stateKey) => {
+        if (!slider) return;
         const sliderMax = parseFloat(slider.max || 100) || 100;
-        slider.value = Math.round(clamp01(normalized) * sliderMax);
+        const normalizedValue = clamp01(normalized);
+        slider.value = Math.round(normalizedValue * sliderMax);
         if (stateKey) {
-            updateDelayControlTooltip(slider, stateKey, clamp01(normalized));
+            updateDelayControlTooltip(slider, stateKey, normalizedValue);
+        }
+        if (slider.id) {
+            setDestinationBaseValueFromParam(slider.id, normalizedValue, { force: true });
         }
     };
 
@@ -2230,6 +2330,7 @@ function setupDelayModuleControls() {
 
     const installSliderHandler = (slider, stateKey) => {
         if (!slider) return;
+        const paramId = slider.id;
         slider.addEventListener('input', () => {
             if (stateKey === 'timeNormalized' && delayUiState.synced) {
                 createTooltipForSlider(slider, 'Tempo Sync Enabled', 'left');
@@ -2238,6 +2339,9 @@ function setupDelayModuleControls() {
             const max = parseFloat(slider.max || 100) || 100;
             const normalized = clamp01(parseFloat(slider.value) / max);
             delayUiState[stateKey] = normalized;
+            if (paramId) {
+                setDestinationBaseValueFromParam(paramId, normalized);
+            }
             refreshDelayProcessor(stateKey);
             updateDelayControlTooltip(slider, stateKey, normalized, { showBubble: true });
         });
@@ -2247,6 +2351,11 @@ function setupDelayModuleControls() {
     installSliderHandler(lengthSlider, 'lengthNormalized');
     installSliderHandler(feedbackSlider, 'feedbackNormalized');
     installSliderHandler(densitySlider, 'densityNormalized');
+
+    attachAutomationToSlider(timeSlider, 'delay-time-slider');
+    attachAutomationToSlider(lengthSlider, 'delay-length-slider');
+    attachAutomationToSlider(feedbackSlider, 'delay-feedback-slider');
+    attachAutomationToSlider(densitySlider, 'delay-density-slider');
 
     if (reverseSwitch) {
         reverseSwitch.addEventListener('click', () => {
@@ -2269,7 +2378,7 @@ function setupDelayModuleControls() {
 
     const initDelayKnob = (knobElement, stateKey, storeKey) => {
         if (!knobElement) return null;
-        const control = initializeKnob(knobElement, (value) => {
+        const handleValueChange = (value) => {
             delayUiState[stateKey] = clamp01(value);
             refreshDelayProcessor(stateKey);
             updateDelayControlTooltip(knobElement, stateKey, delayUiState[stateKey], {
@@ -2277,8 +2386,13 @@ function setupDelayModuleControls() {
                 useKnobTooltip: true,
                 position: 'bottom'
             });
+            if (knobElement.id) {
+                emitAutomationValue(knobElement.id, delayUiState[stateKey]);
+            }
             return value;
-        }, knobDefaults);
+        };
+        const control = initializeKnob(knobElement, handleValueChange, knobDefaults);
+        registerKnobControl(knobElement.id, control);
         if (control && typeof control.setValue === 'function') {
             control.setValue(delayUiState[stateKey], false);
         }
@@ -2286,6 +2400,9 @@ function setupDelayModuleControls() {
             useKnobTooltip: true,
             position: 'bottom'
         });
+        if (control && knobElement.id) {
+            registerKnobAutomationControl(knobElement.id, control, handleValueChange);
+        }
         if (storeKey) {
             delayUiElements[storeKey] = control;
         }
@@ -2339,6 +2456,16 @@ function updateChorusButtonUi(state = chorusState) {
     }
     button.dataset.state = String(state);
     button.setAttribute('aria-pressed', state === 0 ? 'false' : 'true');
+}
+
+function setupPitchwheelAutomation() {
+    const pitchSlider = document.getElementById('seq-pitch-slider') || document.querySelector('.seq-pitch-slider');
+    if (!pitchSlider) {
+        console.warn('Pitchwheel slider not found; skipping automation hookup.');
+        return;
+    }
+    attachAutomationToSlider(pitchSlider, 'seq-pitch-slider', (el) => parseFloat(el.value));
+    ensureDefaultPitchWheelLink();
 }
 
 function applyChorusState(state, options = {}) {
@@ -3227,15 +3354,16 @@ let originalBuffer = null;
 let audioBuffer = null; // <<< ADD THIS LINE: Initialize audioBuffer to null
 let recordedChunks = [];
 let isRecording = false;
-let recordingMode = 'external'; // 'internal' or 'external'
 let internalRecordingNode = null;
 let internalRecordingDestination = null;
-let externalRecorder = null; // <<< ADD THIS LINE
 let recordingStartTime = null;
 let fadedBufferOriginalDuration = null;
 let emuFilterNode = null;
 let lastActualSamplerRate = null;
 let lastActualOsc1Freq = null;
+let tipsModeActive = false;
+let synthTipOverlay = null;
+let synthTipHideTimeout = null;
 // PWM, FM, Quantize state would go here later
 const activeOsc1Notes = {}; // Separate tracking for oscillator notes
 let osc1HeldNotes = [];
@@ -3284,34 +3412,34 @@ const activeSynthTimers = new Set(); // <<< ADD: Track active setTimeout IDs
 // --- Modulation Routing System ---
 // Combined list of all 26 destinations (13 from each slider)
 const modulationDestinations = [
-  // First slider (LFO destinations)
-  'Sampler Pitch',
-  'Osc 1 Pitch',
-  'Osc 2 Pitch',
-  'Sampler Gain',
-  'Osc 1 Gain',
-  'Osc 2 Gain',
-  'Osc 1 PWM',
-  'Osc 2 PWM',
-  'Osc 1 Quant',
-  'Osc 2 Quant',
-  'Osc 1 FM',
-  'Osc 2 FM',
-  'Overload',
-  // Second slider (additional destinations) - MUST MATCH HTML EXACTLY
-  'Lo-Fi',
-  'Speed',
-  'Jump',
-  'Filter',
-  'Stutter',
-  'Pitch',
-  'Delay Time',
-  'Warp',
-  'Feedback',
-  'Cutoff',
-  'Variant',
-  'Resonance',
-  'Lo-Fi Amt'
+    // First slider (LFO destinations)
+    'Sampler Pitch',
+    'Osc 1 Pitch',
+    'Osc 2 Pitch',
+    'Sampler Gain',
+    'Osc 1 Gain',
+    'Osc 2 Gain',
+    'Osc 1 PWM',
+    'Osc 2 PWM',
+    'Osc 1 Quant',
+    'Osc 2 Quant',
+    'Osc 1 FM',
+    'Osc 2 FM',
+    'Overload',
+    // Second slider (additional destinations) - MUST MATCH HTML EXACTLY
+        'Lo-Fi',
+        'Dropouts',
+        'Jump',
+        'Filter',
+        'Stutter',
+        'Time',
+        'Length',
+        'Feedback',
+        'Density',
+        'Cutoff',
+        'Variant',
+        'Resonance',
+        'Pitchwheel'
 ];
 
 let currentModSource = null; // 'MOD', 'LFO', '1', '2', '3', '4' - initially none selected
@@ -3953,6 +4081,9 @@ function applyMODCanvasTrigModulation() {
 let sampleSource = null;
 let isPlaying = false;
 let filterManager = null;
+let pendingFilterManagerState = null;
+let pendingFilterUiState = null;
+let filterControlsInitialized = false;
 let sampleStartPosition = 0; // 0-1 range representing portion of audio file
 let sampleEndPosition = 1;   // 0-1 range (default to full sample)
 let sampleCrossfadeAmount = 0.02; // 0-1 range for crossfade percentage
@@ -4010,6 +4141,1884 @@ const knobDefaults = {
         'high-cut-knob': 0.7,
         'mix-knob': 0.0,
 };
+
+const OSC_WAVEFORM_OPTIONS = ['sine', 'sawtooth', 'triangle', 'square', 'pulse'];
+const OSC_OCTAVE_STEPS = [-2, -1, 0, 1, 2];
+const SAMPLE_LABEL_DEFAULT = 'Sample';
+
+let currentSampleSource = { type: null, name: null };
+let osc1FmSourceSwitchControl = null;
+let osc2FmSourceSwitchControl = null;
+let setEmuModeStateControl = null;
+
+function formatSampleLabel(name) {
+    if (!name) {
+        return SAMPLE_LABEL_DEFAULT;
+    }
+    const safeName = String(name);
+    const maxLength = 12;
+    return safeName.length > maxLength
+        ? `${safeName.substring(0, maxLength - 3)}...`
+        : safeName;
+}
+
+function updateSampleFileLabel(name) {
+    const fileLabel = document.querySelector('label[for="audio-file"]');
+    if (fileLabel) {
+        fileLabel.textContent = formatSampleLabel(name);
+    }
+}
+
+function updateSampleDropdownSelection(presetName) {
+    const items = document.querySelectorAll('#sample-dropdown .dropdown-item');
+    items.forEach(item => {
+        const sampleName = item.getAttribute('data-sample');
+        item.classList.toggle('active', !!presetName && sampleName === presetName);
+    });
+}
+
+function setCurrentSampleSource(type, name) {
+    if (type && name) {
+        currentSampleSource = { type, name };
+    } else {
+        currentSampleSource = { type: null, name: null };
+    }
+
+    if (type === 'preset') {
+        updateSampleDropdownSelection(name);
+    } else {
+        updateSampleDropdownSelection(null);
+    }
+    updateSampleFileLabel(name);
+}
+
+function setSampleLoopState(loopOn) {
+    const desiredState = !!loopOn;
+    const loopSwitch = document.getElementById('sample-loop-switch');
+    if (loopSwitch) {
+        loopSwitch.classList.toggle('active', desiredState);
+    }
+    if (isSampleLoopOn === desiredState) {
+        return;
+    }
+    isSampleLoopOn = desiredState;
+    if (Array.isArray(voicePool)) {
+        voicePool.forEach(voice => {
+            if (voice.state !== 'inactive' && voice.samplerNote) {
+                updateSamplePlaybackParameters(voice.samplerNote);
+            }
+        });
+    }
+    console.log('Sample Loop:', isSampleLoopOn ? 'ON' : 'OFF');
+}
+
+function setSampleReverseState(reverseOn) {
+    const desiredState = !!reverseOn;
+    const reverseButton = document.getElementById('reverse-button');
+    if (reverseButton) {
+        reverseButton.classList.toggle('active', desiredState);
+    }
+    if (isSampleReversed === desiredState) {
+        return;
+    }
+    isSampleReversed = desiredState;
+
+    if (audioBuffer) {
+        if (!originalBuffer) {
+            originalBuffer = audioBuffer.slice();
+        }
+        reverseBufferIfNeeded(false);
+        updateSampleProcessing();
+        setTimeout(() => {
+            samplerVoicePool.forEach(voice => {
+                if (voice.state !== 'inactive' && voice.samplerNote) {
+                    if (heldNotes.includes(voice.noteNumber)) {
+                        console.log(`Reverse Button: Skipping update for held sampler note ${voice.samplerNote.id}`);
+                        return;
+                    }
+                    console.log(`Reverse Button: Updating sampler note ${voice.samplerNote.id}`);
+                    updateSamplePlaybackParameters(voice.samplerNote);
+                }
+            });
+
+            const fmUpdateTime = audioCtx.currentTime;
+            voicePool.forEach(voice => {
+                if (voice.state !== 'inactive') {
+                    if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                        updateOsc1FmModulatorParameters(voice.osc1Note, fmUpdateTime, voice);
+                    }
+                    if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+                        updateOsc2FmModulatorParameters(voice.osc2Note, fmUpdateTime, voice);
+                    }
+                }
+            });
+        }, 100);
+    }
+
+    console.log('Sample Reverse:', isSampleReversed ? 'ON' : 'OFF');
+}
+
+function setSampleKeytrackState(enabled) {
+    const desiredState = !!enabled;
+    const keyTrackButton = document.getElementById('keytrack-button');
+    if (keyTrackButton) {
+        keyTrackButton.classList.toggle('active', desiredState);
+    }
+    if (isSampleKeyTrackingOn === desiredState) {
+        return;
+    }
+    isSampleKeyTrackingOn = desiredState;
+    const now = audioCtx.currentTime;
+
+    voicePool.forEach(voice => {
+        if (voice.state === 'inactive' || voice.noteNumber === null) {
+            return;
+        }
+        const noteNumber = voice.noteNumber;
+        const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
+
+        if (voice.samplerNote && voice.samplerNote.source) {
+            const samplerSource = voice.samplerNote.source;
+            samplerSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
+            samplerSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
+            console.log(`KeyTrack [Voice ${voice.id} Sampler]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
+        }
+
+        if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+            const fmSource = voice.osc1Note.fmModulatorSource;
+            fmSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
+            fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
+            console.log(`KeyTrack [Voice ${voice.id} Osc1 FM]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
+        }
+
+        if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
+            const fmSource = voice.osc2Note.fmModulatorSource;
+            fmSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
+            fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
+            console.log(`KeyTrack [Voice ${voice.id} Osc2 FM]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
+        }
+    });
+
+    console.log('Sample Key Tracking:', isSampleKeyTrackingOn ? 'ON' : 'OFF');
+}
+
+function setEmuModeStateFromPreset(nextState) {
+    if (typeof nextState !== 'boolean') {
+        return;
+    }
+    if (typeof setEmuModeStateControl === 'function') {
+        setEmuModeStateControl(nextState);
+        return;
+    }
+    const emuSwitch = document.getElementById('emu-mode-switch');
+    if (emuSwitch) {
+        const currentState = emuSwitch.classList.contains('active');
+        if (currentState !== nextState) {
+            emuSwitch.classList.toggle('active', nextState);
+            const led = document.getElementById('emu-led');
+            if (led) {
+                led.classList.toggle('on', nextState);
+            }
+        }
+    }
+    isEmuModeOn = nextState;
+    updateSampleProcessing();
+    setTimeout(() => {
+        voicePool.forEach(voice => {
+            if (voice && voice.samplerNote) {
+                updateSamplePlaybackParameters(voice.samplerNote);
+            }
+        });
+    }, 50);
+}
+
+// Tracks knob control handles so presets can snapshot/restore UI state later.
+const LFO_MIN_RATE_HZ = 0.1;
+const LFO_RATE_RANGE = 200;
+const LFO_MAX_RATE_HZ = LFO_MIN_RATE_HZ * LFO_RATE_RANGE;
+const LFO_RATE_LOG_RANGE = Math.log(LFO_RATE_RANGE);
+const SWITCH_RETRY_DELAY_MS = 80;
+const SWITCH_MAX_RETRIES = 5;
+
+let lfoRateSliderElement = null;
+let lfoFadeSliderElement = null;
+
+function normalizeLfoRateToSliderValue(rateHz) {
+    if (!Number.isFinite(rateHz) || rateHz <= 0) {
+        return 0;
+    }
+    const safeRate = Math.min(LFO_MAX_RATE_HZ, Math.max(LFO_MIN_RATE_HZ, rateHz));
+    const normalized = Math.log(safeRate / LFO_MIN_RATE_HZ) / LFO_RATE_LOG_RANGE;
+    return clamp01(normalized);
+}
+
+function setLfoRateValueFromPreset(targetHz) {
+    if (!Number.isFinite(targetHz)) {
+        return;
+    }
+    const safeRate = Math.min(LFO_MAX_RATE_HZ, Math.max(LFO_MIN_RATE_HZ, targetHz));
+    lfoRate = safeRate;
+    window.lfoRate = safeRate;
+    restartLFO();
+
+    if (lfoRateSliderElement) {
+        const normalizedValue = normalizeLfoRateToSliderValue(safeRate);
+        lfoRateSliderElement.value = normalizedValue;
+        if (typeof isTempoRouted === 'function' && isTempoRouted('LFO')) {
+            return;
+        }
+        lfoRateSliderElement.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+}
+
+function setLfoFadeValueFromPreset(targetFade) {
+    if (!Number.isFinite(targetFade)) {
+        return;
+    }
+    const clamped = clamp01(targetFade);
+    lfoFade = clamped;
+    if (lfoFadeSliderElement) {
+        lfoFadeSliderElement.value = clamped;
+        lfoFadeSliderElement.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+}
+
+function isSwitchTransitionLocked() {
+    return typeof window.isModeTransitioning === 'boolean' ? window.isModeTransitioning : false;
+}
+
+function setMonoModeStateFromPreset(nextState, attempt = 0) {
+    if (typeof nextState !== 'boolean' || isMonoMode === nextState) {
+        return;
+    }
+    const switchEl = document.getElementById('voice-mode-switch');
+    if (!switchEl) {
+        cleanupAllNotes();
+        isMonoMode = nextState;
+        console.log('>>> Mono Mode SET:', isMonoMode);
+        return;
+    }
+    if (isSwitchTransitionLocked() && attempt < SWITCH_MAX_RETRIES) {
+        setTimeout(() => setMonoModeStateFromPreset(nextState, attempt + 1), SWITCH_RETRY_DELAY_MS);
+        return;
+    }
+    switchEl.click();
+}
+
+function setLegatoModeStateFromPreset(nextState, attempt = 0) {
+    if (typeof nextState !== 'boolean' || isLegatoMode === nextState) {
+        return;
+    }
+    if (isSwitchTransitionLocked() && attempt < SWITCH_MAX_RETRIES) {
+        setTimeout(() => setLegatoModeStateFromPreset(nextState, attempt + 1), SWITCH_RETRY_DELAY_MS);
+        return;
+    }
+    const switchEl = document.getElementById('trigger-mode-switch');
+    if (switchEl) {
+        switchEl.click();
+    } else {
+        isLegatoMode = nextState;
+        console.log('>>> Legato Mode SET:', isLegatoMode);
+    }
+}
+
+function setPortamentoStateFromPreset(nextState, attempt = 0) {
+    if (typeof nextState !== 'boolean' || isPortamentoOn === nextState) {
+        return;
+    }
+    if (isSwitchTransitionLocked() && attempt < SWITCH_MAX_RETRIES) {
+        setTimeout(() => setPortamentoStateFromPreset(nextState, attempt + 1), SWITCH_RETRY_DELAY_MS);
+        return;
+    }
+    const switchEl = document.getElementById('portamento-switch');
+    if (switchEl) {
+        switchEl.click();
+    } else {
+        isPortamentoOn = nextState;
+        console.log('>>> Portamento SET TO:', nextState, 'Global value now:', isPortamentoOn);
+    }
+}
+
+const ARP_MODE_VALUES = ['up', 'down', 'order', 'upDown', 'random'];
+const ARP_MODE_UI_MAP = {
+    up: 'up',
+    down: 'down',
+    order: 'forward',
+    upDown: 'updown',
+    random: 'random'
+};
+const MIN_ARP_OCTAVES = 1;
+const MAX_ARP_OCTAVES = 5;
+
+function updateArpToggleButtonState(buttonId, isActive) {
+    const button = document.getElementById(buttonId);
+    if (button) {
+        button.classList.toggle('active', !!isActive);
+    }
+}
+
+function updateArpOctaveIndicators(octaves) {
+    const dots = document.querySelectorAll('.seq-button-container .seq-dots-container .seq-dot[data-octave]');
+    if (!dots.length) {
+        return;
+    }
+    dots.forEach(dot => {
+        const value = Number(dot.dataset.octave);
+        dot.classList.toggle('active', value === octaves);
+    });
+}
+
+function updateArpModeIndicators(mode) {
+    const dots = document.querySelectorAll('.seq-button-container .seq-dots-container .seq-dot[data-direction]');
+    if (!dots.length) {
+        return;
+    }
+    const target = ARP_MODE_UI_MAP[mode] || ARP_MODE_UI_MAP.up;
+    dots.forEach(dot => {
+        const direction = dot.dataset.direction;
+        dot.classList.toggle('active', direction === target);
+    });
+}
+
+function setArpeggiatorActiveStateFromPreset(nextState) {
+    if (!arpeggiator || typeof arpeggiator.setActive !== 'function') {
+        return false;
+    }
+    const desired = !!nextState;
+    if (arpeggiator.isActive() !== desired) {
+        arpeggiator.setActive(desired);
+    }
+    updateArpToggleButtonState('seq-arp-button', desired);
+    return true;
+}
+
+function setArpeggiatorHoldStateFromPreset(nextState) {
+    if (!arpeggiator || typeof arpeggiator.setHold !== 'function') {
+        return false;
+    }
+    const desired = !!nextState;
+    if (arpeggiator.isHold() !== desired) {
+        arpeggiator.setHold(desired);
+    }
+    updateArpToggleButtonState('seq-hold-button', desired);
+    return true;
+}
+
+function setArpeggiatorModeStateFromPreset(nextMode) {
+    if (!arpeggiator || typeof arpeggiator.setMode !== 'function') {
+        return false;
+    }
+    if (typeof nextMode !== 'string') {
+        return false;
+    }
+    const safeMode = ARP_MODE_VALUES.includes(nextMode) ? nextMode : 'up';
+    if (arpeggiator.getMode() !== safeMode) {
+        arpeggiator.setMode(safeMode);
+    }
+    updateArpModeIndicators(safeMode);
+    return true;
+}
+
+function setArpeggiatorOctaveStateFromPreset(nextOctaves) {
+    if (!arpeggiator || typeof arpeggiator.setOctaves !== 'function') {
+        return false;
+    }
+    const parsed = Math.round(Number(nextOctaves));
+    if (!Number.isFinite(parsed)) {
+        return false;
+    }
+    const clamped = Math.min(MAX_ARP_OCTAVES, Math.max(MIN_ARP_OCTAVES, parsed));
+    if (arpeggiator.getOctaves() !== clamped) {
+        arpeggiator.setOctaves(clamped);
+    }
+    updateArpOctaveIndicators(clamped);
+    return true;
+}
+
+const knobControlRegistry = new Map();
+
+function registerKnobControl(knobId, control) {
+    if (!knobId || !control) {
+        return null;
+    }
+    const safeId = String(knobId);
+    knobControlRegistry.set(safeId, control);
+    return control;
+}
+
+function unregisterKnobControl(knobId) {
+    if (!knobId) return;
+    knobControlRegistry.delete(String(knobId));
+}
+
+function getKnobControl(knobId) {
+    if (!knobId) return null;
+    return knobControlRegistry.get(String(knobId)) || null;
+}
+
+function getKnobRegistrySnapshot() {
+    const snapshot = {};
+    knobControlRegistry.forEach((control, id) => {
+        if (!control || typeof control.getValue !== 'function') {
+            return;
+        }
+        const value = control.getValue();
+        if (Number.isFinite(value)) {
+            snapshot[id] = clamp01(value);
+        }
+    });
+    return snapshot;
+}
+
+function applyKnobRegistrySnapshot(snapshot = {}, options = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return;
+    }
+    const triggerOnChange = options.triggerOnChange === true;
+    Object.entries(snapshot).forEach(([id, value]) => {
+        const control = getKnobControl(id);
+        if (!control || typeof control.setValue !== 'function') {
+            return;
+        }
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+            return;
+        }
+        control.setValue(clamp01(numericValue), triggerOnChange);
+    });
+}
+
+function handleLinkableControlInteraction(controlId, sourceType = 'control') {
+    if (!linkParamsModeActive || !controlId || !isControlLinkable(controlId)) {
+        return;
+    }
+    const alreadyPending = pendingLinkTarget && pendingLinkTarget.id === controlId;
+    pendingLinkTarget = { id: controlId, sourceType };
+    refreshLinkParamsButtonState();
+    if (!alreadyPending) {
+        const label = sourceType === 'slider' ? 'Slider' : 'Knob';
+        console.log(`[Link Params] ${label} ${controlId} armed for MIDI linking. Move a controller knob to finish.`);
+    }
+}
+
+function getMidiLinkKey(channel, controller) {
+    const safeChannel = Number.isFinite(channel) ? channel : 0;
+    const safeController = Number.isFinite(controller) ? controller : 0;
+    return `${safeChannel}:${safeController}`;
+}
+
+function refreshLinkParamsButtonState() {
+    const button = document.getElementById('seq-link-params-button');
+    if (!button) {
+        return;
+    }
+    button.classList.toggle('active', linkParamsModeActive);
+    const pendingId = pendingLinkTarget ? pendingLinkTarget.id : null;
+    button.classList.toggle('link-armed', linkParamsModeActive && !!pendingId);
+    button.setAttribute('aria-pressed', linkParamsModeActive ? 'true' : 'false');
+    if (linkParamsModeActive && pendingId) {
+        button.dataset.pendingControl = pendingId;
+        button.dataset.pendingKnob = pendingId;
+        button.title = `Ready to link: ${pendingId}`;
+    } else {
+        delete button.dataset.pendingControl;
+        delete button.dataset.pendingKnob;
+        button.title = linkParamsModeActive
+            ? 'Link Params mode active'
+            : 'Link synth knobs to MIDI CCs';
+    }
+}
+
+function enableLinkParamsMode() {
+    linkParamsModeActive = true;
+    pendingLinkTarget = null;
+    refreshLinkParamsButtonState();
+    console.log('Link Params mode enabled. Move a synth knob, then move a MIDI knob to link.');
+}
+
+function disableLinkParamsMode() {
+    linkParamsModeActive = false;
+    pendingLinkTarget = null;
+    refreshLinkParamsButtonState();
+    console.log('Link Params mode disabled. Existing assignments remain active.');
+}
+
+function toggleLinkParamsMode(forceState) {
+    const nextState = typeof forceState === 'boolean' ? forceState : !linkParamsModeActive;
+    if (nextState) {
+        enableLinkParamsMode();
+    } else {
+        disableLinkParamsMode();
+    }
+}
+
+function setupLinkParamsButton() {
+    const button = document.getElementById('seq-link-params-button');
+    if (!button) {
+        return;
+    }
+    if (!button.dataset.linkHandlerAttached) {
+        button.addEventListener('click', () => toggleLinkParamsMode());
+        button.dataset.linkHandlerAttached = 'true';
+    }
+    refreshLinkParamsButtonState();
+}
+
+const TIP_HIDE_DELAY_MS = 320;
+
+const SYNTH_TIP_TEXT_OVERRIDES = {
+    'matrix-depth-knob': 'Sets how much the current modulation slot pushes its destination. Higher values mean deeper sweeps.',
+    'macro1-knob': 'Macro 1: assign multiple parameters and move them with a single performance knob.',
+    'macro2-knob': 'Macro 2: sculpt dramatic sweeps or scene changes without hunting for every control.',
+    'macro3-knob': 'Macro 3: perfect for morphing between tonal scenes mid-performance.',
+    'macro4-knob': 'Macro 4: dedicate to FX or any utility moves you trigger live.',
+    'mod-rate-knob': 'Primary modulation rate. Clocked ranges lock to tempo; free ranges drift organically.',
+    'mod-depth-knob': 'Sets how far the modulation engine pushes its destinations. Keep it subtle or go for full chaos.',
+    'mod-shape-knob': 'Morphs the modulation waveform between sine, ramp, random and stepped hybrids.',
+    'mod-canvas': 'Sketch modulation breakpoints. Click to add points, drag to curve them, double-click to delete.',
+    'sample-selector-btn': 'Open the PolyHymn sample browser to drop curated layers into the sampler.',
+    'mic-record-button': 'Print the current synth output into the sampler recorder for resampling.',
+    'keytrack-button': 'When lit, sampler pitch follows the keyboard. Toggle off for drones or manual pitch tricks.',
+    'sample-volume-knob': 'Sets the sampler layer level before filter, drive and FX.',
+    'sample-pitch-knob': 'Coarse tuning for the active sample. Use it to stack intervals or correct pitch.',
+    'sample-fade-knob': 'Controls how softly the sample loops crossfade to avoid clicks.',
+    'sample-start-knob': 'Nudges the playback start point to slice transient content or focus on sustain.',
+    'sample-end-knob': 'Defines the playback end point. Shorten for plucks, stretch for pads.',
+    'sample-crossfade-knob': 'Sets the crossfade width when looping so textures stay seamless.',
+    'sample-start-knob-label': 'Sample start label',
+    'osc1-pwm-knob': 'Shapes Oscillator 1 pulse width / symmetry for richer harmonics.',
+    'osc1-pitch-knob': 'Fine-tune Oscillator 1 pitch in cents for interval stacks or detune.',
+    'osc1-fm-knob': 'Amount of FM modulation hitting Oscillator 1 from the mod bus.',
+    'osc1-quantize-knob': 'Snaps Oscillator 1 to musical notes. Great for stepped digital textures.',
+    'osc1-gain-knob': 'Oscillator 1 output level heading into the filter and FX chain.',
+    'osc2-pwm-knob': 'Shapes Oscillator 2 symmetry for width and harmonic variation.',
+    'osc2-pitch-knob': 'Fine-tune Oscillator 2 pitch. Stack chords or beating detunes.',
+    'osc2-fm-knob': 'FM depth for Oscillator 2. Push gently for motion or hard for clangorous tones.',
+    'osc2-quantize-knob': 'Quantize Oscillator 2 to musical steps for sequencer-like motion.',
+    'osc2-gain-knob': 'Balance Oscillator 2 level versus Oscillator 1 and the sampler.',
+    'freq-slider-range': 'Main filter cutoff slider: drag to sweep from subsonic mud to glassy highs.',
+    'res-slider-range': 'Filter resonance slider: emphasize the cutoff point for squelchy sweeps.',
+    'drive-slider-range': 'Filter drive: adds grit before the filter core for harmonically rich tones.',
+    'variant-slider-range': 'Filter variant: morphs between ladder, OTA and other modeled responses.',
+    'attack': 'Amp envelope attack sets how quickly notes fade in. Higher values = softer entrances.',
+    'decay': 'Amp envelope decay controls how fast the sound falls to sustain after the attack.',
+    'sustain': 'Amp envelope sustain level held while keys are pressed.',
+    'release': 'Amp envelope release fades the voice after key-up. Longer times = trailing tails.',
+    'filter-attack': 'Filter envelope attack shapes how fast the cutoff opens per note.',
+    'filter-decay': 'Filter envelope decay controls how quickly the cutoff falls back.',
+    'filter-sustain': 'Filter envelope sustain level while the note is held.',
+    'filter-release': 'Filter envelope release sets how the cutoff closes after key release.',
+    'glide-time-knob': 'Glide time controls how quickly pitches slide between notes in mono/legato play.',
+    'master-volume-knob': 'Final output level before the safety limiter. Balance PolyHymn with your mix here.',
+    'looper-layers-knob': 'Selects which looper layer is focused. Each click jumps to another virtual tape.',
+    'looper-start-knob': 'Sets where the loop window begins inside the recorded buffer.',
+    'looper-end-knob': 'Sets where the loop window ends, controlling loop length.',
+    'looper-speed-knob': 'Offsets loop playback speed for half-time, double-time or tape drift tricks.',
+    'looper-filter-knob': 'Applies a gentle low-pass to shave brightness off the loop buss.',
+    'looper-volume-knob': 'Overall looper return level before it sums with the synth.',
+    'looper-dropouts-knob': 'Introduce random mutes and tape dropouts for unstable textures.',
+    'looper-stutter-knob': 'Chop the loop into fast repeats for glitch percussion.',
+    'looper-lofi-knob': 'Blend in cassette-style companding and grit.',
+    'looper-repeats-knob': 'Set how many overdub passes build up before the layer fades.',
+    'looper-jump-knob': 'Randomly jump to other loop positions for granular rearrangements.',
+    'looper-pitch-knob': 'Shift the looper output in semitones for harmonic stacks.',
+    'overload-knob': 'Drive the analog-model overdrive block before the cabinet.',
+    'cabinet-knob': 'Blend between cabinet impulses or disable them for DI clarity.',
+    'loss-knob': 'Introduces bandwidth loss for vintage sampler coloration.',
+    'artifacts-knob': 'Adds pitched aliasing grit for lofi sparkle.',
+    'low-cut-knob': 'High-pass filter to remove mud before the master FX.',
+    'high-cut-knob': 'Low-pass filter to tame airy highs and hiss.',
+    'mix-knob': 'Wet/dry mix for the master delay + reverb buss.',
+    'seq-metronome-vol-knob': 'Adjust the sequencer metronome bleed to taste.',
+    'seq-quantize-knob': 'Set how tightly recorded notes snap to the timing grid.',
+    'seq-spread-knob': 'Fan chords across octaves for instant width.',
+    'seq-tempo-knob': 'Dial the sequencer tempo when not following external clock.',
+    'seq-division-knob': 'Choose the rhythmic division for clock-synced features.',
+    'seq-tips-button': 'Toggle contextual hover tips so every control describes itself.',
+    'seq-link-params-button': 'Link synth controls to MIDI CCs or pitch bend for hardware control.',
+    'seq-vel-after-button': 'Route velocity and aftertouch lanes into the sequencer data stream.',
+    'seq-precision-button': 'Enable micro-step editing for detailed motion programming.',
+    'seq-play-button': 'Start or pause the sequencer engine and clock.',
+    'seq-record-button': 'Capture keyboard notes and motion tweaks into the pattern.',
+    'seq-motion-button': 'Arm motion recording so knob moves print to automation lanes.',
+    'seq-hold-button': 'Latch sustaining notes so both hands can tweak the panel.'
+};
+
+const SYNTH_TIP_MANUAL_TARGETS = [
+    { selector: '#seq-tips-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-tips-button'] },
+    { selector: '#seq-link-params-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-link-params-button'] },
+    { selector: '#seq-precision-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-precision-button'] },
+    { selector: '#seq-vel-after-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-vel-after-button'] },
+    { selector: '#seq-play-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-play-button'] },
+    { selector: '#seq-record-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-record-button'] },
+    { selector: '#seq-motion-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-motion-button'] },
+    { selector: '#seq-hold-button', text: SYNTH_TIP_TEXT_OVERRIDES['seq-hold-button'] },
+    { selector: '#sample-selector-btn', text: SYNTH_TIP_TEXT_OVERRIDES['sample-selector-btn'] },
+    { selector: '#mic-record-button', text: SYNTH_TIP_TEXT_OVERRIDES['mic-record-button'] },
+    { selector: '#keytrack-button', text: SYNTH_TIP_TEXT_OVERRIDES['keytrack-button'] },
+    { selector: '.rate-slider-range', text: 'Modulation rate slider: drag to sync the engine faster or slower.', mirrorLabel: false },
+    { selector: '.delay-slider-range', text: 'Modulation offset slider: shift modulation phase for stereo motion.', mirrorLabel: false },
+    { selector: '.freq-slider-range', text: SYNTH_TIP_TEXT_OVERRIDES['freq-slider-range'], mirrorLabel: false },
+    { selector: '.res-slider-range', text: SYNTH_TIP_TEXT_OVERRIDES['res-slider-range'], mirrorLabel: false },
+    { selector: '.drive-slider-range', text: SYNTH_TIP_TEXT_OVERRIDES['drive-slider-range'], mirrorLabel: false },
+    { selector: '.variant-slider-range', text: SYNTH_TIP_TEXT_OVERRIDES['variant-slider-range'], mirrorLabel: false },
+    { selector: '#mod-canvas', text: SYNTH_TIP_TEXT_OVERRIDES['mod-canvas'], mirrorLabel: false }
+];
+
+const TIP_SELECTOR_GROUPS = [
+    { selector: '.knob', role: 'knob' },
+    { selector: '.shape-knob', role: 'knob' },
+    { selector: 'input[type="range"]', role: 'slider' },
+    { selector: '.seq-chorus-button', role: 'button' },
+    { selector: '.seq-transport-button', role: 'button' },
+    { selector: '.seq-step-button', role: 'step' },
+    { selector: '.seq-button-container .seq-button, .seq-octave-buttons div, .seq-select-button', role: 'button' },
+    { selector: '.switch-container .switch, .switch-container .seq-hold-button, .switch-container .keytrack-button', role: 'switch' }
+];
+
+const TIP_ROLE_TEMPLATES = {
+    knob: (name) => `${name} knob: turn clockwise to intensify, counter-clockwise to reduce.`,
+    slider: (name) => `${name} slider: drag or scroll to dial in the exact value.`,
+    button: (name) => `${name} button: click to toggle or trigger the feature.`,
+    switch: (name) => `${name} switch: flip settings on/off for quick comparisons.`,
+    step: (name) => `${name}: enable steps to drop notes, automation or triggers.`,
+    label: (name) => `${name} — hover the control or this label to learn what it does.`,
+    canvas: () => 'Interactive canvas: draw, edit or clear breakpoints to sculpt movement.',
+    default: (name) => `${name}: interactive control.`
+};
+
+const tipRegisteredNodes = new WeakSet();
+let activeTipAnchor = null;
+
+function initializeTipsSystem() {
+    const tipsButton = document.getElementById('seq-tips-button');
+    if (!tipsButton) {
+        return;
+    }
+
+    if (!synthTipOverlay) {
+        synthTipOverlay = document.createElement('div');
+        synthTipOverlay.id = 'synth-tip-overlay';
+        synthTipOverlay.className = 'synth-tip-overlay';
+        document.body.appendChild(synthTipOverlay);
+    }
+
+    setupSynthTipTargets();
+
+    if (!tipsButton.dataset.tipsHandlerAttached) {
+        tipsButton.addEventListener('click', () => toggleTipsMode());
+        tipsButton.dataset.tipsHandlerAttached = 'true';
+    }
+
+    updateTipsModeUi();
+}
+
+function setupSynthTipTargets() {
+    registerManualTipTargets();
+    registerAutomaticTipTargets();
+}
+
+function registerManualTipTargets() {
+    SYNTH_TIP_MANUAL_TARGETS.forEach((definition) => {
+        if (!definition?.selector || !definition?.text) {
+            return;
+        }
+        const nodes = document.querySelectorAll(definition.selector);
+        nodes.forEach((node) => {
+            registerSynthTipNode(node, definition.text, { manual: true, mirrorLabel: definition.mirrorLabel !== false });
+        });
+    });
+}
+
+function registerAutomaticTipTargets() {
+    TIP_SELECTOR_GROUPS.forEach(({ selector, role }) => {
+        const nodes = document.querySelectorAll(selector);
+        nodes.forEach((node) => {
+            if (!shouldAutoRegisterNode(node)) {
+                return;
+            }
+            const text = generateTipTextForElement(node, role);
+            if (text) {
+                const mirrorLabel = role !== 'label';
+                registerSynthTipNode(node, text, { mirrorLabel });
+            }
+        });
+    });
+}
+
+function registerSynthTipNode(node, text, options = {}) {
+    if (!node || !text) {
+        return;
+    }
+    if (tipRegisteredNodes.has(node)) {
+        node.dataset.synthTip = text;
+        return;
+    }
+    node.dataset.synthTip = text;
+    if (options.manual) {
+        node.dataset.synthTipManual = 'true';
+    }
+    if (!node.dataset.tipHoverBound) {
+        node.addEventListener('pointerenter', handleSynthTipEnter);
+        node.addEventListener('pointerleave', handleSynthTipLeave);
+        node.addEventListener('focus', handleSynthTipEnter);
+        node.addEventListener('blur', handleSynthTipLeave);
+        node.dataset.tipHoverBound = 'true';
+    }
+    tipRegisteredNodes.add(node);
+
+    if (options.mirrorLabel !== false && node.tagName !== 'LABEL') {
+        const label = findLabelForElement(node);
+        if (label) {
+            registerSynthTipNode(label, text, { mirrorLabel: false });
+        }
+    }
+}
+
+function shouldAutoRegisterNode(node) {
+    if (!node) {
+        return false;
+    }
+    if (node.dataset.synthTipManual === 'true' || node.dataset.disableAutoTip === 'true') {
+        return false;
+    }
+    return true;
+}
+
+function generateTipTextForElement(element, role) {
+    if (!element) {
+        return null;
+    }
+    const id = element.id;
+    if (id && SYNTH_TIP_TEXT_OVERRIDES[id]) {
+        return SYNTH_TIP_TEXT_OVERRIDES[id];
+    }
+    const overrideFromClass = Array.from(element.classList || []).find((cls) => SYNTH_TIP_TEXT_OVERRIDES[cls]);
+    if (overrideFromClass) {
+        return SYNTH_TIP_TEXT_OVERRIDES[overrideFromClass];
+    }
+    if (role === 'canvas' && TIP_ROLE_TEMPLATES.canvas) {
+        return TIP_ROLE_TEMPLATES.canvas();
+    }
+    const labelText = getLabelTextForElement(element);
+    const friendlyName = labelText || prettifyControlName(id) || element.getAttribute('aria-label') || element.dataset.tipName || element.textContent?.trim();
+    const template = (role && TIP_ROLE_TEMPLATES[role]) || TIP_ROLE_TEMPLATES.default;
+    return template(friendlyName || 'This control');
+}
+
+function findLabelForElement(element) {
+    if (!element) {
+        return null;
+    }
+    if (element.id) {
+        const explicit = document.querySelector(`label[for="${element.id}"]`);
+        if (explicit) {
+            return explicit;
+        }
+    }
+    const labelledBy = element.getAttribute?.('aria-labelledby');
+    if (labelledBy) {
+        const linked = document.getElementById(labelledBy);
+        if (linked) {
+            return linked;
+        }
+    }
+    const wrappingLabel = element.closest ? element.closest('label') : null;
+    if (wrappingLabel) {
+        return wrappingLabel;
+    }
+    const siblingLabel = findSiblingLabelNode(element);
+    return siblingLabel || null;
+}
+
+function getLabelTextForElement(element) {
+    if (!element) {
+        return null;
+    }
+    if (element.dataset.tipLabel) {
+        return element.dataset.tipLabel;
+    }
+    if (element.id) {
+        const label = document.querySelector(`label[for="${element.id}"]`);
+        if (label && label.textContent) {
+            return label.textContent.trim();
+        }
+    }
+    const labelledBy = element.getAttribute?.('aria-labelledby');
+    if (labelledBy) {
+        const labelNode = document.getElementById(labelledBy);
+        if (labelNode && labelNode.textContent) {
+            return labelNode.textContent.trim();
+        }
+    }
+    const wrapper = element.closest ? element.closest('label') : null;
+    if (wrapper && wrapper.textContent) {
+        return wrapper.textContent.trim();
+    }
+    const siblingLabel = findSiblingLabelNode(element);
+    if (siblingLabel && siblingLabel.textContent) {
+        return siblingLabel.textContent.trim();
+    }
+    return null;
+}
+
+function findSiblingLabelNode(element) {
+    if (!element) {
+        return null;
+    }
+    const container = element.closest?.('.seq-chorus-button-container, .seq-button-container, .switch-container, .seq-buttons-column');
+    if (container) {
+        const label = container.querySelector('label');
+        if (label) {
+            return label;
+        }
+    }
+    return null;
+}
+
+function prettifyControlName(raw) {
+    if (!raw || typeof raw !== 'string') {
+        return null;
+    }
+    return raw
+        .replace(/[-_]+/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function toggleTipsMode(forceState) {
+    const nextState = typeof forceState === 'boolean' ? forceState : !tipsModeActive;
+    tipsModeActive = nextState;
+    if (!tipsModeActive) {
+        hideSynthTip(true);
+        document.querySelectorAll('[data-synth-tip].is-tip-target').forEach((node) => node.classList.remove('is-tip-target'));
+    }
+    updateTipsModeUi();
+}
+
+function updateTipsModeUi() {
+    const tipsButton = document.getElementById('seq-tips-button');
+    if (tipsButton) {
+        tipsButton.classList.toggle('active', tipsModeActive);
+        tipsButton.setAttribute('aria-pressed', tipsModeActive ? 'true' : 'false');
+    }
+    document.body.classList.toggle('tips-mode-active', tipsModeActive);
+}
+
+function handleSynthTipEnter(event) {
+    if (!tipsModeActive) {
+        return;
+    }
+    const target = event.currentTarget;
+    const tip = target?.dataset?.synthTip;
+    if (!tip || !synthTipOverlay) {
+        return;
+    }
+    activeTipAnchor = target;
+    target.classList.add('is-tip-target');
+    showSynthTip(tip, target, event);
+}
+
+function handleSynthTipLeave(event) {
+    const target = event.currentTarget;
+    target?.classList.remove('is-tip-target');
+    if (activeTipAnchor === target) {
+        activeTipAnchor = null;
+        hideSynthTip();
+    }
+}
+
+function showSynthTip(text, anchor, triggerEvent) {
+    if (!synthTipOverlay) {
+        return;
+    }
+    synthTipOverlay.textContent = text;
+    synthTipOverlay.classList.add('visible');
+
+    const pointerEvent = triggerEvent && typeof triggerEvent.clientX === 'number' && typeof triggerEvent.clientY === 'number';
+    let top;
+    let left;
+    const verticalGap = 14;
+
+    if (pointerEvent) {
+        top = triggerEvent.clientY + verticalGap;
+        left = triggerEvent.clientX + verticalGap;
+    } else {
+        const rect = anchor.getBoundingClientRect();
+        const overlayRect = synthTipOverlay.getBoundingClientRect();
+        top = rect.top - overlayRect.height - verticalGap;
+        if (top < 8) {
+            top = rect.bottom + verticalGap;
+        }
+        left = rect.left + (rect.width / 2) - (overlayRect.width / 2);
+    }
+
+    const overlayRect = synthTipOverlay.getBoundingClientRect();
+    const maxLeft = window.innerWidth - overlayRect.width - 12;
+    left = Math.max(12, Math.min(left, maxLeft));
+    const minTop = 12;
+    const maxTop = window.innerHeight - overlayRect.height - 12;
+    top = Math.max(minTop, Math.min(top, maxTop));
+
+    synthTipOverlay.style.top = `${top + window.scrollY}px`;
+    synthTipOverlay.style.left = `${left + window.scrollX}px`;
+}
+
+function hideSynthTip(forceImmediate = false) {
+    if (!synthTipOverlay) {
+        return;
+    }
+    if (synthTipHideTimeout) {
+        clearTimeout(synthTipHideTimeout);
+        synthTipHideTimeout = null;
+    }
+    if (forceImmediate) {
+        synthTipOverlay.classList.remove('visible');
+        return;
+    }
+    synthTipHideTimeout = setTimeout(() => {
+        if (!activeTipAnchor) {
+            synthTipOverlay?.classList.remove('visible');
+        }
+        synthTipHideTimeout = null;
+    }, TIP_HIDE_DELAY_MS);
+}
+
+function unlinkExistingMidiController(key) {
+    if (!midiControllerLinks.has(key)) {
+        return;
+    }
+    const previousKnob = midiControllerLinks.get(key);
+    midiControllerLinks.delete(key);
+    if (previousKnob) {
+        controlToMidiLink.delete(previousKnob);
+    }
+}
+
+function linkControlToMidiController(controlId, channel, controller) {
+    if (!controlId || !isControlLinkable(controlId)) {
+        if (controlId) {
+            console.info(`[Link Params] ${controlId} cannot be linked (excluded control).`);
+        }
+        return;
+    }
+    const key = getMidiLinkKey(channel, controller);
+    // Remove any previous links that conflict
+    const priorBinding = controlToMidiLink.get(controlId);
+    if (priorBinding) {
+        const previousKey = getMidiLinkKey(priorBinding.channel, priorBinding.controller);
+        midiControllerLinks.delete(previousKey);
+    }
+    unlinkExistingMidiController(key);
+    midiControllerLinks.set(key, controlId);
+    controlToMidiLink.set(controlId, { channel, controller });
+    pendingLinkTarget = null;
+    refreshLinkParamsButtonState();
+    const controllerLabel = controller === MIDI_PITCH_BEND_CONTROLLER_ID
+        ? 'Pitch Bend'
+        : `MIDI CC ${controller}`;
+    console.log(`[Link Params] ${controlId} linked to ${controllerLabel} on channel ${channel + 1}.`);
+}
+
+function ensureDefaultPitchWheelLink(channel = DEFAULT_PITCH_WHEEL_CHANNEL, options = {}) {
+    const sliderId = 'seq-pitch-slider';
+    const existing = controlToMidiLink.get(sliderId);
+    if (!existing) {
+        linkControlToMidiController(sliderId, channel, MIDI_PITCH_BEND_CONTROLLER_ID);
+        return;
+    }
+    if (existing.controller === MIDI_PITCH_BEND_CONTROLLER_ID
+        && options.forceChannel === true
+        && existing.channel !== channel) {
+        linkControlToMidiController(sliderId, channel, MIDI_PITCH_BEND_CONTROLLER_ID);
+    }
+}
+
+function getSliderControlElement(controlId) {
+    if (!controlId) {
+        return null;
+    }
+    return sliderControlRegistry.get(controlId) || document.getElementById(controlId);
+}
+
+function setSliderNormalizedValue(sliderElement, normalizedValue) {
+    if (!sliderElement) {
+        return false;
+    }
+    const rawMin = parseFloat(sliderElement.min);
+    const rawMax = parseFloat(sliderElement.max);
+    const min = Number.isFinite(rawMin) ? rawMin : 0;
+    const max = Number.isFinite(rawMax) ? rawMax : 1;
+    const range = max - min;
+    if (!Number.isFinite(range) || range === 0) {
+        return false;
+    }
+    const rawValue = min + clamp01(normalizedValue) * range;
+    const previousSuppressState = suppressAutomationCapture;
+    suppressAutomationCapture = true;
+    try {
+        sliderElement.value = rawValue;
+        dispatchAutomationInputEvent(sliderElement);
+    } finally {
+        suppressAutomationCapture = previousSuppressState;
+    }
+    return true;
+}
+
+function applyMidiValueToControl(controlId, normalizedValue) {
+    if (!controlId || !isControlLinkable(controlId)) {
+        return false;
+    }
+    const knobControl = getKnobControl(controlId);
+    if (knobControl && typeof knobControl.setValue === 'function') {
+        const previousSuppressState = suppressAutomationCapture;
+        suppressAutomationCapture = true;
+        try {
+            knobControl.setValue(normalizedValue, true);
+        } finally {
+            suppressAutomationCapture = previousSuppressState;
+        }
+        return true;
+    }
+    const sliderElement = getSliderControlElement(controlId);
+    if (sliderElement) {
+        return setSliderNormalizedValue(sliderElement, normalizedValue);
+    }
+    return false;
+}
+
+function handleMidiControlChange(channel, controller, value = 0) {
+    const normalizedValue = clamp01(value / 127);
+    if (linkParamsModeActive && pendingLinkTarget && pendingLinkTarget.id) {
+        linkControlToMidiController(pendingLinkTarget.id, channel, controller);
+    }
+    const linkedControlId = midiControllerLinks.get(getMidiLinkKey(channel, controller));
+    if (!linkedControlId) {
+        return;
+    }
+    if (!applyMidiValueToControl(linkedControlId, normalizedValue)) {
+        console.warn(`[Link Params] Control ${linkedControlId} is not available for MIDI updates.`);
+    }
+}
+
+function handleMidiPitchWheel(channel, lsb = 0, msb = 64) {
+    const coarse = msb & 0x7F;
+    const fine = lsb & 0x7F;
+    const value14Bit = (coarse << 7) | fine;
+    const normalizedValue = clamp01(value14Bit / MIDI_PITCH_BEND_MAX);
+    if (linkParamsModeActive && pendingLinkTarget && pendingLinkTarget.id) {
+        linkControlToMidiController(pendingLinkTarget.id, channel, MIDI_PITCH_BEND_CONTROLLER_ID);
+    } else {
+        ensureDefaultPitchWheelLink(channel, { forceChannel: true });
+    }
+    const linkedControlId = midiControllerLinks.get(getMidiLinkKey(channel, MIDI_PITCH_BEND_CONTROLLER_ID));
+    if (!linkedControlId) {
+        return;
+    }
+    if (!applyMidiValueToControl(linkedControlId, normalizedValue)) {
+        console.warn(`[Link Params] Control ${linkedControlId} is not available for pitch wheel updates.`);
+    }
+}
+
+const PRESET_FORMAT_VERSION = 1;
+const ADSR_SLIDER_IDS = [
+    'attack',
+    'decay',
+    'sustain',
+    'release',
+    'filter-attack',
+    'filter-decay',
+    'filter-sustain',
+    'filter-release'
+];
+const PRESET_SLIDER_IDS = [
+    'delay-time-slider',
+    'delay-length-slider',
+    'delay-feedback-slider',
+    'delay-density-slider',
+    'seq-pitch-slider'
+];
+
+function captureSliderCollectionSnapshot(ids = PRESET_SLIDER_IDS) {
+    const snapshot = {};
+    ids.forEach(id => {
+        const slider = document.getElementById(id);
+        if (!slider) return;
+        const numericValue = Number(slider.value);
+        snapshot[id] = {
+            value: Number.isFinite(numericValue) ? numericValue : slider.value
+        };
+    });
+    return snapshot;
+}
+
+function applySliderCollectionSnapshot(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return;
+    }
+    Object.entries(snapshot).forEach(([id, state]) => {
+        const slider = document.getElementById(id);
+        if (!slider || !state) return;
+        if (state.value !== undefined) {
+            slider.value = state.value;
+        }
+        dispatchAutomationInputEvent(slider);
+    });
+}
+
+function getAdsrSliderSnapshot() {
+    const sliders = {};
+    ADSR_SLIDER_IDS.forEach(id => {
+        const slider = document.getElementById(id);
+        if (!slider) return;
+        const numericValue = Number(slider.value);
+        const entry = {};
+        if (Number.isFinite(numericValue)) {
+            entry.value = numericValue;
+        }
+        if (slider.dataset && slider.dataset.mappedTime !== undefined) {
+            const mapped = Number(slider.dataset.mappedTime);
+            if (Number.isFinite(mapped)) {
+                entry.mappedTime = mapped;
+            }
+        }
+        sliders[id] = entry;
+    });
+    return {
+        sliders,
+        mode: adsrMode,
+        classicModeEnabled
+    };
+}
+
+function setPresetAdsrMode(targetMode) {
+    if (!targetMode || targetMode === adsrMode) {
+        return;
+    }
+    const buttonId = targetMode === 'filter' ? 'filter-mode-button' : 'adsr-mode-button';
+    const button = document.getElementById(buttonId);
+    if (button) {
+        button.click();
+    } else {
+        adsrMode = targetMode;
+        updateADSRVisualization();
+    }
+}
+
+function setClassicModeFromPreset(shouldEnable) {
+    if (typeof shouldEnable !== 'boolean' || shouldEnable === classicModeEnabled) {
+        return;
+    }
+    const button = document.getElementById('classic-mode-button');
+    if (button) {
+        button.click();
+    } else {
+        classicModeEnabled = shouldEnable;
+    }
+}
+
+function applyAdsrSliderSnapshot(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return;
+    }
+    const sliderStates = snapshot.sliders && typeof snapshot.sliders === 'object'
+        ? snapshot.sliders
+        : snapshot;
+    Object.entries(sliderStates).forEach(([id, state]) => {
+        if (!ADSR_SLIDER_IDS.includes(id)) return;
+        const slider = document.getElementById(id);
+        if (!slider || !state) return;
+        if (state.value !== undefined) {
+            slider.value = state.value;
+        }
+        if (state.mappedTime !== undefined && slider.dataset) {
+            slider.dataset.mappedTime = state.mappedTime;
+        }
+        dispatchAutomationInputEvent(slider);
+    });
+    if (typeof snapshot.mode === 'string') {
+        setPresetAdsrMode(snapshot.mode);
+    }
+    if (typeof snapshot.classicModeEnabled === 'boolean') {
+        setClassicModeFromPreset(snapshot.classicModeEnabled);
+    }
+}
+
+function setModModeFromPreset(modeName) {
+    if (!modeName || modCanvasMode === modeName) {
+        return;
+    }
+    const option = document.querySelector(`.mod-mode-selector .mode-option[data-mode="${modeName}"]`);
+    if (option) {
+        option.click();
+    } else {
+        modCanvasMode = modeName;
+    }
+}
+
+function serializeModCanvasState() {
+    const points = getModulationPoints();
+    const canvasElement = document.getElementById('mod-canvas');
+    if (!canvasElement || !Array.isArray(points) || points.length < 2) {
+        return null;
+    }
+    const width = canvasElement.width || canvasElement.clientWidth || 1;
+    const height = canvasElement.height || canvasElement.clientHeight || 1;
+    const normalizedPoints = points.map(point => ({
+        x: Number(point?.x || 0) / width,
+        y: Number(point?.y || 0) / height,
+        curveX: point?.curveX !== undefined ? Number(point.curveX) / width : undefined,
+        curveY: point?.curveY !== undefined ? Number(point.curveY) / height : undefined,
+        noCurve: !!point?.noCurve
+    }));
+    return {
+        normalized: true,
+        canvasWidth: width,
+        canvasHeight: height,
+        points: normalizedPoints
+    };
+}
+
+function applyModCanvasSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.points)) {
+        return;
+    }
+    setModulationPoints(snapshot, {
+        normalized: snapshot.normalized !== false,
+        canvasWidth: snapshot.canvasWidth,
+        canvasHeight: snapshot.canvasHeight
+    });
+}
+
+function captureModulationMatrixSnapshot() {
+    const connections = {};
+    const depths = {};
+    const baseValues = {};
+    modulationDestinations.forEach(dest => {
+        connections[dest] = destinationConnections[dest] ?? null;
+        depths[dest] = Number(destinationDepths[dest] ?? 0.5);
+        if (destinationBaseValues[dest] !== undefined) {
+            baseValues[dest] = destinationBaseValues[dest];
+        }
+    });
+    return {
+        connections,
+        depths,
+        baseValues,
+        currentDestination: currentDestinationName
+    };
+}
+
+function applyModulationMatrixSnapshot(matrix = {}) {
+    if (!matrix || typeof matrix !== 'object') {
+        return;
+    }
+    if (matrix.connections && typeof matrix.connections === 'object') {
+        modulationDestinations.forEach(dest => {
+            destinationConnections[dest] = matrix.connections.hasOwnProperty(dest)
+                ? matrix.connections[dest]
+                : destinationConnections[dest];
+        });
+    }
+    if (matrix.depths && typeof matrix.depths === 'object') {
+        modulationDestinations.forEach(dest => {
+            const depth = Number(matrix.depths[dest]);
+            if (Number.isFinite(depth)) {
+                destinationDepths[dest] = clamp01(depth);
+            }
+        });
+    }
+    if (matrix.baseValues && typeof matrix.baseValues === 'object') {
+        Object.entries(matrix.baseValues).forEach(([dest, value]) => {
+            const numeric = Number(value);
+            if (Number.isFinite(numeric)) {
+                destinationBaseValues[dest] = clamp01(numeric);
+            }
+        });
+    }
+    if (typeof matrix.currentDestination === 'string') {
+        const idx = modulationDestinations.indexOf(matrix.currentDestination);
+        if (idx >= 0) {
+            currentDestinationName = matrix.currentDestination;
+            currentDestinationIndex = idx;
+        }
+    }
+    updateDestinationRoutedStates();
+    updateSourceButtonStates();
+    recallDepthForDestination();
+}
+
+function applyDelayPresetState(state = {}) {
+    if (!state || typeof state !== 'object') {
+        return;
+    }
+    if (typeof state.freeze === 'boolean') {
+        delayUiState.freeze = state.freeze;
+        if (delayUiElements.freezeSwitch) {
+            delayUiElements.freezeSwitch.classList.toggle('active', state.freeze);
+        }
+    }
+    if (typeof state.reverse === 'boolean') {
+        delayUiState.reverse = state.reverse;
+        if (delayUiElements.reverseSwitch) {
+            delayUiElements.reverseSwitch.classList.toggle('active', state.reverse);
+        }
+    }
+    refreshDelayProcessor('preset-load');
+}
+
+const FILTER_UI_SELECTORS = {
+    type: '.filter-type-range',
+    cutoff: '.freq-slider-range',
+    resonance: '.res-slider-range',
+    drive: '.drive-slider-range',
+    variant: '.variant-slider-range'
+};
+
+function captureFilterUiSnapshot() {
+    const snapshot = {};
+    let hasValue = false;
+    Object.entries(FILTER_UI_SELECTORS).forEach(([key, selector]) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+            return;
+        }
+        snapshot[key] = element.value;
+        hasValue = true;
+    });
+    return hasValue ? snapshot : null;
+}
+
+function applyFilterUiSnapshot(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return false;
+    }
+    if (!filterControlsInitialized) {
+        pendingFilterUiState = { ...snapshot };
+        return false;
+    }
+    let missingElement = false;
+    Object.entries(FILTER_UI_SELECTORS).forEach(([key, selector]) => {
+        if (!Object.prototype.hasOwnProperty.call(snapshot, key)) {
+            return;
+        }
+        const element = document.querySelector(selector);
+        if (!element) {
+            missingElement = true;
+            return;
+        }
+        const nextValue = snapshot[key];
+        if (String(element.value) !== String(nextValue)) {
+            element.value = nextValue;
+        }
+        const eventInit = { bubbles: true };
+        element.dispatchEvent(new Event('input', eventInit));
+        if (key === 'type') {
+            element.dispatchEvent(new Event('change', eventInit));
+        }
+    });
+    if (missingElement) {
+        pendingFilterUiState = { ...snapshot };
+        return false;
+    }
+    pendingFilterUiState = null;
+    return true;
+}
+
+function captureFilterPresetState() {
+    const managerState = filterManager && typeof filterManager.getState === 'function'
+        ? filterManager.getState()
+        : null;
+    const uiState = captureFilterUiSnapshot();
+    if (!managerState && !uiState) {
+        return null;
+    }
+    return {
+        manager: managerState,
+        ui: uiState
+    };
+}
+
+function applyFilterPresetState(state = {}) {
+    if (!state || typeof state !== 'object') {
+        return Promise.resolve();
+    }
+    if (state.ui) {
+        applyFilterUiSnapshot(state.ui);
+    }
+    const targetEnvelopeAmount = state.manager && state.manager.envelopeAmount !== undefined
+        ? clamp01(state.manager.envelopeAmount)
+        : undefined;
+    if (state.manager) {
+        if (filterManager && typeof filterManager.applyState === 'function') {
+            const result = filterManager.applyState(state.manager);
+            if (result && typeof result.then === 'function') {
+                return result.then(() => {
+                    if (targetEnvelopeAmount !== undefined) {
+                        setFilterEnvelopeFollowValue(targetEnvelopeAmount, {
+                            suppressFilterUpdate: true,
+                            suppressTooltip: true,
+                            force: true
+                        });
+                    }
+                });
+            }
+            if (targetEnvelopeAmount !== undefined) {
+                setFilterEnvelopeFollowValue(targetEnvelopeAmount, {
+                    suppressFilterUpdate: true,
+                    suppressTooltip: true,
+                    force: true
+                });
+            }
+            return Promise.resolve(result);
+        }
+        pendingFilterManagerState = state.manager;
+        if (targetEnvelopeAmount !== undefined) {
+            setFilterEnvelopeFollowValue(targetEnvelopeAmount, {
+                suppressFilterUpdate: true,
+                suppressTooltip: true,
+                force: true
+            });
+        }
+    }
+    return Promise.resolve();
+}
+
+function captureSamplerState() {
+    const source = currentSampleSource && currentSampleSource.type && currentSampleSource.name
+        ? { ...currentSampleSource }
+        : null;
+
+    return {
+        loop: !!isSampleLoopOn,
+        reverse: !!isSampleReversed,
+        emuMode: !!isEmuModeOn,
+        keyTrack: !!isSampleKeyTrackingOn,
+        source
+    };
+}
+
+function applySamplerPresetState(state = {}) {
+    if (!state || typeof state !== 'object') {
+        return null;
+    }
+    if (typeof state.loop === 'boolean') {
+        setSampleLoopState(state.loop);
+    }
+    if (typeof state.reverse === 'boolean') {
+        setSampleReverseState(state.reverse);
+    }
+    if (typeof state.keyTrack === 'boolean') {
+        setSampleKeytrackState(state.keyTrack);
+    }
+    if (typeof state.emuMode === 'boolean') {
+        setEmuModeStateFromPreset(state.emuMode);
+    }
+    if (state.source && state.source.type === 'preset' && state.source.name) {
+        return loadPresetSample(state.source.name);
+    }
+    if (state.source && state.source.type === 'user' && state.source.name) {
+        console.warn(`Preset references user sample "${state.source.name}". Please reload it manually.`);
+        setCurrentSampleSource('user', state.source.name);
+    }
+    return null;
+}
+
+function captureOscillatorPresetState() {
+    return {
+        osc1: {
+            waveform: osc1Waveform,
+            octave: osc1OctaveOffset,
+            fmSource: osc1FMSource
+        },
+        osc2: {
+            waveform: osc2Waveform,
+            octave: osc2OctaveOffset,
+            fmSource: osc2FMSource
+        }
+    };
+}
+
+function mapWaveformToSelectorValue(waveform) {
+    const index = OSC_WAVEFORM_OPTIONS.indexOf(waveform);
+    return index >= 0 ? index : null;
+}
+
+function mapOctaveOffsetToSliderValue(offset) {
+    const index = OSC_OCTAVE_STEPS.indexOf(offset);
+    return index >= 0 ? index : null;
+}
+
+function applySingleOscillatorState(prefix, oscState = {}) {
+    if (!oscState || typeof oscState !== 'object') {
+        return;
+    }
+
+    if (oscState.waveform) {
+        const selector = D(`${prefix}-wave-selector`);
+        const waveIndex = mapWaveformToSelectorValue(oscState.waveform);
+        if (selector && waveIndex !== null && String(selector.value) !== String(waveIndex)) {
+            selector.value = String(waveIndex);
+            selector.dispatchEvent(new Event('input', { bubbles: true }));
+            selector.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    if (typeof oscState.octave === 'number') {
+        const slider = D(`${prefix}-octave-selector`);
+        const sliderValue = mapOctaveOffsetToSliderValue(oscState.octave);
+        if (slider && sliderValue !== null && String(slider.value) !== String(sliderValue)) {
+            slider.value = String(sliderValue);
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+            slider.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    if (typeof oscState.fmSource === 'string') {
+        const wantsAltSource = prefix === 'osc1'
+            ? oscState.fmSource === 'osc2'
+            : oscState.fmSource === 'osc1';
+
+        if (prefix === 'osc1' && osc1FmSourceSwitchControl) {
+            osc1FmSourceSwitchControl.setValue(wantsAltSource, true);
+        } else if (prefix === 'osc2' && osc2FmSourceSwitchControl) {
+            osc2FmSourceSwitchControl.setValue(wantsAltSource, true);
+        } else {
+            const switchElement = D(`${prefix}-fm-source-switch`);
+            if (switchElement && switchElement.classList.contains('active') !== wantsAltSource) {
+                switchElement.click();
+            }
+        }
+    }
+}
+
+function applyOscillatorPresetState(state = {}) {
+    if (!state || typeof state !== 'object') {
+        return;
+    }
+    if (state.osc1) {
+        applySingleOscillatorState('osc1', state.osc1);
+    }
+    if (state.osc2) {
+        applySingleOscillatorState('osc2', state.osc2);
+    }
+}
+
+function captureLfoPresetState() {
+    return {
+        rateHz: lfoRate,
+        fade: lfoFade,
+        shapeIndex: window.lfoShape ?? 0
+    };
+}
+
+function applyLfoPresetState(state = {}) {
+    if (!state || typeof state !== 'object') {
+        return;
+    }
+    if (Number.isFinite(state.rateHz)) {
+        setLfoRateValueFromPreset(state.rateHz);
+    }
+    if (Number.isFinite(state.fade)) {
+        setLfoFadeValueFromPreset(state.fade);
+    }
+    if (state.shapeIndex !== undefined) {
+        setLfoShapeFromPreset(state.shapeIndex, { suppressTooltip: true });
+    }
+}
+
+function capturePerformanceSwitchPresetState() {
+    return {
+        mono: !!isMonoMode,
+        legato: !!isLegatoMode,
+        portamento: !!isPortamentoOn
+    };
+}
+
+function applyPerformanceSwitchPresetState(state = {}) {
+    if (!state || typeof state !== 'object') {
+        return;
+    }
+    if (typeof state.mono === 'boolean') {
+        setMonoModeStateFromPreset(state.mono);
+    }
+    if (typeof state.legato === 'boolean') {
+        setLegatoModeStateFromPreset(state.legato);
+    }
+    if (typeof state.portamento === 'boolean') {
+        setPortamentoStateFromPreset(state.portamento);
+    }
+}
+
+function captureArpeggiatorPresetState() {
+    if (!arpeggiator) {
+        return null;
+    }
+    const state = {
+        active: !!arpeggiator.isActive(),
+        hold: !!arpeggiator.isHold(),
+        mode: arpeggiator.getMode(),
+        octaves: arpeggiator.getOctaves()
+    };
+    if (typeof getArpDivisionSnapshot === 'function') {
+        const division = getArpDivisionSnapshot();
+        if (division) {
+            state.division = division;
+        }
+    }
+    return state;
+}
+
+function applyArpeggiatorPresetState(state = {}) {
+    if (!state || typeof state !== 'object') {
+        return;
+    }
+    if (!arpeggiator) {
+        pendingArpeggiatorPresetState = { ...state };
+        return;
+    }
+    if (typeof state.active === 'boolean') {
+        setArpeggiatorActiveStateFromPreset(state.active);
+    } else {
+        updateArpToggleButtonState('seq-arp-button', arpeggiator.isActive());
+    }
+    if (typeof state.hold === 'boolean') {
+        setArpeggiatorHoldStateFromPreset(state.hold);
+    } else {
+        updateArpToggleButtonState('seq-hold-button', arpeggiator.isHold());
+    }
+    if (typeof state.mode === 'string') {
+        setArpeggiatorModeStateFromPreset(state.mode);
+    } else {
+        updateArpModeIndicators(arpeggiator.getMode());
+    }
+    if (state.octaves !== undefined) {
+        setArpeggiatorOctaveStateFromPreset(state.octaves);
+    } else {
+        updateArpOctaveIndicators(arpeggiator.getOctaves());
+    }
+    if (state.division && typeof applyArpDivisionSnapshot === 'function') {
+        applyArpDivisionSnapshot(state.division);
+    }
+    pendingArpeggiatorPresetState = null;
+}
+
+function createPresetSnapshot(metadata = {}) {
+    const preset = {
+        formatVersion: PRESET_FORMAT_VERSION,
+        createdAt: new Date().toISOString(),
+        metadata: {
+            label: metadata.label || metadata.name || null
+        },
+        knobs: getKnobRegistrySnapshot(),
+        sliders: captureSliderCollectionSnapshot(),
+        adsr: getAdsrSliderSnapshot(),
+        modCanvas: serializeModCanvasState(),
+        modulationMatrix: captureModulationMatrixSnapshot(),
+        sequencer: getSequencerStateSnapshot(),
+        macros: { ...macroValues },
+        delay: {
+            freeze: !!delayUiState.freeze,
+            reverse: !!delayUiState.reverse
+        },
+        global: {
+            modCanvasMode,
+            isSampleLoopOn,
+            voicePanSpread,
+            chorusState
+        }
+    };
+    const filterState = captureFilterPresetState();
+    if (filterState) {
+        preset.filter = filterState;
+    }
+    const samplerState = captureSamplerState();
+    if (samplerState) {
+        preset.sampler = samplerState;
+    }
+    const oscillatorState = captureOscillatorPresetState();
+    if (oscillatorState) {
+        preset.oscillators = oscillatorState;
+    }
+    const lfoState = captureLfoPresetState();
+    if (lfoState) {
+        preset.lfo = lfoState;
+    }
+    const switchState = capturePerformanceSwitchPresetState();
+    if (switchState) {
+        preset.switches = switchState;
+    }
+    const arpeggiatorState = captureArpeggiatorPresetState();
+    if (arpeggiatorState) {
+        preset.arpeggiator = arpeggiatorState;
+    }
+    return preset;
+}
+
+function applyPresetGlobalState(globalState = {}) {
+    if (!globalState || typeof globalState !== 'object') {
+        return;
+    }
+    if (typeof globalState.modCanvasMode === 'string') {
+        setModModeFromPreset(globalState.modCanvasMode);
+    }
+    if (typeof globalState.isSampleLoopOn === 'boolean') {
+        setSampleLoopState(globalState.isSampleLoopOn);
+    }
+    if (Number.isFinite(globalState.voicePanSpread)) {
+        setVoicePanSpread(globalState.voicePanSpread, { forceUpdate: true });
+    }
+    if (globalState.chorusState !== undefined) {
+        const targetState = Number(globalState.chorusState);
+        if (Number.isFinite(targetState)) {
+            applyChorusState(targetState, { force: true });
+        }
+    }
+}
+
+function applyPresetSnapshot(snapshot, options = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        throw new Error('Preset payload must be an object.');
+    }
+    const version = Number(snapshot.formatVersion ?? 1);
+    if (version > PRESET_FORMAT_VERSION) {
+        console.warn(`Preset format ${version} is newer than supported version ${PRESET_FORMAT_VERSION}.`);
+    }
+    const previousSuppressState = suppressAutomationCapture;
+    suppressAutomationCapture = true;
+    try {
+        if (snapshot.knobs) {
+            applyKnobRegistrySnapshot(snapshot.knobs, { triggerOnChange: true });
+        }
+        if (snapshot.sliders) {
+            applySliderCollectionSnapshot(snapshot.sliders);
+        }
+        if (snapshot.adsr) {
+            applyAdsrSliderSnapshot(snapshot.adsr);
+        }
+    } finally {
+        suppressAutomationCapture = previousSuppressState;
+    }
+    if (snapshot.modulationMatrix) {
+        applyModulationMatrixSnapshot(snapshot.modulationMatrix);
+    }
+    if (snapshot.modCanvas) {
+        applyModCanvasSnapshot(snapshot.modCanvas);
+    }
+    if (snapshot.sequencer) {
+        try {
+            loadSequencerStateSnapshot(snapshot.sequencer);
+        } catch (error) {
+            console.error('Failed to load sequencer state from preset', error);
+        }
+    }
+    if (snapshot.delay) {
+        applyDelayPresetState(snapshot.delay);
+    }
+    if (snapshot.filter) {
+        const filterResult = applyFilterPresetState(snapshot.filter);
+        if (filterResult && typeof filterResult.then === 'function') {
+            filterResult.catch(error => console.error('Failed to apply filter preset state', error));
+        }
+    }
+    if (snapshot.sampler) {
+        const samplerResult = applySamplerPresetState(snapshot.sampler);
+        if (samplerResult && typeof samplerResult.then === 'function') {
+            samplerResult.catch(error => console.error('Failed to apply sampler preset state', error));
+        }
+    }
+    if (snapshot.oscillators) {
+        applyOscillatorPresetState(snapshot.oscillators);
+    }
+    if (snapshot.lfo) {
+        applyLfoPresetState(snapshot.lfo);
+    }
+    if (snapshot.switches) {
+        applyPerformanceSwitchPresetState(snapshot.switches);
+    }
+    if (snapshot.arpeggiator) {
+        applyArpeggiatorPresetState(snapshot.arpeggiator);
+    }
+    if (snapshot.global) {
+        applyPresetGlobalState(snapshot.global);
+    }
+    if (snapshot.macros && typeof snapshot.macros === 'object') {
+        Object.assign(macroValues, snapshot.macros);
+    }
+    console.log('Preset applied successfully.');
+    return snapshot;
+}
+
+function triggerPresetDownload(preset) {
+    const payload = JSON.stringify(preset, null, 2);
+    const blob = new Blob([payload], { type: 'application/json' });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `polyhymn-preset-${timestamp}.json`;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function setupPresetSaveLoadControls() {
+    const saveButton = document.getElementById('seq-state-save-button');
+    const loadButton = document.getElementById('seq-state-load-button');
+    const fileInput = document.getElementById('seq-preset-file-input');
+
+    if (saveButton) {
+        saveButton.addEventListener('click', () => {
+            try {
+                const preset = createPresetSnapshot();
+                triggerPresetDownload(preset);
+                flashSequenceButton(saveButton);
+            } catch (error) {
+                console.error('Unable to export PolyHymn preset', error);
+                alert('Unable to save the preset right now.');
+            }
+        });
+    }
+
+    if (loadButton && fileInput) {
+        loadButton.addEventListener('click', () => {
+            fileInput.value = '';
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (event) => {
+            const files = event.target && event.target.files ? event.target.files : [];
+            if (!files.length) return;
+            const file = files[0];
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const rawText = typeof reader.result === 'string' ? reader.result : '';
+                    const parsed = JSON.parse(rawText);
+                    applyPresetSnapshot(parsed, { source: 'file' });
+                    flashSequenceButton(loadButton);
+                } catch (error) {
+                    console.error('Failed to load preset snapshot', error);
+                    alert('That file is not a valid PolyHymn preset.');
+                } finally {
+                    fileInput.value = '';
+                }
+            };
+            reader.onerror = () => {
+                console.error('Failed to read preset file', reader.error);
+                alert('Could not read that preset file.');
+                fileInput.value = '';
+            };
+            reader.readAsText(file);
+        });
+    }
+}
+
+window.createPolyhymnPresetSnapshot = createPresetSnapshot;
+window.applyPolyhymnPresetSnapshot = applyPresetSnapshot;
 // Try to create SharedArrayBuffer for clock synchronization
 function initializeMasterClock() {
     // Check if SharedArrayBuffer is available (requires CORS headers)
@@ -5297,9 +7306,54 @@ const destinationToKnobMap = {
   'Cutoff': 'filter-cutoff',
   'Resonance': 'filter-resonance',
   'Variant': 'filter-variant',
+        'Lo-Fi': 'looper-lofi-knob',
     'Overload': 'overload-knob',
-    'Cabinet': 'cabinet-knob',
+        'Cabinet': 'cabinet-knob',
+        'Filter': 'looper-filter-knob',
+    'Dropouts': 'looper-dropouts-knob',
+    'Jump': 'looper-jump-knob',
+    'Stutter': 'looper-stutter-knob',
+    'Time': 'delay-time-slider',
+    'Length': 'delay-length-slider',
+    'Feedback': 'delay-feedback-slider',
+    'Density': 'delay-density-slider',
+    'Pitchwheel': 'seq-pitch-slider',
   // Add more mappings as needed
+};
+
+const looperDestinationParamMap = {
+    'Lo-Fi': 'lofi',
+    'Dropouts': 'dropouts',
+    'Jump': 'jump',
+    'Filter': 'filter',
+    'Stutter': 'stutter'
+};
+
+const delayDestinationConfig = {
+    'Time': {
+        sliderId: 'delay-time-slider',
+        stateKey: 'timeNormalized',
+        payloadKey: 'delayTime',
+        convert: normalizedToDelaySeconds
+    },
+    'Length': {
+        sliderId: 'delay-length-slider',
+        stateKey: 'lengthNormalized',
+        payloadKey: 'tailSeconds',
+        convert: normalizedToTailSeconds
+    },
+    'Feedback': {
+        sliderId: 'delay-feedback-slider',
+        stateKey: 'feedbackNormalized',
+        payloadKey: 'feedbackGain',
+        convert: normalizedToFeedback
+    },
+    'Density': {
+        sliderId: 'delay-density-slider',
+        stateKey: 'densityNormalized',
+        payloadKey: 'density',
+        convert: normalizedToDensity
+    }
 };
 
 /**
@@ -5311,13 +7365,6 @@ Object.keys(destinationToKnobMap).forEach(dest => {
   knobToDestinationMap[destinationToKnobMap[dest]] = dest;
 });
 
-function clamp01(value) {
-    if (!Number.isFinite(value)) return 0;
-    if (value < 0) return 0;
-    if (value > 1) return 1;
-    return value;
-}
-
 function getNormalizedSliderValue(sliderElement) {
     if (!sliderElement) return null;
     const sliderValue = parseFloat(sliderElement.value);
@@ -5327,7 +7374,7 @@ function getNormalizedSliderValue(sliderElement) {
     if (!Number.isFinite(sliderValue) || !Number.isFinite(range) || range === 0) {
         return null;
     }
-    return sliderValue / range;
+    return (sliderValue - sliderMin) / range;
 }
 
 function assignDestinationBaseValue(destination, value, options = {}) {
@@ -5432,6 +7479,7 @@ function captureInitialDestinationBaseValues() {
     });
 }
 
+
 /**
  * Applies a modulation value to a specific destination parameter
  * Stores the modulation amount and triggers the knob callback to update in real-time
@@ -5448,8 +7496,24 @@ function applyModulationToDestination(destination, modulation) {
     const elementId = destinationToKnobMap[destination];
     if (!elementId) return;
 
+    if (looperDestinationParamMap[destination]) {
+        const looperElement = getControlElementForDestination(elementId);
+        applyLooperParamModulation(destination, modulation, looperElement, elementId);
+        return;
+    }
+
     const controlElement = getControlElementForDestination(elementId);
     if (!controlElement) return;
+
+    if (delayDestinationConfig[destination]) {
+        applyDelayParamModulation(destination, modulation, controlElement, delayDestinationConfig[destination]);
+        return;
+    }
+
+    if (destination === 'Pitchwheel') {
+        applyPitchwheelModulation(destination, modulation, controlElement);
+        return;
+    }
 
     if (controlElement.classList && controlElement.classList.contains('knob')) {
         const callback = knobInitializations[elementId];
@@ -5517,6 +7581,60 @@ function applyFilterVariantModulation(destination, modulation, sliderElement) {
     }
     createTooltipForSlider(targetSlider, tooltipText, 'bottom');
     console.log(`    -> Filter variant: ${value.toFixed(2)}`);
+}
+
+function applyLooperParamModulation(destination, modulation, controlElement, elementId) {
+    const paramKey = looperDestinationParamMap[destination];
+    if (!paramKey || !looperNode?.port) {
+        return;
+    }
+    const baseValue = ensureDestinationBaseValue(destination, controlElement, elementId);
+    if (!Number.isFinite(baseValue)) {
+        return;
+    }
+    const modulatedValue = clamp01(baseValue * (Number.isFinite(modulation) ? modulation : 1));
+    const layerIndex = (looperEngine && typeof looperEngine.state?.selectedLayer === 'number')
+        ? looperEngine.state.selectedLayer
+        : 0;
+    looperNode.port.postMessage({
+        type: 'set-layer-params',
+        index: layerIndex,
+        params: { [paramKey]: modulatedValue }
+    });
+
+    if (looperEngine && typeof looperEngine.updateKnobTooltip === 'function') {
+        looperEngine.updateKnobTooltip(paramKey, modulatedValue, { show: true });
+    }
+}
+
+function applyDelayParamModulation(destination, modulation, sliderElement, config) {
+    if (!sliderElement || !config) {
+        return;
+    }
+    const baseValue = ensureDestinationBaseValue(destination, sliderElement, config.sliderId);
+    if (!Number.isFinite(baseValue)) {
+        return;
+    }
+    const normalized = clamp01(baseValue * (Number.isFinite(modulation) ? modulation : 1));
+    const convertedValue = config.convert(normalized);
+    const payload = { [config.payloadKey]: convertedValue };
+    postDelayParams(payload);
+    updateDelayControlTooltip(sliderElement, config.stateKey, normalized, { showBubble: true });
+}
+
+function applyPitchwheelModulation(destination, modulation, sliderElement) {
+    if (!sliderElement) {
+        return;
+    }
+    const baseValue = ensureDestinationBaseValue(destination, sliderElement, sliderElement.id);
+    if (!Number.isFinite(baseValue)) {
+        return;
+    }
+    const normalized = clamp01(baseValue * (Number.isFinite(modulation) ? modulation : 1));
+    const sliderMin = parseFloat(sliderElement.min ?? -2) || -2;
+    const sliderMax = parseFloat(sliderElement.max ?? 2) || 2;
+    const modulatedSemitone = sliderMin + (sliderMax - sliderMin) * normalized;
+    applyPitchBend(modulatedSemitone);
 }
 
 /**
@@ -6088,7 +8206,7 @@ const knobInitializations = {
         } else if (normalized > 0.15) {
             descriptor = 'Tape';
         }
-        tooltip.textContent = `Loss ${(normalized * 100).toFixed(0)}% · ${descriptor}`;
+        tooltip.textContent = `Loss ${(normalized * 100).toFixed(0)}%`;
         tooltip.style.opacity = '1';
 
         if (lossArtifactsStage && typeof lossArtifactsStage.setLossAmount === 'function') {
@@ -6101,13 +8219,13 @@ const knobInitializations = {
         const tooltip = createTooltipForKnob('artifacts-knob', normalized, 'bottom');
         let descriptor = 'Steady';
         if (normalized > 0.8) {
-            descriptor = 'Spectral Shatter';
+            descriptor = 'Spectral';
         } else if (normalized > 0.5) {
             descriptor = 'Flutter';
         } else if (normalized > 0.2) {
             descriptor = 'Wobble';
         }
-        tooltip.textContent = `Artifacts ${(normalized * 100).toFixed(0)}% · ${descriptor}`;
+        tooltip.textContent = descriptor;
         tooltip.style.opacity = '1';
 
         if (lossArtifactsStage && typeof lossArtifactsStage.setArtifactAmount === 'function') {
@@ -7214,6 +9332,7 @@ const defaultValue = knobDefaults[id] !== undefined ? knobDefaults[id] : 0.5;
 console.log(`[DOMContentLoaded] Initializing knob: ${id}, element:`, knob);
 const control = initializeKnob(knob, callback, knobDefaults);
 
+registerKnobControl(id, control);
 registerKnobAutomationControl(id, control, callback);
 
 // Store reference to matrix-depth-knob control for programmatic updates
@@ -7680,6 +9799,11 @@ function handleFileSelect(event) {
 const file = event.target.files[0];
 if (!file) return;
 
+const previousSource = currentSampleSource && currentSampleSource.type && currentSampleSource.name
+    ? { ...currentSampleSource }
+    : { type: null, name: null };
+setCurrentSampleSource('user', file.name);
+
 const reader = new FileReader();
 reader.onload = function(e) {
 const arrayBuffer = e.target.result;
@@ -7709,17 +9833,6 @@ audioCtx.decodeAudioData(arrayBuffer).then(buffer => {
         // Connect the audio chain
         sampleSource.connect(sampleGainNode);
         sampleSource.start();
-        
-        // Update the label text to show the file name
-        const fileLabel = document.querySelector('label[for="audio-file"]');
-        if (fileLabel) {
-            // Truncate filename if too long
-            const maxLength = 12;
-            const displayName = file.name.length > maxLength ? 
-                file.name.substring(0, maxLength-3) + '...' : 
-                file.name;
-            fileLabel.textContent = displayName;
-        }
         
         // Create crossfaded buffer if needed
         if (isSampleLoopOn && sampleCrossfadeAmount > 0.01) {
@@ -7771,7 +9884,10 @@ trackSetTimeout(() => {
             }
         });
         // <<< END CHANGE >>>
-    }).catch(e => console.error("Error decoding audio data:", e));
+    }).catch(e => {
+        console.error("Error decoding audio data:", e);
+        setCurrentSampleSource(previousSource.type, previousSource.name);
+    });
 };
 reader.readAsArrayBuffer(file);
 }
@@ -8133,6 +10249,8 @@ function initializeFilterPrecisionSlider(slider) {
   return newSlider;
 }
 function initializeADSRPrecisionSlider(slider) {
+    if (!slider) return null;
+    const sliderId = slider.id;
   // Keep original min/max
   const minTime = parseFloat(slider.min); // 0s
   const maxTime = parseFloat(slider.max); // 30s
@@ -8145,6 +10263,15 @@ function initializeADSRPrecisionSlider(slider) {
   if (!newSlider.hasAttribute('orient')) {
     newSlider.setAttribute('orient', 'vertical');
   }
+    if (isControlLinkable(sliderId)) {
+        sliderControlRegistry.set(sliderId, newSlider);
+    }
+    const notifyLinkIntent = (event) => {
+        if (event && event.isTrusted === false) return;
+        handleLinkableControlInteraction(sliderId, 'slider');
+    };
+    newSlider.addEventListener('pointerdown', notifyLinkIntent);
+    newSlider.addEventListener('touchstart', notifyLinkIntent, { passive: true });
   
   // Non-linear mapping functions
   function positionToTime(position) {
@@ -8179,7 +10306,10 @@ function initializeADSRPrecisionSlider(slider) {
     this.dataset.mappedTime = timeValue.toFixed(3);
     
     // Update displayed value
-    const valueDisplay = document.getElementById(`${slider.id}-value`);
+        if (e && e.isTrusted) {
+            handleLinkableControlInteraction(sliderId, 'slider');
+        }
+        const valueDisplay = document.getElementById(`${sliderId}-value`);
     if (valueDisplay) {
       valueDisplay.textContent = timeValue.toFixed(3);
     }
@@ -8188,7 +10318,7 @@ function initializeADSRPrecisionSlider(slider) {
     updateADSRVisualization();
     
     // Update filter ADSR ONLY if this is a filter envelope slider
-    if (filterManager && filterManager.isActive && slider.id.startsWith('filter-')) {
+    if (filterManager && filterManager.isActive && sliderId.startsWith('filter-')) {
       filterManager.setADSR(
         parseFloat(D('filter-attack').dataset.mappedTime || D('filter-attack').value),
         parseFloat(D('filter-decay').dataset.mappedTime || D('filter-decay').value),
@@ -8198,14 +10328,15 @@ function initializeADSRPrecisionSlider(slider) {
       );
     }
     
-    console.log(`${slider.id}: pos=${position.toFixed(2)}, time=${timeValue.toFixed(3)}s`);
+        console.log(`${sliderId}: pos=${position.toFixed(2)}, time=${timeValue.toFixed(3)}s`);
   });
   
   // Set initial values
-  let initialTime = 0;
-  if (slider.id === 'attack') initialTime = 0.00;
-  else if (slider.id === 'decay') initialTime = 0.0;
-  else if (slider.id === 'release') initialTime = 0.0;
+    let initialTime = 0;
+    if (sliderId === 'attack') initialTime = 0.006;
+    else if (sliderId === 'decay') initialTime = 0.0;
+    else if (sliderId === 'release') initialTime = 0.0;
+    else if (sliderId === 'filter-attack') initialTime = 0.006;
   
   const initialPosition = timeToPosition(initialTime);
   newSlider.value = initialPosition * (maxTime - minTime) + minTime;
@@ -8302,20 +10433,12 @@ function initializeSampleLoopSwitch() {
 const loopSwitch = document.getElementById('sample-loop-switch');
 if (!loopSwitch) return;
 
-// Toggle “active” class on click
 loopSwitch.addEventListener('click', () => {
-    loopSwitch.classList.toggle('active');
-    isSampleLoopOn = loopSwitch.classList.contains('active');
-    // <<< CHANGE: Iterate over voicePool >>>
-    voicePool.forEach(voice => {
-        if (voice.state !== 'inactive' && voice.samplerNote) {
-            updateSamplePlaybackParameters(voice.samplerNote);
-        }
-    });
-    // <<< END CHANGE >>>
-        console.log('Sample Loop:', isSampleLoopOn ? 'ON' : 'OFF');
-    });
-    }
+    setSampleLoopState(!loopSwitch.classList.contains('active'));
+});
+
+setSampleLoopState(isSampleLoopOn);
+}
 document.addEventListener('DOMContentLoaded', () => {
 // Call this after other setup
 initializeSampleLoopSwitch();
@@ -8429,8 +10552,12 @@ function loadPresetSample(filename) {
     
     console.log(`Loading sample from: ${sampleUrl}`);
 
-    // Rest of your function remains the same...
-    fetch(sampleUrl)
+    const previousSource = currentSampleSource && currentSampleSource.type && currentSampleSource.name
+        ? { ...currentSampleSource }
+        : { type: null, name: null };
+    setCurrentSampleSource('preset', filename);
+
+    return fetch(sampleUrl)
     .then(response => {
         if (!response.ok) {
             throw new Error(`Failed to load sample: ${response.status} ${response.statusText}`);
@@ -8460,12 +10587,6 @@ function loadPresetSample(filename) {
         sampleSource.buffer = buffer;
         sampleSource.connect(sampleGainNode);
         sampleSource.start();
-        
-        // UPDATE LABEL
-        const fileLabel = document.querySelector('label[for="audio-file"]');
-        if (fileLabel) {
-            fileLabel.textContent = filename.substring(0, 10) + (filename.length > 10 ? '...' : '');
-        }
         
         // CRITICAL FIX: Force FM connection update after sample is loaded
         setTimeout(() => {
@@ -8538,8 +10659,15 @@ function loadPresetSample(filename) {
     .catch(error => {
         console.error('Error loading preset sample:', error);
         alert(`Failed to load sample: ${filename}`);
+        // Revert selection indicator on failure
+        if (currentSampleSource.type === 'preset' && currentSampleSource.name === filename) {
+            setCurrentSampleSource(previousSource.type, previousSource.name);
+        }
+        throw error;
     });
 }
+
+window.loadPresetSample = loadPresetSample;
 
 // In your processBufferWithFades function:
 function processBufferWithFades(buffer) {
@@ -9194,17 +11322,14 @@ function applyPitchWarble(voice, now) {
     
     const settleTime = WARBLE_SETTLE_TIME;
     
-    // Get current pitch bend from sequencer
-    const pitchBendCents = (window.sequencerPitchBend || 0) * 100;
-    
     // Apply warble to OSC1
     if (voice.osc1Note && voice.osc1Note.workletNode) {
         const detuneParam = voice.osc1Note.workletNode.parameters.get('detune');
         if (detuneParam) {
-            // Start with the random warble offset + pitch bend
-            detuneParam.setValueAtTime(osc1Detune + voice.warbleOffset + pitchBendCents, now);
-            // Settle back to base detune + pitch bend over 150ms
-            detuneParam.linearRampToValueAtTime(osc1Detune + pitchBendCents, now + settleTime);
+            // Start with the random warble offset
+            detuneParam.setValueAtTime(osc1Detune + voice.warbleOffset, now);
+            // Settle back to base detune over 150ms
+            detuneParam.linearRampToValueAtTime(osc1Detune, now + settleTime);
         }
     }
     
@@ -9212,8 +11337,8 @@ function applyPitchWarble(voice, now) {
     if (voice.osc2Note && voice.osc2Note.workletNode) {
         const detuneParam = voice.osc2Note.workletNode.parameters.get('detune');
         if (detuneParam) {
-            detuneParam.setValueAtTime(osc2Detune + voice.warbleOffset + pitchBendCents, now);
-            detuneParam.linearRampToValueAtTime(osc2Detune + pitchBendCents, now + settleTime);
+            detuneParam.setValueAtTime(osc2Detune + voice.warbleOffset, now);
+            detuneParam.linearRampToValueAtTime(osc2Detune, now + settleTime);
         }
     }
 }
@@ -9225,13 +11350,10 @@ function applySamplerWarble(samplerVoice, now) {
     const source = samplerVoice.samplerNote.source;
     const settleTime = WARBLE_SETTLE_TIME;
     
-    // Get current pitch bend from sequencer (convert semitones to cents)
-    const pitchBendCents = (window.sequencerPitchBend || 0) * 100;
-    
     // Apply warble to sampler detune
     const baseDetune = currentSampleDetune;
-    source.detune.setValueAtTime(baseDetune + samplerVoice.warbleOffset + pitchBendCents, now);
-    source.detune.linearRampToValueAtTime(baseDetune + pitchBendCents, now + settleTime);
+    source.detune.setValueAtTime(baseDetune + samplerVoice.warbleOffset, now);
+    source.detune.linearRampToValueAtTime(baseDetune, now + settleTime);
 }
 
 const ARP_PRESTART_LEAD = 0.01; // seconds to prep a voice before its scheduled start
@@ -9303,6 +11425,11 @@ arpeggiator = createArpeggiator({
 });
 setArpeggiatorInstance(arpeggiator);
 arpeggiator.init();
+if (pendingArpeggiatorPresetState) {
+    const queuedState = { ...pendingArpeggiatorPresetState };
+    pendingArpeggiatorPresetState = null;
+    applyArpeggiatorPresetState(queuedState);
+}
 
 // Also ensure noteOn properly sets up the envelope from zero
 function noteOn(noteNumber, isLegatoMonoTransition = false, bypassArp = false, scheduledStartTime = null) {
@@ -9595,8 +11722,6 @@ if (isSampleLoopOn) {
         console.log(`Simple loop for note ${noteNumber}: looping entire buffer with clean edges`);
     }
 }
-        // NEW: Apply pitch warble to sampler
-    applySamplerWarble(samplerVoice, now);
         // Connect the audio path
         samplerNote.source.connect(samplerNote.sampleNode);
         
@@ -9604,6 +11729,9 @@ if (isSampleLoopOn) {
         samplerNote.source.start(now);
         console.log(`Started new sampler source for note ${noteNumber}`);
     }
+    
+    // Always apply pitch warble (and current pitch bend) once the source is ready
+    applySamplerWarble(samplerVoice, now);
     
     // --- APPLY PORTAMENTO/GLIDE ---
     // Calculate target playback rate based on key tracking
@@ -9633,9 +11761,6 @@ if (isSampleLoopOn) {
         // Immediate rate change (no glide)
         samplerNote.source.playbackRate.setValueAtTime(newPlaybackRate, now);
     }
-    
-    // Always apply detune directly
-    samplerNote.source.detune.setValueAtTime(currentSampleDetune, now);
     
     // Reset gain nodes and apply ADSR envelope
         samplerNote.sampleNode.gain.cancelScheduledValues(now);
@@ -10356,6 +12481,11 @@ if (voice.osc2Note) {
         refreshFMSources();
     }
     
+    // Reapply any active pitch bend so freshly triggered voices inherit it
+    if (typeof window.sequencerPitchBend === 'number' && window.sequencerPitchBend !== 0) {
+        applyPitchBend(window.sequencerPitchBend, { silent: true });
+    }
+    
     // Update UI and tracking
     lastPlayedNoteNumber = noteNumber;
     updateVoiceDisplay_Pool();
@@ -10801,18 +12931,30 @@ console.error("Failed to get MIDI access - " + msg);
 
 function onMIDIMessage(event) {
 // Extract MIDI data
-const [command, note, velocity] = event.data;
+const [command, data1 = 0, data2 = 0] = event.data;
+const status = command & 0xF0;
+const channel = command & 0x0F;
+
+if (status === 0xB0) {
+    handleMidiControlChange(channel, data1, data2);
+    return;
+}
+
+if (status === 0xE0) {
+    handleMidiPitchWheel(channel, data1, data2);
+    return;
+}
 
 // Note on (144-159) with velocity > 0
-if ((command >= 144 && command <= 159) && velocity > 0) {
+if ((command >= 144 && command <= 159) && data2 > 0) {
 // Convert MIDI note numbers (starts at 21 for A0) to our note system (starts at 0)
-const ourNoteNumber = Math.max(0, note - 36); // Adjust offset as needed
+const ourNoteNumber = Math.max(0, data1 - 36); // Adjust offset as needed
 noteOn(ourNoteNumber);
 } 
 // Note off (128-143) or note on with velocity 0
 else if ((command >= 128 && command <= 143) || 
-     (command >= 144 && command <= 159 && velocity === 0)) {
-const ourNoteNumber = Math.max(0, note - 36); // Adjust offset as needed
+     (command >= 144 && command <= 159 && data2 === 0)) {
+const ourNoteNumber = Math.max(0, data1 - 36); // Adjust offset as needed
 noteOff(ourNoteNumber);
 }
 }
@@ -10879,7 +13021,10 @@ initializeSequencerModule();
 console.log('Sequencer tempo system initialized from main.js');
 updateDelaySyncState('post-init');
 setupSequenceSaveLoadControls();
+setupPresetSaveLoadControls();
 setupVoiceSpreadControl();
+setupLinkParamsButton();
+initializeTipsSystem();
 
 registerSequencerPlaybackHandlers({
     noteOn: ({ noteNumber, startTime, isLegato }) => {
@@ -10932,6 +13077,7 @@ initializeModCanvasModulation();
 // Add LFO rate slider handler
 const rateSlider = document.querySelector('.rate-slider-range');
 if (rateSlider) {
+    lfoRateSliderElement = rateSlider;
   rateSlider.addEventListener('input', (e) => {
         if (isTempoRouted('LFO')) {
             createTooltipForSlider(e.target, `Tempo: ${formatTempoSyncedRateText(window.lfoRate)}`, 'right');
@@ -10958,6 +13104,7 @@ if (rateSlider) {
 // Add LFO fade slider handler  
 const fadeSlider = document.querySelector('.delay-slider-range');
 if (fadeSlider) {
+    lfoFadeSliderElement = fadeSlider;
   fadeSlider.addEventListener('input', (e) => {
     const value = parseFloat(e.target.value);
     lfoFade = value;
@@ -10971,6 +13118,7 @@ if (fadeSlider) {
   
   fadeSlider.addEventListener('mouseup', () => hideTooltipForSlider(fadeSlider));
   fadeSlider.addEventListener('touchend', () => hideTooltipForSlider(fadeSlider));
+    attachAutomationToSlider(fadeSlider, 'lfo-fade-slider');
 }
 
 // Set filter defaults
@@ -11047,63 +13195,34 @@ if (fadeSlider) {
     }, 1200); // Wait 1.2 seconds after DOM load
 
 // initializeSpecialButtons(); // <-- Remove this line
-initializeSpecialButtons( // <-- Add this line, passing dependencies/callbacks
-    (newState) => { isEmuModeOn = newState; }, // Callback for Emu mode toggle
-    updateSampleProcessing, // Pass function reference
-    updateSamplePlaybackParameters, // Pass function reference
-    voicePool, // <<< CHANGE: Pass voicePool>>>
-    heldNotes // Pass array reference
+const specialButtonControls = initializeSpecialButtons(
+    (newState) => { isEmuModeOn = newState; },
+    updateSampleProcessing,
+    updateSamplePlaybackParameters,
+    voicePool,
+    heldNotes
 );
-// Initialize recording with button setup SKIPPED
-externalRecorder = fixMicRecording(audioCtx, handleRecordingComplete, true);
-
-// Set up recording mode dropdown
-const dropdown = createRecordingModeDropdown();
+if (specialButtonControls && typeof specialButtonControls.setEmuModeState === 'function') {
+    setEmuModeStateControl = specialButtonControls.setEmuModeState;
+    setEmuModeStateControl(isEmuModeOn, { suppressCallbacks: true, force: true });
+}
 const recButton = document.getElementById('mic-record-button');
 
-if (recButton && dropdown && externalRecorder) {
-    console.log("Setting up recording dropdown...");
-    
-    // Add our click handler
+if (recButton) {
     recButton.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        
-        // CRITICAL FIX: Check BOTH recording states
-        const isExternalRecording = externalRecorder.isRecording();
-        const isInternalRecording = isRecording; // Global state for internal recording
-        
-        if (isExternalRecording || isInternalRecording) {
-            // Stop recording - determine which type
-            console.log("Stopping recording...");
-            
-            if (isInternalRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
-                // Stop internal recording
-                mediaRecorder.stop();
-                console.log("Stopped internal recording");
-            }
-            
-            if (isExternalRecording) {
-                // Stop external recording
-                externalRecorder.stopRecording();
-                console.log("Stopped external recording");
-            }
+
+        if (isRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
+            console.log("Stopping internal recording...");
+            mediaRecorder.stop();
         } else {
-            // Not recording - show dropdown to choose mode
-            const isVisible = dropdown.style.display !== 'none';
-            dropdown.style.display = isVisible ? 'none' : 'block';
-            console.log("Dropdown toggled:", dropdown.style.display);
-        }
-    });
-    
-    // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
-        if (!recButton.contains(e.target) && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
+            console.log("Starting internal recording...");
+            startInternalRecording();
         }
     });
 } else {
-    console.error("Failed to setup recording:", { recButton: !!recButton, dropdown: !!dropdown, externalRecorder: !!externalRecorder });
+    console.error("Failed to setup recording: record button missing");
 }
 // fixSwitchesTouchMode(); // <-- Remove this line
 fixSwitchesTouchMode(
@@ -11146,6 +13265,7 @@ if (fmSourceSwitchElement) {
         }
     });
     fmSwitchControl.setValue(osc1FMSource === 'osc2');
+    osc1FmSourceSwitchControl = fmSwitchControl;
 }
 
 
@@ -11162,6 +13282,7 @@ if (modCanvasElement) {
 initializeUiPlaceholders();
 setupDelayModuleControls();
 setupChorusButton();
+setupPitchwheelAutomation();
 // Initialize Oscillator 1 Octave Slider
 const osc1OctaveSelector = D('osc1-octave-selector');
 if (osc1OctaveSelector) {
@@ -11413,6 +13534,7 @@ if (!options.suppressAutomationCapture) {
 }
 };
 const depthControl = initializeKnob(depthKnob, (value) => applyLfoDepth(value));
+registerKnobControl('lfo-depth-knob', depthControl);
 if (depthControl && typeof depthControl.getValue === 'function') {
     updateAutomationBaselineValue('lfo-depth-knob', depthControl.getValue());
 }
@@ -11427,197 +13549,167 @@ registerModAutomationTarget('lfo-depth-knob', (value) => {
 });
 // Add this to your existing JavaScript
 document.addEventListener('DOMContentLoaded', function() {
-    // FIRST: Disconnect any previous initialization of the ADSR knob
     const adsrKnob = document.getElementById('adsr-knob');
     if (adsrKnob) {
-        // Clone the element to remove all event listeners
         const newAdsrKnob = adsrKnob.cloneNode(true);
         adsrKnob.parentNode.replaceChild(newAdsrKnob, adsrKnob);
-        
-        // Now set up the stepped knob with 3 fixed positions
-        let currentPosition = 1; // 0=left(-100%), 1=middle(0%), 2=right(+100%)
+
+        const POSITION_DEGREES = [-150, 0, 150];
+        const STEP_VALUES = [0, 0.5, 1];
+        let currentPosition = 1;
         let isDragging = false;
-        let startY;
+        let startY = 0;
         let totalMovement = 0;
-        const positions = [-150, 0, 150]; // Rotation degrees for each position
-        const moveThreshold = 30; // Pixels of movement needed to change position
+        const moveThreshold = 30;
         let lastTap = 0;
 
-        function updateKnobPosition() {
-            newAdsrKnob.style.transform = `rotate(${positions[currentPosition]}deg)`;
-            
-            // Convert position to filter envelope amount value (0, 0.5, or 1)
-            const values = [0, 0.5, 1];
-            const value = values[currentPosition];
-            
-            // Update filter envelope with the stepped value
-            if (filterManager) {
+        function applyCurrentPosition(options = {}) {
+            const value = STEP_VALUES[currentPosition];
+            newAdsrKnob.style.transform = `rotate(${POSITION_DEGREES[currentPosition]}deg)`;
+            if (!options.suppressFilterUpdate && filterManager) {
                 filterManager.setEnvelopeAmount(value);
             }
-            
-            // Update tooltip
-            const tooltip = createTooltipForKnob('adsr-knob', value);
-            if (currentPosition === 0) {
-                tooltip.textContent = `Env: -100%`;
-            } else if (currentPosition === 1) {
-                tooltip.textContent = `Env: Center (0%)`;
-            } else {
-                tooltip.textContent = `Env: +100%`;
+            if (!options.suppressTooltip) {
+                const tooltip = createTooltipForKnob('adsr-knob', value);
+                if (currentPosition === 0) {
+                    tooltip.textContent = 'Env: -100%';
+                } else if (currentPosition === 1) {
+                    tooltip.textContent = 'Env: Center (0%)';
+                } else {
+                    tooltip.textContent = 'Env: +100%';
+                }
+                tooltip.style.opacity = '1';
             }
-            tooltip.style.opacity = '1';
-            
-            // Log the value change
             const bipolarValue = (value - 0.5) * 2;
             console.log(`Filter Envelope Amount: ${bipolarValue.toFixed(2)} (stepped to ${value})`);
+            return value;
         }
-        
-        // Set initial position from knob defaults
+
+        function setPositionFromValue(value, options = {}) {
+            const normalized = clamp01(Number.isFinite(value) ? value : 0.5);
+            let targetPosition = 1;
+            if (normalized < 0.25) {
+                targetPosition = 0;
+            } else if (normalized > 0.75) {
+                targetPosition = 2;
+            }
+            if (!options.force && targetPosition === currentPosition) {
+                if (options.syncEvenIfSame) {
+                    applyCurrentPosition(options);
+                }
+                return STEP_VALUES[currentPosition];
+            }
+            currentPosition = targetPosition;
+            return applyCurrentPosition(options);
+        }
+
+        function stepPosition(direction) {
+            const nextPosition = Math.max(0, Math.min(2, currentPosition + direction));
+            if (nextPosition !== currentPosition) {
+                currentPosition = nextPosition;
+                applyCurrentPosition();
+            }
+        }
+
         const defaultValue = knobDefaults['adsr-knob'] || 0.5;
         currentPosition = defaultValue < 0.25 ? 0 : defaultValue > 0.75 ? 2 : 1;
-        updateKnobPosition(); // Apply initial position
+        applyCurrentPosition({ suppressFilterUpdate: true, suppressTooltip: true });
 
-        // Mouse event handlers
-        newAdsrKnob.addEventListener('mousedown', function(e) {
+        newAdsrKnob.addEventListener('mousedown', (e) => {
             isDragging = true;
             startY = e.clientY;
             totalMovement = 0;
             e.preventDefault();
         });
-        
-        document.addEventListener('mousemove', function(e) {
+
+        document.addEventListener('mousemove', (e) => {
             if (!isDragging) return;
             const deltaY = startY - e.clientY;
             totalMovement += deltaY;
             startY = e.clientY;
-            
+
             if (totalMovement >= moveThreshold) {
-                if (currentPosition < 2) {
-                    currentPosition++;
-                    updateKnobPosition();
-                }
+                stepPosition(1);
                 totalMovement = 0;
             } else if (totalMovement <= -moveThreshold) {
-                if (currentPosition > 0) {
-                    currentPosition--;
-                    updateKnobPosition();
-                }
+                stepPosition(-1);
                 totalMovement = 0;
             }
         });
-        
-        document.addEventListener('mouseup', function() {
+
+        document.addEventListener('mouseup', () => {
             isDragging = false;
             totalMovement = 0;
         });
-        
-        // Touch event handlers
-        newAdsrKnob.addEventListener('touchstart', function(e) {
+
+        newAdsrKnob.addEventListener('touchstart', (e) => {
             if (e.touches.length !== 1) return;
             isDragging = true;
             startY = e.touches[0].clientY;
             totalMovement = 0;
             e.preventDefault();
         }, { passive: false });
-        
-        document.addEventListener('touchmove', function(e) {
+
+        document.addEventListener('touchmove', (e) => {
             if (!isDragging || e.touches.length !== 1) return;
             const deltaY = startY - e.touches[0].clientY;
             totalMovement += deltaY;
             startY = e.touches[0].clientY;
-            
+
             if (totalMovement >= moveThreshold) {
-                if (currentPosition < 2) {
-                    currentPosition++;
-                    updateKnobPosition();
-                }
+                stepPosition(1);
                 totalMovement = 0;
             } else if (totalMovement <= -moveThreshold) {
-                if (currentPosition > 0) {
-                    currentPosition--;
-                    updateKnobPosition();
-                }
+                stepPosition(-1);
                 totalMovement = 0;
             }
             e.preventDefault();
         }, { passive: false });
-        
-        document.addEventListener('touchend', function() {
+
+        document.addEventListener('touchend', () => {
             isDragging = false;
             totalMovement = 0;
         });
-        
-        // Double-click and double-tap to reset to center position
-        newAdsrKnob.addEventListener('dblclick', function() {
-            currentPosition = 1; // Center position (0%)
-            updateKnobPosition();
-            console.log("ADSR reset to center position (0%)");
+
+        newAdsrKnob.addEventListener('dblclick', () => {
+            setPositionFromValue(0.5, { force: true });
+            console.log('ADSR reset to center position (0%)');
         });
-        
-        newAdsrKnob.addEventListener('touchend', function(e) {
+
+        newAdsrKnob.addEventListener('touchend', (e) => {
             const now = Date.now();
             if (now - lastTap < 300) {
-                currentPosition = 1; // Center position (0%)
-                updateKnobPosition();
-                console.log("ADSR reset to center position (0%)");
+                setPositionFromValue(0.5, { force: true });
+                console.log('ADSR reset to center position (0%)');
             }
             lastTap = now;
         });
+
+        window.__adsrFollowControl = {
+            getValue: () => STEP_VALUES[currentPosition],
+            setValue: (value, options = {}) => setPositionFromValue(value, {
+                suppressFilterUpdate: options.suppressFilterUpdate !== false,
+                suppressTooltip: options.suppressTooltip !== false,
+                force: options.force === true,
+                syncEvenIfSame: options.syncEvenIfSame === true
+            })
+        };
+
+        if (pendingAdsrFollowValue !== null) {
+            window.__adsrFollowControl.setValue(pendingAdsrFollowValue, {
+                suppressFilterUpdate: true,
+                suppressTooltip: true,
+                force: true
+            });
+            pendingAdsrFollowValue = null;
+        }
     }
 const reverseButton = document.getElementById('reverse-button');
 if (reverseButton) {
-reverseButton.addEventListener('click', function() {
-this.classList.toggle('active');
-isSampleReversed = this.classList.contains('active');
-
-// If we have a sample loaded, process it
-if (audioBuffer) {
-// Store original buffer on first use if it doesn't exist
-if (!originalBuffer) {
-  originalBuffer = audioBuffer.slice();
-}
-
-// Apply reverse if needed
-reverseBufferIfNeeded(false); // Don't trigger FM update yet
-updateSampleProcessing(); // This updates fadedBuffer/cachedCrossfadedBuffer
-// CRITICAL FIX: Use a timeout to ensure processing completes before updating notes
-setTimeout(() => {
-    console.log("Reverse button: Updating all active sampler notes");
-    
-    // Update ALL sampler voices, not just the oscillator voicePool
-    samplerVoicePool.forEach(voice => {
-        if (voice.state !== 'inactive' && voice.samplerNote) {
-            const note = voice.samplerNote;
-            // Skip held notes to avoid interruption
-            if (heldNotes.includes(voice.noteNumber)) {
-                console.log(`Reverse Button: Skipping update for held sampler note ${note.id}`);
-                return;
-            }
-            console.log(`Reverse Button: Updating sampler note ${note.id}`);
-            updateSamplePlaybackParameters(note);
-        }
+    reverseButton.addEventListener('click', () => {
+        setSampleReverseState(!reverseButton.classList.contains('active'));
     });
-    
-    // CRITICAL FIX: Also update FM sources that use sampler
-    const fmUpdateTime = audioCtx.currentTime;
-    voicePool.forEach(voice => {
-        if (voice.state !== 'inactive') {
-            // Update Osc1 FM if using sampler
-            if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
-                console.log(`Reverse Button: Updating Osc1 FM for voice ${voice.id}`);
-                updateOsc1FmModulatorParameters(voice.osc1Note, fmUpdateTime, voice);
-            }
-            // Update Osc2 FM if using sampler
-            if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
-                console.log(`Reverse Button: Updating Osc2 FM for voice ${voice.id}`);
-                updateOsc2FmModulatorParameters(voice.osc2Note, fmUpdateTime, voice);
-            }
-        }
-    });
-}, 100); // Wait 100ms for updateSampleProcessing to complete
-}
-
-console.log('Sample Reverse:', isSampleReversed ? 'ON' : 'OFF');
-});
+    setSampleReverseState(isSampleReversed);
 }
 
 // <<< INITIALIZE OSC 2 CONTROLS >>>
@@ -11725,58 +13817,16 @@ if (osc2FmSourceSwitchElement) {
         }
     });
     fmSwitchControl.setValue(osc2FMSource === 'osc1');
+    osc2FmSourceSwitchControl = fmSwitchControl;
 }
 // Initialize the Key-Track button (default: active)
 const keyTrackButton = document.getElementById('keytrack-button');
-    if (keyTrackButton) {
-        // Set initial state (assuming default is ON)
-        keyTrackButton.classList.add('active');
-        isSampleKeyTrackingOn = true;
-
-        keyTrackButton.addEventListener('click', function() {
-            this.classList.toggle('active');
-            isSampleKeyTrackingOn = this.classList.contains('active');
-            console.log('Sample Key Tracking:', isSampleKeyTrackingOn ? 'ON' : 'OFF');
-            const now = audioCtx.currentTime;
-
-            // <<< CHANGE: Iterate over voicePool >>>
-            voicePool.forEach(voice => {
-                if (voice.state === 'inactive' || voice.noteNumber === null) return; // Skip inactive voices or those without a note number
-
-                const noteNumber = voice.noteNumber; // Get the note number for this voice
-
-                // Update Sampler Note
-                if (voice.samplerNote && voice.samplerNote.source) {
-                    const samplerSource = voice.samplerNote.source;
-                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
-                    // Use setTargetAtTime for smoother transitions
-                    samplerSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
-                    // Detune always applies
-                    samplerSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01);
-                    console.log(`KeyTrack [Voice ${voice.id} Sampler]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
-                }
-
-                // Update Osc1 FM Modulator Source (if it's a sampler)
-                if (osc1FMSource === 'sampler' && voice.osc1Note && voice.osc1Note.fmModulatorSource instanceof AudioBufferSourceNode) {
-                    const fmSource = voice.osc1Note.fmModulatorSource;
-                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
-                    fmSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
-                    fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01); // Apply sample detune
-                    console.log(`KeyTrack [Voice ${voice.id} Osc1 FM]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
-                }
-
-                // Update Osc2 FM Modulator Source (if it's a sampler)
-                if (osc2FMSource === 'sampler' && voice.osc2Note && voice.osc2Note.fmModulatorSource instanceof AudioBufferSourceNode) {
-                    const fmSource = voice.osc2Note.fmModulatorSource;
-                    const targetRate = isSampleKeyTrackingOn ? TR2 ** (noteNumber - 12) : 1.0;
-                    fmSource.playbackRate.setTargetAtTime(targetRate, now, 0.01);
-                    fmSource.detune.setTargetAtTime(currentSampleDetune, now, 0.01); // Apply sample detune
-                    console.log(`KeyTrack [Voice ${voice.id} Osc2 FM]: Set Rate=${targetRate.toFixed(3)}, Detune=${currentSampleDetune.toFixed(1)}`);
-                }
-            });
-            // <<< END CHANGE >>>
-        });
-    }
+if (keyTrackButton) {
+    keyTrackButton.addEventListener('click', () => {
+        setSampleKeytrackState(!keyTrackButton.classList.contains('active'));
+    });
+    setSampleKeytrackState(isSampleKeyTrackingOn);
+}
 });
 // <<< ADD HELPER FUNCTION for Osc2 PWM Knob State >>>
 function updateOsc2PWMKnobState() {
@@ -11879,76 +13929,6 @@ function startInternalRecording() {
     } catch (error) {
         console.error("Error starting internal recording:", error);
         alert("Failed to start internal recording: " + error.message);
-    }
-}
-// Add this function to create the recording mode dropdown
-function createRecordingModeDropdown() {
-    const recButton = document.getElementById('mic-record-button');
-    if (!recButton) return null;
-
-    // Create dropdown container
-    const dropdown = document.createElement('div');
-    dropdown.id = 'rec-mode-dropdown';
-    dropdown.className = 'rec-mode-dropdown';
-    dropdown.style.display = 'none';
-    dropdown.innerHTML = `
-        <div class="rec-mode-option" data-mode="external">
-            <span class="mode-label">External</span>
-        </div>
-        <div class="rec-mode-option" data-mode="internal">
-            <span class="mode-label">Internal</span>
-        </div>
-    `;
-
-    // Insert dropdown after rec button's container
-    const recContainer = recButton.closest('.rec-button-container');
-    if (recContainer) {
-        recContainer.appendChild(dropdown);
-    } else {
-        recButton.parentNode.insertBefore(dropdown, recButton.nextSibling);
-    }
-
-    // Add click handlers for mode selection
-    const modeOptions = dropdown.querySelectorAll('.rec-mode-option');
-    modeOptions.forEach(option => {
-        option.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const mode = option.getAttribute('data-mode');
-            recordingMode = mode;
-            console.log(`Recording mode set to: ${mode}`);
-            
-            // Update active state
-            modeOptions.forEach(opt => opt.classList.remove('active'));
-            option.classList.add('active');
-            
-            // Hide dropdown
-            dropdown.style.display = 'none';
-            
-            // Start recording with selected mode
-            startRecording(mode);
-        });
-    });
-
-    // Set initial active mode (default to external)
-    const defaultOption = dropdown.querySelector(`[data-mode="external"]`);
-    if (defaultOption) defaultOption.classList.add('active');
-
-    return dropdown;
-}
-
-// Add this function to start recording based on mode
-function startRecording(mode) {
-    if (mode === 'internal') {
-        startInternalRecording();
-    } else {
-        // External (mic) recording - use the recorder from sampler.js
-        console.log("Starting external microphone recording...");
-        if (externalRecorder && externalRecorder.isWorkletReady()) {
-            externalRecorder.startRecording();
-        } else {
-            console.error("External recorder not ready");
-            alert("Microphone recording is not ready yet. Please try again in a moment.");
-        }
     }
 }
 document.addEventListener('DOMContentLoaded', () => {

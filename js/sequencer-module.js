@@ -59,6 +59,7 @@ let keyboardOctaveShift = 0; // -2 to +2 octaves
 
 // --- Pitch Bend ---
 let currentPitchBend = 0; // -2 to +2 semitones
+let pitchBendReturnAnimationId = null;
 let pitchBendReturnTimeout = null;
 
 // --- Step Buttons State ---
@@ -2043,7 +2044,8 @@ export function handleLiveSequencerNoteInput(noteNumber, velocity = 1, options =
 }
 
 // --- Pitch Bend Functions ---
-function applyPitchBend(semitones) {
+export function applyPitchBend(semitones, options = {}) {
+    const { silent = false } = options || {};
     // Store current pitch bend value globally
     window.sequencerPitchBend = semitones;
     
@@ -2051,14 +2053,15 @@ function applyPitchBend(semitones) {
     const now = window.audioCtx ? window.audioCtx.currentTime : 0;
     
     // Access voicePool from main.js
-    if (window.voicePool) {
-        window.voicePool.forEach(voice => {
-            if (voice.state !== 'inactive') {
+    const voices = Array.isArray(window.voicePool) ? window.voicePool : [];
+    voices.forEach(voice => {
+        if (voice && voice.state !== 'inactive') {
                 // Osc1
                 if (voice.osc1Note && voice.osc1Note.workletNode) {
                     const detuneParam = voice.osc1Note.workletNode.parameters.get('detune');
                     if (detuneParam) {
                         const basePitch = window.osc1Detune || 0;
+                        detuneParam.cancelScheduledValues(now);
                         detuneParam.setValueAtTime(basePitch + (semitones * 100), now);
                     }
                 }
@@ -2068,6 +2071,7 @@ function applyPitchBend(semitones) {
                     const detuneParam = voice.osc2Note.workletNode.parameters.get('detune');
                     if (detuneParam) {
                         const basePitch = window.osc2Detune || 0;
+                        detuneParam.cancelScheduledValues(now);
                         detuneParam.setValueAtTime(basePitch + (semitones * 100), now);
                     }
                 }
@@ -2077,40 +2081,53 @@ function applyPitchBend(semitones) {
                     const playbackRate = Math.pow(2, semitones / 12);
                     voice.samplerNote.source.playbackRate.setValueAtTime(playbackRate, now);
                 }
-            }
-        });
-    }
+        }
+    });
     
-    console.log(`Pitch bend: ${semitones.toFixed(2)} semitones`);
+    if (!silent) {
+        console.log(`Pitch bend: ${semitones.toFixed(2)} semitones`);
+    }
+}
+
+function cancelPitchBendReturnAnimation() {
+    if (pitchBendReturnAnimationId !== null) {
+        cancelAnimationFrame(pitchBendReturnAnimationId);
+        pitchBendReturnAnimationId = null;
+    }
 }
 
 function returnPitchBend(slider) {
+    cancelPitchBendReturnAnimation();
     // Animate slider back to center
     const startValue = parseFloat(slider.value);
     const duration = 200; // ms
-    const startTime = Date.now();
+    const startTime = performance.now();
+
+    const dispatchSliderInput = () => {
+        const event = new Event('input', { bubbles: true });
+        slider.dispatchEvent(event);
+    };
     
-    function animate() {
-        const elapsed = Date.now() - startTime;
+    function animate(now) {
+        const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        
-        // Ease out
         const eased = 1 - Math.pow(1 - progress, 3);
         const newValue = startValue * (1 - eased);
-        
         slider.value = newValue;
         currentPitchBend = newValue;
-        applyPitchBend(newValue);
+        dispatchSliderInput();
         
         if (progress < 1) {
-            requestAnimationFrame(animate);
+            pitchBendReturnAnimationId = requestAnimationFrame(animate);
         } else {
             currentPitchBend = 0;
-            applyPitchBend(0);
+            slider.value = 0;
+            dispatchSliderInput();
+            pitchBendReturnAnimationId = null;
         }
     }
     
-    animate();
+    pitchBendReturnAnimationId = requestAnimationFrame(animate);
 }
 
 // --- Initialize Division System ---
@@ -2715,6 +2732,25 @@ function updateRoutedRates() {
 }
 
 // --- Set Selected Division Destination ---
+function setCurrentDivisionDestinationValue(destination, options = {}) {
+    if (!divisionDestinations.includes(destination)) {
+        return false;
+    }
+    currentDivisionDestination = destination;
+    if (!options.skipSliderSync) {
+        const destSlider = document.querySelector('.seq-destination-range');
+        if (destSlider) {
+            const destIndex = divisionDestinations.indexOf(destination);
+            const sliderValue = Math.max(0, Math.min(5, 5 - destIndex));
+            destSlider.value = `${sliderValue}`;
+        }
+    }
+    updateDestinationHighlight(destination);
+    updateSelectButtonState();
+    updateDivisionKnobForDestination(destination);
+    return true;
+}
+
 function setSelectedDivisionDestination(destination) {
     selectedDivisionDestination = destination;
     console.log(`Selected division destination: ${destination}`);
@@ -3004,7 +3040,7 @@ export const sequencerTempo = {
     setDivision: setDivision,
     toggleRouting: toggleDivisionRouting,
     setSelectedDestination: setSelectedDivisionDestination,
-    setCurrentDestination: (dest) => { currentDivisionDestination = dest; },
+    setCurrentDestination: (dest) => { setCurrentDivisionDestinationValue(dest); },
     getCurrentDestination: () => currentDivisionDestination,
     getSelectedDestination: () => selectedDivisionDestination,
     setMetronomeVolume: (vol) => { metronomeVolume = Math.max(0, Math.min(1, vol)); },
@@ -3020,6 +3056,181 @@ export const sequencerTempo = {
         console.log('Sequencer destination colors initialized');
     }
 };
+
+export function getArpDivisionSnapshot() {
+    const settings = divisionSettings['ARP'];
+    if (!settings || typeof settings !== 'object') {
+        return null;
+    }
+    return {
+        type: settings.type,
+        modifier: settings.modifier
+    };
+}
+
+export function applyArpDivisionSnapshot(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return false;
+    }
+    const typeIndex = rhythmDivisions.indexOf(snapshot.type);
+    if (typeIndex < 0) {
+        return false;
+    }
+    const modifierIndex = snapshot.modifier
+        ? divisionModifiers.indexOf(snapshot.modifier)
+        : -1;
+    const safeModifierIndex = modifierIndex >= 0 ? modifierIndex : 0;
+    setDivision('ARP', typeIndex, safeModifierIndex);
+    return true;
+}
+
+function getDivisionSettingsSnapshot() {
+    const snapshot = {};
+    divisionDestinations.forEach(destination => {
+        const settings = divisionSettings[destination];
+        if (!settings) {
+            return;
+        }
+        if (destination === 'GLOBAL') {
+            snapshot[destination] = {
+                numerator: settings.numerator ?? globalMeterNumerator,
+                denominator: settings.denominator ?? globalMeterDenominator
+            };
+        } else {
+            snapshot[destination] = {
+                type: settings.type,
+                modifier: settings.modifier
+            };
+        }
+    });
+    return snapshot;
+}
+
+function getDivisionConnectionsSnapshot() {
+    const snapshot = {};
+    divisionDestinations.forEach(destination => {
+        snapshot[destination] = !!divisionConnections[destination];
+    });
+    return snapshot;
+}
+
+function applyDivisionSettingsSnapshot(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return;
+    }
+    Object.entries(snapshot).forEach(([destination, settings]) => {
+        if (destination === 'GLOBAL') {
+            const numerator = Number(settings?.numerator);
+            const denominator = Number(settings?.denominator);
+            if (!meterNumerators.includes(numerator) || !meterDenominators.includes(denominator)) {
+                return;
+            }
+            const numIndex = meterNumerators.indexOf(numerator);
+            const denomIndex = meterDenominators.indexOf(denominator);
+            const divisionIndex = (numIndex * meterDenominators.length) + denomIndex;
+            setDivision('GLOBAL', divisionIndex);
+            return;
+        }
+        if (!settings || typeof settings !== 'object') {
+            return;
+        }
+        if (!divisionDestinations.includes(destination)) {
+            return;
+        }
+        const typeIndex = rhythmDivisions.indexOf(settings.type);
+        if (typeIndex < 0) {
+            return;
+        }
+        const modifierIndex = settings.modifier ? divisionModifiers.indexOf(settings.modifier) : 0;
+        const safeModifierIndex = modifierIndex >= 0 ? modifierIndex : 0;
+        setDivision(destination, typeIndex, safeModifierIndex);
+    });
+}
+
+function applyDivisionConnectionsSnapshot(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        updateDivisionRoutingIndicators();
+        updateModRateKnobState();
+        return;
+    }
+    divisionDestinations.forEach(destination => {
+        if (!Object.prototype.hasOwnProperty.call(snapshot, destination)) {
+            return;
+        }
+        let desired = !!snapshot[destination];
+        if (destination === 'GLOBAL' || destination === 'LOSS' || destination === 'ARP') {
+            desired = true;
+        }
+        divisionConnections[destination] = desired;
+    });
+    updateDivisionRoutingIndicators();
+    updateModRateKnobState();
+}
+
+function setQuantizeIndexFromSnapshot(targetIndex) {
+    if (!Number.isFinite(targetIndex)) {
+        return false;
+    }
+    if (!quantizeOptions.length) {
+        rebuildQuantizeOptions();
+    }
+    if (!quantizeOptions.length) {
+        return false;
+    }
+    const safeIndex = Math.max(0, Math.min(quantizeOptions.length - 1, Math.round(targetIndex)));
+    currentQuantizeIndex = safeIndex;
+    updateQuantizeKnobRotation();
+    requantizePattern();
+    return true;
+}
+
+export function getSequencerControlSnapshot() {
+    return {
+        tempo: globalTempo,
+        quantizeIndex: currentQuantizeIndex ?? 0,
+        divisionSettings: getDivisionSettingsSnapshot(),
+        divisionConnections: getDivisionConnectionsSnapshot(),
+        currentDestination: currentDivisionDestination,
+        selectedDestination: selectedDivisionDestination,
+        metronomeVolume
+    };
+}
+
+export function applySequencerControlSnapshot(snapshot = {}) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return false;
+    }
+    if (snapshot.divisionSettings) {
+        applyDivisionSettingsSnapshot(snapshot.divisionSettings);
+    }
+    if (snapshot.divisionConnections) {
+        applyDivisionConnectionsSnapshot(snapshot.divisionConnections);
+    } else {
+        updateDivisionRoutingIndicators();
+        updateModRateKnobState();
+    }
+    if (Number.isFinite(snapshot.tempo)) {
+        setTempo(snapshot.tempo);
+        updateTempoKnobDisplay();
+    }
+    if (Number.isFinite(snapshot.quantizeIndex)) {
+        setQuantizeIndexFromSnapshot(snapshot.quantizeIndex);
+    }
+    if (typeof snapshot.currentDestination === 'string') {
+        setCurrentDivisionDestinationValue(snapshot.currentDestination);
+    } else if (currentDivisionDestination) {
+        setCurrentDivisionDestinationValue(currentDivisionDestination);
+    } else {
+        setCurrentDivisionDestinationValue('GLOBAL');
+    }
+    if (typeof snapshot.selectedDestination === 'string') {
+        setSelectedDivisionDestination(snapshot.selectedDestination);
+    }
+    if (Number.isFinite(snapshot.metronomeVolume)) {
+        metronomeVolume = Math.max(0, Math.min(1, snapshot.metronomeVolume));
+    }
+    return true;
+}
 
 export function getSequencerStateSnapshot() {
     const notePayload = canonicalSequencerEvents
@@ -3077,7 +3288,8 @@ export function getSequencerStateSnapshot() {
         automation: {
             lanes: automationLanesPayload,
             baselines: automationBaselinesPayload
-        }
+        },
+        controls: getSequencerControlSnapshot()
     };
 }
 
@@ -3200,6 +3412,14 @@ export function loadSequencerStateSnapshot(rawSnapshot) {
     updateStepVisuals(-1);
 
     console.log(`Sequencer: loaded sequence snapshot (${loadedNotes.length} notes, ${automationLanes.size} motion lane(s))`);
+
+    if (rawSnapshot.controls && typeof rawSnapshot.controls === 'object') {
+        applySequencerControlSnapshot(rawSnapshot.controls);
+    } else {
+        updateDivisionRoutingIndicators();
+        updateModRateKnobState();
+        setCurrentDivisionDestinationValue(currentDivisionDestination || 'GLOBAL');
+    }
 
     return {
         noteCount: loadedNotes.length,
@@ -3445,16 +3665,7 @@ function initializeSequencerUI() {
             // INVERT: slider 0 (top) should give index 5, slider 5 (bottom) should give index 0
             const index = 5 - sliderValue;
             const destination = divisionDestinations[index];
-            currentDivisionDestination = destination;
-            
-            // Update tick labels to show highlighted destination
-            updateDestinationHighlight(destination);
-            
-            // Update select button state for new destination
-            updateSelectButtonState();
-            
-            // Update division knob and display for new destination
-            updateDivisionKnobForDestination(destination);
+            setCurrentDivisionDestinationValue(destination, { skipSliderSync: true });
         });
         
         // Double-click to toggle routing
@@ -3516,9 +3727,10 @@ function initializeSequencerUI() {
     }
     
     // Pitch bend slider
-    const pitchSlider = document.querySelector('.seq-pitch-slider');
+    const pitchSlider = document.getElementById('seq-pitch-slider') || document.querySelector('.seq-pitch-slider');
     if (pitchSlider) {
         pitchSlider.addEventListener('input', (e) => {
+            cancelPitchBendReturnAnimation();
             const semitones = parseFloat(e.target.value);
             applyPitchBend(semitones);
         });

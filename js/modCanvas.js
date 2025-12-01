@@ -1,5 +1,4 @@
 // filepath: d:\Dropbox\Github Computer Programming Class\faithofspades.github.io\js\modCanvas.js
-// --- Module State ---
 let canvas = null;
 let ctx = null;
 let points = [];
@@ -7,6 +6,7 @@ let selectedPointIndex = -1;
 let isDraggingPoint = false;
 let isDraggingCurve = false;
 let activeCurveIndex = -1;
+let pendingPointPayload = null;
 let lastTapTime = 0;
 
 // Global drag state
@@ -482,6 +482,92 @@ function handleCanvasMouseLeave() {
         dragType = 'curve';
         dragPointIndex = activeCurveIndex;
     }
+
+}
+
+function clampValue(value, min, max) {
+    if (!Number.isFinite(value)) return min;
+    return Math.max(min, Math.min(max, value));
+}
+
+function normalizePointPayload(input, options = {}) {
+    if (!input) return null;
+    let payload;
+    if (Array.isArray(input)) {
+        payload = { points: input };
+    } else if (Array.isArray(input.points)) {
+        payload = {
+            points: input.points,
+            normalized: !!input.normalized,
+            canvasWidth: Number.isFinite(input.canvasWidth) ? input.canvasWidth : null,
+            canvasHeight: Number.isFinite(input.canvasHeight) ? input.canvasHeight : null
+        };
+    } else {
+        return null;
+    }
+
+    if (options.normalized !== undefined) {
+        payload.normalized = !!options.normalized;
+    }
+    if (Number.isFinite(options.canvasWidth)) {
+        payload.canvasWidth = options.canvasWidth;
+    }
+    if (Number.isFinite(options.canvasHeight)) {
+        payload.canvasHeight = options.canvasHeight;
+    }
+
+    payload.points = payload.points
+        .map(point => ({
+            x: Number(point?.x) || 0,
+            y: Number(point?.y) || 0,
+            curveX: point?.curveX !== undefined ? Number(point.curveX) : undefined,
+            curveY: point?.curveY !== undefined ? Number(point.curveY) : undefined,
+            noCurve: !!point?.noCurve
+        }))
+        .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+
+    if (payload.points.length < 2) {
+        return null;
+    }
+
+    return payload;
+}
+
+function applyPointPayload(payload) {
+    if (!canvas || !payload || !Array.isArray(payload.points)) {
+        return false;
+    }
+
+    const width = canvas.width || 1;
+    const height = canvas.height || 1;
+    const sourceWidth = payload.normalized ? 1 : (payload.canvasWidth || width);
+    const sourceHeight = payload.normalized ? 1 : (payload.canvasHeight || height);
+    const scaleX = payload.normalized ? width : (sourceWidth ? width / sourceWidth : 1);
+    const scaleY = payload.normalized ? height : (sourceHeight ? height / sourceHeight : 1);
+
+    points = payload.points.map(rawPoint => {
+        const scaledPoint = {
+            x: clampValue(rawPoint.x * scaleX, 0, width),
+            y: clampValue(rawPoint.y * scaleY, 0, height),
+            noCurve: !!rawPoint.noCurve
+        };
+        if (rawPoint.curveX !== undefined) {
+            scaledPoint.curveX = clampValue(rawPoint.curveX * scaleX, 0, width);
+        }
+        if (rawPoint.curveY !== undefined) {
+            scaledPoint.curveY = clampValue(rawPoint.curveY * scaleY, 0, height);
+        }
+        return scaledPoint;
+    });
+
+    // Ensure points stay ordered left-to-right for stable rendering
+    points.sort((a, b) => a.x - b.x);
+    selectedPointIndex = -1;
+    activeCurveIndex = -1;
+    isDraggingPoint = false;
+    isDraggingCurve = false;
+    drawWaveform();
+    return true;
 }
 
 // --- Initialization ---
@@ -507,7 +593,11 @@ export function initializeModCanvas(canvasElement) {
     isDraggingOutside = false;
     dragType = null;
     dragPointIndex = -1;
-
+    if (pendingPointPayload && applyPointPayload(pendingPointPayload)) {
+        pendingPointPayload = null;
+    } else {
+        initializeDefaultWave();
+    }
     initializeDefaultWave();
 
     // Attach local canvas event listeners
@@ -537,9 +627,52 @@ export function initializeModCanvas(canvasElement) {
     console.log("Modulation Canvas Initialized");
 }
 
+// Cache helper references so future calls are insulated from bundler reload quirks
+const normalizePointPayloadRef = typeof normalizePointPayload === 'function' ? normalizePointPayload : null;
+const applyPointPayloadRef = typeof applyPointPayload === 'function' ? applyPointPayload : null;
+
+// Expose helper references for diagnostics and late consumers
+if (typeof window !== 'undefined') {
+    window.__modCanvasHelpers = {
+        normalizePointPayload: normalizePointPayloadRef,
+        applyPointPayload: applyPointPayloadRef
+    };
+}
+
 // --- Data Access ---
+if (typeof window !== 'undefined') {
+    window.__modCanvasHelperCheck = {
+        normalize: typeof normalizePointPayloadRef,
+        apply: typeof applyPointPayloadRef
+    };
+    console.log('ModCanvas helper check:', window.__modCanvasHelperCheck);
+}
 export function getModulationPoints() {
     // Return a deep copy to prevent external modification?
     // For now, return direct reference for simplicity.
     return points;
+}
+
+export function setModulationPoints(newPoints, options = {}) {
+    if (typeof normalizePointPayloadRef !== 'function' || typeof applyPointPayloadRef !== 'function') {
+        console.error('ModCanvas: helper functions are unavailable. Cannot apply new modulation points.');
+        return false;
+    }
+
+    const payload = normalizePointPayloadRef(newPoints, options);
+    if (!payload) {
+        console.warn('ModCanvas: Ignoring invalid modulation data.');
+        return false;
+    }
+
+    if (!canvas) {
+        pendingPointPayload = payload;
+        return true;
+    }
+
+    const applied = applyPointPayloadRef(payload);
+    if (applied) {
+        pendingPointPayload = null;
+    }
+    return applied;
 }
