@@ -140,6 +140,18 @@
     font-size: 9px;
     color: #35100B;
     font-weight: 600;
+    color: #35100B;
+  }
+  .layer-marker.active {
+    color: #4E658B;
+  }
+  .layer-marker.queued,
+  .layer-marker.recording {
+    color: #d69061;
+    text-shadow: 0 0 4px rgba(207, 129, 77, 0.6);
+  }
+  .layer-marker.processing {
+    opacity: 0.45;
   }
   /* Button with label container */
   .looper-button-with-label {
@@ -186,6 +198,19 @@
     height: 14px;
     filter: invert(9%) sepia(16%) saturate(5688%) hue-rotate(323deg) brightness(99%) contrast(78%);
     transition: filter 0.2s;
+  }
+
+  .looper-button.record-button.pending-stop .icon {
+    display: none;
+  }
+
+  .looper-button.record-button.pending-stop::after {
+    content: '...';
+    font-family: "Nunito", sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    color: #f2eed3;
+    letter-spacing: 1px;
   }
   
   /* Active state for icons */

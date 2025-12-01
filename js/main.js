@@ -68,13 +68,15 @@ window.loadPresetSample = function(filename) {
     });
 };
 import { createiOSStartupOverlay } from './ios.js';
-import { initializeKnob } from './controls.js'; 
+import { initializeKnob } from './controls.js';
+import { registerDebugReference } from './debug-registry.js';
 import { fixMicRecording, createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
 import { initializeModCanvas, getModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
 import { initializeUiPlaceholders } from './uiPlaceholders.js'; 
 import FilterManager from './filter-manager.js';
+import { LayeredLooperEngine } from './looper-engine.js';
 import { createArpeggiator } from './arpeggiator-module.js';
 import { sequencerTempo, initializeSequencerModule, setArpeggiatorInstance, handleLiveSequencerNoteInput, handleLiveSequencerNoteRelease, registerSequencerPlaybackHandlers, registerModAutomationTarget, recordModAutomationValue, updateAutomationBaselineValue, getSequencerStateSnapshot, loadSequencerStateSnapshot } from './sequencer-module.js';
 const D = x => document.getElementById(x);
@@ -162,6 +164,8 @@ let lossArtifactsStage = null;
 let delayReverbNode = null;
 let delayStageInput = null;
 let delayStageOutput = null;
+let looperNode = null;
+let looperEngine = null;
 let currentOverloadAmount = 0;
 let currentCabinetPresetIndex = 0;
 const DEFAULT_CABINET_IR = 'cabinets/Mesa_OS_4x12_57_m160.wav';
@@ -899,6 +903,8 @@ oscillatorMasterGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
 const fxBusInput = audioCtx.createGain();
 const fxBusOutput = audioCtx.createGain();
+registerDebugReference('fxBusInput', fxBusInput);
+registerDebugReference('fxBusOutput', fxBusOutput);
 fxBusInput.gain.setValueAtTime(1.0, audioCtx.currentTime);
 fxBusOutput.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
@@ -999,8 +1005,60 @@ const delayProcessorPromise = audioCtx.audioWorklet.addModule('js/stereo-delay-r
         return false;
     });
 
+function maybeInitializeLooperEngine() {
+    if (looperEngine || !looperNode) {
+        return;
+    }
+    if (document.readyState === 'loading') {
+        return;
+    }
+    looperEngine = new LayeredLooperEngine(audioCtx, looperNode);
+    registerDebugReference('layeredLooperEngine', looperEngine);
+    console.log('LayeredLooperEngine UI bound to worklet.');
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        maybeInitializeLooperEngine();
+    });
+} else {
+    maybeInitializeLooperEngine();
+}
+
+const looperProcessorPromise = audioCtx.audioWorklet.addModule('js/looper-processor.js')
+    .then(() => {
+        looperNode = new AudioWorkletNode(audioCtx, 'layered-looper-processor', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [2],
+            channelCount: 2,
+            channelCountMode: 'explicit',
+            channelInterpretation: 'speakers'
+        });
+
+        registerDebugReference('layeredLooperNode', looperNode);
+
+        try {
+            fxBusOutput.disconnect(masterGain);
+        } catch (err) {
+            console.warn('Looper tap reroute skipped, masterGain already disconnected?', err);
+        }
+        fxBusOutput.connect(looperNode);
+        looperNode.connect(masterGain);
+
+        looperNode.port.postMessage({ type: 'configure', maxLoopSeconds: 64 });
+        maybeInitializeLooperEngine();
+        console.log('Looper processor ready and inserted post-delay / pre-master.');
+        return true;
+    })
+    .catch((error) => {
+        console.error('Failed to load layered looper processor:', error);
+        return false;
+    });
+
 // Create masterGain node (user volume control feeding safety limiter)
 const masterGain = audioCtx.createGain();
+registerDebugReference('masterGain', masterGain);
 const MASTER_MIN_GAIN = 0.02;
 const MASTER_MAX_GAIN = 0.75; // Keep plenty of headroom before safety stages
 const MASTER_RESPONSE = 1.15;

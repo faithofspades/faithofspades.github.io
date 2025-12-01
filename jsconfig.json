@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "allowJs": true,
+        "checkJs": false,
+        "forceConsistentCasingInFileNames": false,
+        "lib": ["es2018", "dom"]
+    },
+    "include": [
+        "js/**/*.js"
+    ]
+}
