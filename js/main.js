@@ -6287,6 +6287,7 @@ function createVoice(ctx, index) {
     index: index,
     noteNumber: null,
     startTime: 0,
+        releaseStartedAt: 0,
     state: 'idle',
     samplerNote: null,
     osc1Note: null,
@@ -6720,40 +6721,36 @@ function findAvailableVoice(noteNumber) {
     }
     
     let selectedVoice = null;
+    const poolSize = voicePool.length;
     
-    // First, try to find an idle voice using round-robin
-    let startIndex = nextVoiceIndex;
-    for (let i = 0; i < voicePool.length; i++) {
-        const idx = (startIndex + i) % voicePool.length;
+    // 1) Prefer idle/inactive voices using round-robin ordering
+    for (let i = 0; i < poolSize; i++) {
+        const idx = (nextVoiceIndex + i) % poolSize;
         const voice = voicePool[idx];
-        if (voice.state === 'idle') {
+        if (voice.state === 'idle' || voice.state === 'inactive') {
             selectedVoice = voice;
-            nextVoiceIndex = (idx + 1) % voicePool.length;
+            nextVoiceIndex = (idx + 1) % poolSize;
             console.log(`Found idle voice ${voice.index} for note ${noteNumber}`);
             break;
         }
     }
     
-    // If no idle voice, look for the oldest voice playing the same note
+    // 2) Steal the oldest releasing voice only if necessary
     if (!selectedVoice) {
-        // Find all voices playing this note and sort by start time
-        const sameNoteVoices = voicePool
-            .filter(v => v.noteNumber === noteNumber && v.state === 'active')
-            .sort((a, b) => a.startTime - b.startTime);
-            
-        if (sameNoteVoices.length > 0) {
-            // Take the oldest voice playing this note
-            selectedVoice = sameNoteVoices[0];
-            console.log(`Stealing oldest voice ${selectedVoice.index} playing same note ${noteNumber}`);
+        const releasingVoices = voicePool
+            .filter(v => v.state === 'releasing')
+            .sort((a, b) => (a.releaseStartedAt || a.startTime || 0) - (b.releaseStartedAt || b.startTime || 0));
+        if (releasingVoices.length) {
+            selectedVoice = releasingVoices[0];
+            console.log(`Stealing releasing voice ${selectedVoice.index} for note ${noteNumber}`);
         }
     }
     
-    // If still no voice, steal the oldest voice overall
+    // 3) Fall back to the oldest active voice (held note) only as last resort
     if (!selectedVoice) {
-        // Sort all voices by start time
-        const oldestVoices = [...voicePool].sort((a, b) => a.startTime - b.startTime);
-        selectedVoice = oldestVoices[0];
-        console.log(`Stealing oldest voice ${selectedVoice.index} (was playing note ${selectedVoice.noteNumber})`);
+        selectedVoice = [...voicePool]
+            .sort((a, b) => (a.startTime || 0) - (b.startTime || 0))[0];
+        console.log(`Stealing oldest active voice ${selectedVoice.index} (was playing note ${selectedVoice.noteNumber})`);
     }
     
     // Update voice queue (for tracking order)
@@ -9461,6 +9458,7 @@ function createSamplerVoice(ctx, index) {
     index: index,
     noteNumber: null,
     startTime: 0,
+        releaseStartedAt: 0,
     state: 'inactive',
     samplerNote: null,
     panSeed: (Math.random() * 2 - 1),
@@ -9590,15 +9588,40 @@ function findAvailableSamplerVoice(noteNumber) {
         return voiceToSteal;
     }
     
-    // For poly mode, use round-robin and ignore safety periods completely
-    const index = nextSamplerVoiceIndex % samplerVoicePool.length;
-    const candidate = samplerVoicePool[index];
-    nextSamplerVoiceIndex = (index + 1) % samplerVoicePool.length;
+    const poolSize = samplerVoicePool.length;
+    let candidate = null;
     
-    // Mark as stolen if it's currently active. noteOn will handle the rest.
-    candidate.wasStolen = candidate.state !== 'inactive';
+    // 1) Prefer voices that are fully inactive/idle
+    for (let i = 0; i < poolSize; i++) {
+        const idx = (nextSamplerVoiceIndex + i) % poolSize;
+        const voice = samplerVoicePool[idx];
+        if (voice.state === 'inactive' || voice.state === 'idle') {
+            candidate = voice;
+            nextSamplerVoiceIndex = (idx + 1) % poolSize;
+            break;
+        }
+    }
+    
+    // 2) Otherwise, steal the oldest releasing voice
+    if (!candidate) {
+        const releasingVoices = samplerVoicePool
+            .filter(v => v.state === 'releasing')
+            .sort((a, b) => (a.releaseStartedAt || a.startTime || 0) - (b.releaseStartedAt || b.startTime || 0));
+        if (releasingVoices.length) {
+            candidate = releasingVoices[0];
+            console.log(`findAvailableSamplerVoice: Stealing releasing voice ${candidate.id} for note ${noteNumber}`);
+        }
+    }
+    
+    // 3) Finally, fall back to the oldest active/held voice
+    if (!candidate) {
+        candidate = [...samplerVoicePool]
+            .sort((a, b) => (a.startTime || 0) - (b.startTime || 0))[0];
+        console.log(`findAvailableSamplerVoice: Forced steal of active voice ${candidate.id} for note ${noteNumber}`);
+    }
+    
+    candidate.wasStolen = candidate.state !== 'inactive' && candidate.state !== 'idle';
     if (candidate.wasStolen) {
-        console.log(`findAvailableSamplerVoice: Stealing sampler voice ${candidate.id} for note ${noteNumber}.`);
         unlinkSequencerSamplerVoice(candidate);
     }
     
@@ -10885,6 +10908,8 @@ function releaseSamplerNote(note, releaseStartTime = audioCtx.currentTime) {
     const voice = note.parentVoice || samplerVoicePool.find(v => v.samplerNote === note);
     if (voice && voice.state === 'playing') {
         voice.state = 'releasing';
+                voice.envelopeState = 'release';
+                voice.releaseStartedAt = releaseStartTime;
     }
 
   // Set component state and clear existing timers
@@ -10995,6 +11020,8 @@ function killSamplerNote(note) {
         voice.state = 'inactive';
         voice.noteNumber = null;
         voice.startTime = 0;
+        voice.releaseStartedAt = 0;
+        voice.envelopeState = 'idle';
         voice.currentArpStepId = null;
         voice.lastArpReleaseToken = null;
         
@@ -11498,11 +11525,11 @@ function noteOn(noteNumber, isLegatoMonoTransition = false, bypassArp = false, s
             // In mono mode, always use the same voice
             samplerVoice = currentMonoSamplerVoice || findAvailableSamplerVoice(noteNumber);
             currentMonoSamplerVoice = samplerVoice;
-            wasSamplerStolen = samplerVoice.state !== 'inactive';
+            wasSamplerStolen = samplerVoice.state !== 'inactive' && samplerVoice.state !== 'idle';
         } else {
             // In poly mode, find an available voice
             samplerVoice = findAvailableSamplerVoice(noteNumber);
-            wasSamplerStolen = samplerVoice.state !== 'inactive';
+            wasSamplerStolen = samplerVoice.state !== 'inactive' && samplerVoice.state !== 'idle';
         }
     }
 
@@ -11563,6 +11590,7 @@ setMasterClockRate(1, noteNumber, osc1Detune);
     voice.noteNumber = noteNumber;
     voice.startTime = now;
     voice.state = 'active';
+    voice.releaseStartedAt = 0;
     voice.currentReleaseId = null;
     voice.wasStolen = false;
     voice.currentArpStepId = null;
@@ -11627,19 +11655,17 @@ if (audioBuffer && samplerVoice) {
     let oldPlaybackRate = 1.0;
     
     // CRITICAL FIX: Force new source (restart from beginning) when:
-    // 1. Loop/crossfade is OFF, AND
-    // 2. This is a stolen voice (not a fresh voice allocation)
+    // 1. The voice was stolen or previously in release, OR
+    // 2. We're not in a true legato transition that should preserve phase
     if (samplerNote.source && (samplerNote.state === 'playing' || samplerNote.state === 'releasing')) {
-        // Check if we should restart the sampler
-        if (!isSampleLoopOn && wasSamplerStolen) {
-            // Force restart with new source when not looping and voice was stolen
-            needNewSource = true;
-            console.log(`Restarting sampler from beginning for stolen voice ${samplerVoice.id} (crossfade OFF)`);
-        } else {
-            // Otherwise reuse existing source (continue playback)
+        if (!wasSamplerStolen && legatoTransition) {
+            // Only reuse for true legato to avoid envelope jumps
             needNewSource = false;
             oldPlaybackRate = samplerNote.source.playbackRate.value || 1.0;
-            console.log(`Reusing existing sampler source for voice ${samplerVoice.id} (state: ${samplerNote.state})`);
+            console.log(`Reusing existing sampler source for voice ${samplerVoice.id} (legato transition)`);
+        } else {
+            needNewSource = true;
+            console.log(`Restarting sampler source for voice ${samplerVoice.id} (stolen or non-legato retrigger)`);
         }
     }
         
@@ -11773,13 +11799,19 @@ samplerNote.gainNode.gain.cancelScheduledValues(now);
 
 // FIX: Define currentGain outside any conditional blocks to ensure it exists
 const currentGain = wasActive ? samplerNote.gainNode.gain.value : 0;
+const previousSamplerEnvelopeState = samplerVoice ? samplerVoice.envelopeState : 'idle';
+const samplerWasInAttack = previousSamplerEnvelopeState === 'attack';
+const samplerWasInDecay = previousSamplerEnvelopeState === 'decay';
+const samplerWasInSustain = previousSamplerEnvelopeState === 'sustain';
+const samplerWasInRelease = previousSamplerEnvelopeState === 'release';
+const samplerWasReleasing = samplerWasInRelease || samplerVoice?.state === 'releasing';
 
 if (legatoTransition && samplerNote.state === 'playing') {
   // LEGATO MODE logic remains
-  if (wasInAttack || wasInDecay) {
+    if (samplerWasInAttack || samplerWasInDecay) {
     samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
     
-    if (wasInAttack) {
+        if (samplerWasInAttack) {
       // Continue attack
       const remainingAttackTime = attack * (1.0 - currentGain);
       samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
@@ -11790,6 +11822,10 @@ if (legatoTransition && samplerNote.state === 'playing') {
       voice.envelopeState = 'attack';
       voice.attackEndTime = now + remainingAttackTime;
       voice.decayEndTime = now + remainingAttackTime + decay;
+            samplerVoice.envelopeState = 'attack';
+            samplerVoice.envelopeStartTime = now;
+            samplerVoice.attackEndTime = now + remainingAttackTime;
+            samplerVoice.decayEndTime = now + remainingAttackTime + decay;
       
       console.log(`Legato sampler: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining, with curved decay`);
     } else {
@@ -11802,6 +11838,9 @@ if (legatoTransition && samplerNote.state === 'playing') {
       
       voice.envelopeState = 'decay';
       voice.decayEndTime = now + remainingDecayTime;
+            samplerVoice.envelopeState = 'decay';
+            samplerVoice.envelopeStartTime = now;
+            samplerVoice.decayEndTime = now + remainingDecayTime;
       
       console.log(`Legato sampler: Continuing curved decay from ${currentGain.toFixed(3)}, ${remainingDecayTime.toFixed(3)}s remaining`);
     }
@@ -11809,6 +11848,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
         // Reset to sustain if in sustain or release
         samplerNote.gainNode.gain.setValueAtTime(sustain, now);
         voice.envelopeState = 'sustain';
+                samplerVoice.envelopeState = 'sustain';
         console.log(`Legato sampler: Reset to sustain ${sustain.toFixed(3)}`);
     }
 
@@ -11818,7 +11858,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
     const currentGain = samplerNote.gainNode.gain.value;
     
     // CRITICAL FIX: Check if we're stealing from a RELEASING voice
-    const stealingFromRelease = voice.state === 'releasing' || previousEnvelopeState === 'release';
+    const stealingFromRelease = samplerWasReleasing;
     
     if (stealingFromRelease) {
         // Always start fresh from 0 when stealing from release
@@ -11837,7 +11877,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
         samplerVoice.decayEndTime = now + attack + decay;
         
         console.log(`Multi sampler: Fresh attack from 0 (stolen from release)`);
-    } else if (wasInAttack) {
+    } else if (samplerWasInAttack) {
         const remainingAttackTime = attack * (1.0 - currentGain);
         samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
         samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + remainingAttackTime);
@@ -11856,7 +11896,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
         samplerVoice.decayEndTime = now + remainingAttackTime + decay;
         
         console.log(`Multi sampler: Continuing attack from ${currentGain.toFixed(3)}, ${remainingAttackTime.toFixed(3)}s remaining`);
-    } else if (wasInDecay) {
+    } else if (samplerWasInDecay) {
         const currentGain = samplerNote.gainNode.gain.value;
         samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
         samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
@@ -11874,7 +11914,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
         samplerVoice.decayEndTime = now + attack + decay;
         
         console.log(`Multi sampler: Reset from decay (gain ${currentGain.toFixed(3)}) to attack`);
-    } else if (wasInSustain) {
+    } else if (samplerWasInSustain) {
         samplerNote.gainNode.gain.setValueAtTime(sustain, now);
         samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
         samplerNote.gainNode.gain.linearRampToValueAtTime(sustain, now + attack + decay);
@@ -11915,7 +11955,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
     samplerNote.gainNode.gain.cancelScheduledValues(now);
     const currentGain = samplerNote.gainNode.gain.value;
     
-    if (wasReleasing) {
+    if (samplerWasReleasing) {
       // Start fresh from 0 when stealing from release
       samplerNote.gainNode.gain.setValueAtTime(0, now);
       samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
@@ -11932,7 +11972,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
       samplerVoice.decayEndTime = now + attack + decay;
       
       console.log(`Mono multi sampler: Fresh attack from 0 (from release)`);
-    } else if (wasInAttack) {
+    } else if (samplerWasInAttack) {
       // Continue attack
       const remainingAttackTime = attack * (1.0 - currentGain);
       samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
@@ -11950,7 +11990,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
       samplerVoice.decayEndTime = now + remainingAttackTime + decay;
       
       console.log(`Mono multi sampler: Continuing attack from ${currentGain.toFixed(3)}`);
-    } else if (wasInDecay) {
+    } else if (samplerWasInDecay) {
       // Reset from decay
       samplerNote.gainNode.gain.setValueAtTime(currentGain, now);
       samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
@@ -11967,7 +12007,7 @@ if (legatoTransition && samplerNote.state === 'playing') {
       samplerVoice.decayEndTime = now + attack + decay;
       
       console.log(`Mono multi sampler: Reset from decay (gain ${currentGain.toFixed(3)})`);
-    } else if (wasInSustain) {
+    } else if (samplerWasInSustain) {
       // From sustain to new envelope
       samplerNote.gainNode.gain.setValueAtTime(sustain, now);
       samplerNote.gainNode.gain.linearRampToValueAtTime(1.0, now + attack);
@@ -12011,6 +12051,12 @@ if (legatoTransition && samplerNote.state === 'playing') {
     voice.envelopeState = 'attack';
     voice.attackEndTime = now + attack;
     voice.decayEndTime = now + attack + decay;
+        if (samplerVoice) {
+                samplerVoice.envelopeState = 'attack';
+                samplerVoice.envelopeStartTime = now;
+                samplerVoice.attackEndTime = now + attack;
+                samplerVoice.decayEndTime = now + attack + decay;
+        }
   }
 }
 
@@ -12087,6 +12133,7 @@ if (samplerVoice && filterManager) {
     samplerVoice.noteNumber = noteNumber;
     samplerVoice.startTime = now;
     samplerVoice.state = 'playing';
+    samplerVoice.releaseStartedAt = 0;
     
     // Set per-voice LFO fade start time for sampler voice
     if (lfoFade > 0) {
@@ -12665,6 +12712,8 @@ function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt
         // Give each voice a unique release ID to avoid conflicts
         const releaseId = `rel_${noteNumber}_${voice.id}_${Date.now()}`;
         voice.currentReleaseId = releaseId;
+        voice.releaseStartedAt = releaseStartTime;
+        voice.envelopeState = 'release';
         
         console.log(`Starting release ${releaseId} for voice ${voice.id}, note ${noteNumber}`);
         
@@ -12729,6 +12778,8 @@ function noteOff(noteNumber, isForced = false, specificVoice = null, triggeredAt
             // Only cleanup if this is still the active release for this voice
             if (voice.currentReleaseId === releaseId && voice.state === 'releasing') {
                 voice.state = 'idle';
+                    voice.releaseStartedAt = 0;
+                    voice.envelopeState = 'idle';
                 
                 // Remove only this specific voice from assignments
                 const assignments = voiceAssignments.get(noteNumber) || [];
