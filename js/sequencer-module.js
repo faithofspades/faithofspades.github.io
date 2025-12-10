@@ -1436,6 +1436,17 @@ function beginPrecountIfNeeded() {
     preCountDisplayNumber = beats;
     isPreCountActive = true;
     preCountRequested = false;
+    lastStepTimestamp = null;
+    currentLoopStartTime = null;
+    currentLoopDurationSeconds = null;
+    const loopSteps = getEffectiveLoopLengthSteps();
+    if (loopSteps) {
+        if (Number.isInteger(userSelectedStartStep)) {
+            currentStepPosition = (userSelectedStartStep - 1 + loopSteps) % loopSteps;
+        } else {
+            currentStepPosition = -1;
+        }
+    }
     updateRecordPrecountIndicator();
     console.log(`Sequencer: pre-count engaged for ${steps} step(s)`);
 }
@@ -2402,8 +2413,8 @@ function startTempo() {
     }
     
     isTempoPlaying = true;
-    scheduler(); // Start the scheduler
     beginPrecountIfNeeded();
+    scheduler(); // Start the scheduler
     
     console.log(`Tempo started at ${globalTempo} BPM, ${globalMeterNumerator}/${globalMeterDenominator}`);
 }
