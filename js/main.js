@@ -1,7 +1,7 @@
 import { createiOSStartupOverlay } from './ios.js';
 import { initializeKnob } from './controls.js';
 import { registerDebugReference } from './debug-registry.js';
-import { createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
+import { fixMicRecording, createCrossfadedBuffer, findBestZeroCrossing } from './sampler.js'; 
 import { initializeModCanvas, getModulationPoints, setModulationPoints } from './modCanvas.js';
 import { initializeKeyboard, keys, resetKeyStates } from './keyboard.js';
 import { fixAllKnobs, initializeSpecialButtons, fixSwitchesTouchMode } from './controlFixes.js'; 
@@ -3354,6 +3354,8 @@ let originalBuffer = null;
 let audioBuffer = null; // <<< ADD THIS LINE: Initialize audioBuffer to null
 let recordedChunks = [];
 let isRecording = false;
+let recordingMode = 'external';
+let externalRecorder = null;
 let internalRecordingNode = null;
 let internalRecordingDestination = null;
 let recordingStartTime = null;
@@ -13209,18 +13211,47 @@ if (specialButtonControls && typeof specialButtonControls.setEmuModeState === 'f
 const recButton = document.getElementById('mic-record-button');
 
 if (recButton) {
+    // Initialize microphone recorder but skip the built-in button wiring
+    externalRecorder = fixMicRecording(audioCtx, handleRecordingComplete, true);
+
+    const dropdown = createRecordingModeDropdown();
+
     recButton.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
 
-        if (isRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
-            console.log("Stopping internal recording...");
-            mediaRecorder.stop();
+        const isExternalRecording = externalRecorder && externalRecorder.isRecording();
+        const isInternalRecordingActive = isRecording && mediaRecorder && mediaRecorder.state !== 'inactive';
+
+        if (isExternalRecording || isInternalRecordingActive) {
+            console.log("Stopping recording...");
+
+            if (isInternalRecordingActive && mediaRecorder) {
+                mediaRecorder.stop();
+                console.log("Stopped internal recording");
+            }
+
+            if (isExternalRecording && externalRecorder) {
+                externalRecorder.stopRecording();
+                console.log("Stopped external recording");
+            }
+        } else if (dropdown) {
+            const isVisible = dropdown.style.display !== 'none';
+            dropdown.style.display = isVisible ? 'none' : 'block';
+            console.log("Dropdown toggled:", dropdown.style.display);
         } else {
-            console.log("Starting internal recording...");
-            startInternalRecording();
+            // Fallback in case dropdown failed to render
+            startRecording(recordingMode);
         }
     });
+
+    if (dropdown) {
+        document.addEventListener('click', (e) => {
+            if (!recButton.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+    }
 } else {
     console.error("Failed to setup recording: record button missing");
 }
@@ -13846,6 +13877,81 @@ function updateOsc2PWMKnobState() {
             if (tooltip) tooltip.style.opacity = '0';
         }
     }
+}
+
+function createRecordingModeDropdown() {
+    const recButton = document.getElementById('mic-record-button');
+    if (!recButton) return null;
+
+    let dropdown = document.getElementById('rec-mode-dropdown');
+    if (dropdown) {
+        return dropdown;
+    }
+
+    dropdown = document.createElement('div');
+    dropdown.id = 'rec-mode-dropdown';
+    dropdown.className = 'rec-mode-dropdown';
+    dropdown.style.display = 'none';
+    dropdown.innerHTML = `
+        <div class="rec-mode-option" data-mode="external">
+            <span class="mode-label">External</span>
+        </div>
+        <div class="rec-mode-option" data-mode="internal">
+            <span class="mode-label">Internal</span>
+        </div>
+    `;
+
+    const recContainer = recButton.closest('.rec-button-container');
+    if (recContainer) {
+        recContainer.appendChild(dropdown);
+    } else {
+        recButton.parentNode.insertBefore(dropdown, recButton.nextSibling);
+    }
+
+    const modeOptions = dropdown.querySelectorAll('.rec-mode-option');
+    modeOptions.forEach(option => {
+        option.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const mode = option.getAttribute('data-mode');
+            recordingMode = mode;
+            console.log(`Recording mode set to: ${mode}`);
+
+            modeOptions.forEach(opt => opt.classList.toggle('active', opt === option));
+            dropdown.style.display = 'none';
+
+            startRecording(mode);
+        });
+    });
+
+    // Highlight the default (external) mode
+    modeOptions.forEach(option => {
+        const mode = option.getAttribute('data-mode');
+        option.classList.toggle('active', mode === recordingMode);
+    });
+
+    return dropdown;
+}
+
+function startRecording(mode) {
+    if (mode === 'internal') {
+        startInternalRecording();
+        return;
+    }
+
+    console.log('Starting external microphone recording...');
+    if (!externalRecorder) {
+        console.error('External recorder not initialized');
+        alert('Microphone recorder is unavailable. Please reload and try again.');
+        return;
+    }
+
+    if (!externalRecorder.isWorkletReady()) {
+        console.warn('External recorder not ready yet');
+        alert('Microphone recording is not ready yet. Please try again in a moment.');
+        return;
+    }
+
+    externalRecorder.startRecording();
 }
 // Add this function around line 5850 to start internal recording
 function startInternalRecording() {
