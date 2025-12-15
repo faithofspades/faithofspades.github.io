@@ -1499,7 +1499,7 @@ function setupNonLinearADSRSliders() {
         attachAutomationToSlider(slider, id);
     
     // Set initial values
-    let initialTime = id === 'attack' ? 0.006 : 0.00;
+    let initialTime = id === 'attack' ? 0.015 : 0.00;
     const initialPosition = timeToPosition(initialTime);
     slider.value = initialPosition * parseFloat(slider.max);
     slider.dataset.mappedTime = initialTime.toFixed(3);
@@ -1565,7 +1565,7 @@ function setupNonLinearADSRSliders() {
         attachAutomationToSlider(slider, id);
     
     // Set initial values
-    let initialTime = id === 'filter-attack' ? 0.006 : 0.00;
+    let initialTime = id === 'filter-attack' ? 0.015 : 0.00;
     const initialPosition = timeToPosition(initialTime);
     slider.value = initialPosition * parseFloat(slider.max);
     slider.dataset.mappedTime = initialTime.toFixed(3);
@@ -2690,6 +2690,12 @@ function createLossArtifactsStage(ctx) {
     const input = ctx.createGain();
     const output = ctx.createGain();
 
+    // Latency compensation: the loss worklet buffers audio in packets, so the wet path is delayed.
+    // Delay the dry path by the same amount to avoid comb filtering when mixing.
+    const dryDelay = ctx.createDelay(1);
+    // Default estimate matches current worklet settings: prebufferPackets(2) * packetSize(480) samples.
+    dryDelay.delayTime.value = (2 * 480) / ctx.sampleRate;
+
     const dryGain = ctx.createGain();
     dryGain.gain.value = 1;
 
@@ -2698,7 +2704,8 @@ function createLossArtifactsStage(ctx) {
 
     const effectSend = ctx.createGain();
 
-    input.connect(dryGain);
+    input.connect(dryDelay);
+    dryDelay.connect(dryGain);
     dryGain.connect(output);
 
     input.connect(effectSend);
@@ -2742,9 +2749,11 @@ function createLossArtifactsStage(ctx) {
             wetGain.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
             return;
         }
-        const engaged = (lastLossAmount > EPSILON) || (lastArtifactAmount > EPSILON);
-        dryGain.gain.setTargetAtTime(engaged ? 0 : 1, ctx.currentTime, 0.03);
-        wetGain.gain.setTargetAtTime(engaged ? 1 : 0, ctx.currentTime, 0.03);
+        // lossAmount is a wet/dry mix. (Dropout frequency is controlled by the LOSS division interval.)
+        const wet = Math.max(0, Math.min(1, lastLossAmount));
+        const dry = 1 - wet;
+        dryGain.gain.setTargetAtTime(dry, ctx.currentTime, 0.03);
+        wetGain.gain.setTargetAtTime(wet, ctx.currentTime, 0.03);
     };
 
     const sendRefreshMessage = () => {
@@ -2876,6 +2885,27 @@ function createLossArtifactsStage(ctx) {
 
         effectSend.connect(workletNode);
         workletNode.connect(wetGain);
+
+        // Listen for config/click telemetry from the worklet.
+        workletNode.port.onmessage = (event) => {
+            const data = event?.data;
+            if (!data || typeof data !== 'object') return;
+
+            if (data.type === 'config') {
+                const latencySamples = Number(data.latencySamples);
+                if (Number.isFinite(latencySamples) && latencySamples >= 0) {
+                    const latencySeconds = latencySamples / ctx.sampleRate;
+                    const now = ctx.currentTime;
+                    dryDelay.delayTime.cancelScheduledValues(now);
+                    dryDelay.delayTime.setTargetAtTime(latencySeconds, now, 0.02);
+                    lossInfo(`Dry latency compensated: ${latencySamples} samples (${(latencySeconds * 1000).toFixed(2)}ms)`);
+                }
+            } else if (data.type === 'click') {
+                // Keep quiet by default; uncomment if you want logs.
+                // lossWarn(`Click detected: ch=${data.ch} diff=${data.diff} loss=${data.loss} artifact=${data.artifact}`);
+            }
+        };
+
         isReady = true;
         flushPendingParams();
         flushPendingTriggers();
@@ -2894,6 +2924,8 @@ function createLossArtifactsStage(ctx) {
             sendRefreshMessage();
             pendingRefresh = false;
         }
+        // Request config immediately so dry delay matches the processor.
+        sendRefreshMessage();
         updateBlend();
         lossInfo('Processor node attached.');
         return workletNode;
@@ -3025,6 +3057,16 @@ function createMesaAmpStage(ctx) {
         const cabWetSum = ctx.createGain();
         const cabDryGain = ctx.createGain();
         const cabSum = ctx.createGain();
+        const cabLevelerPreGain = ctx.createGain();
+        cabLevelerPreGain.gain.value = 3.2; // Push quiet IRs harder before leveling
+        const cabLevelerCompressor = ctx.createDynamicsCompressor();
+        cabLevelerCompressor.threshold.value = -6;
+        cabLevelerCompressor.knee.value = 6;
+        cabLevelerCompressor.ratio.value = 8;
+        cabLevelerCompressor.attack.value = 0.003;
+        cabLevelerCompressor.release.value = 0.22;
+        const cabLevelerPostGain = ctx.createGain();
+        cabLevelerPostGain.gain.value = 1.18; // Recover louder level after compression
         cabDryGain.gain.value = 1;
         cabWetGain.gain.value = 0;
         cabWetSum.gain.value = 1;
@@ -3089,14 +3131,25 @@ function createMesaAmpStage(ctx) {
             slot.gain.connect(cabWetSum);
         });
 
-        cabWetSum.connect(cabWetGain);
+        cabWetSum.connect(cabLevelerPreGain);
+        cabLevelerPreGain.connect(cabLevelerCompressor);
+        cabLevelerCompressor.connect(cabLevelerPostGain);
+        cabLevelerPostGain.connect(cabWetGain);
 
         cabDryGain.connect(cabSum);
         cabWetGain.connect(cabSum);
 
+        const cabOutputLimiter = ctx.createDynamicsCompressor();
+        cabOutputLimiter.threshold.value = -0.3;
+        cabOutputLimiter.knee.value = 0.5;
+        cabOutputLimiter.ratio.value = 18;
+        cabOutputLimiter.attack.value = 0.0015;
+        cabOutputLimiter.release.value = 0.18;
+
         const processedGate = ctx.createGain();
         processedGate.gain.value = 0;
-        cabSum.connect(processedGate);
+        cabSum.connect(cabOutputLimiter);
+        cabOutputLimiter.connect(processedGate);
         processedGate.connect(output);
 
         const bypassGain = ctx.createGain();
@@ -3692,6 +3745,18 @@ window.modCanvasRate = modCanvasRate; // Make globally accessible for tempo sync
 let modCanvasValue = 0.5; // Current canvas output value (0-1)
 let modCanvasPhase = 0.0; // Current phase (0-1) for LFO mode
 let modCanvasUpdateInterval = null;
+let modCanvasLastUpdateTime = null;
+
+function getSyncedModCanvasRate() {
+    const globalRate = (typeof window !== 'undefined') ? window.modCanvasRate : undefined;
+    if (Number.isFinite(globalRate) && globalRate > 0 && globalRate !== modCanvasRate) {
+        modCanvasRate = globalRate;
+    }
+    if (!Number.isFinite(modCanvasRate) || modCanvasRate <= 0) {
+        modCanvasRate = 1.0;
+    }
+    return modCanvasRate;
+}
 
 /**
  * Initialize the MOD canvas modulation system
@@ -3699,8 +3764,20 @@ let modCanvasUpdateInterval = null;
 function initializeModCanvasModulation() {
   // Start update loop for MOD canvas
   function modCanvasUpdate() {
+        const fallbackDelta = 1 / 60;
+        const now = audioCtx ? audioCtx.currentTime : ((typeof performance !== 'undefined') ? performance.now() / 1000 : null);
+        let deltaTime = fallbackDelta;
+        if (Number.isFinite(now)) {
+            if (modCanvasLastUpdateTime === null) {
+                modCanvasLastUpdateTime = now;
+            } else {
+                const rawDelta = now - modCanvasLastUpdateTime;
+                deltaTime = Math.max(1 / 240, Math.min(0.5, rawDelta));
+                modCanvasLastUpdateTime = now;
+            }
+        }
     if (modCanvasMode === 'lfo') {
-      applyMODCanvasModulation();
+            applyMODCanvasModulation(deltaTime);
     } else if (modCanvasMode === 'env') {
       applyMODCanvasEnvelopeModulation();
     } else if (modCanvasMode === 'trig') {
@@ -3790,27 +3867,22 @@ function sampleCanvasWaveform(xPosition) {
 /**
  * Apply MOD canvas modulation to all connected destinations (LFO mode)
  */
-function applyMODCanvasModulation() {
+function applyMODCanvasModulation(deltaTime = 1 / 60) {
   // Check if MOD source has ANY connections
   const hasAnyConnections = Object.values(destinationConnections).some(source => source === 'MOD');
   if (!hasAnyConnections) {
     return; // No connections, skip processing
   }
   
-  // Only process in LFO mode
-  if (modCanvasMode !== 'lfo') {
-    return;
-  }
+    // Only process in LFO mode
+    if (modCanvasMode !== 'lfo') {
+        return;
+    }
   
-  // Sync from window.modCanvasRate in case it was updated by sequencer
-  if (window.modCanvasRate !== undefined && window.modCanvasRate !== modCanvasRate) {
-    modCanvasRate = window.modCanvasRate;
-  }
-  
-  // Update phase based on rate
-  const now = audioCtx.currentTime;
-  const deltaTime = 1 / 60; // Assuming 60 FPS
-  modCanvasPhase = (modCanvasPhase + (modCanvasRate * deltaTime)) % 1.0;
+    const currentRate = getSyncedModCanvasRate();
+    const safeDelta = Number.isFinite(deltaTime) && deltaTime > 0 ? deltaTime : (1 / 60);
+    const clampedDelta = Math.min(Math.max(safeDelta, 1 / 240), 0.5);
+    modCanvasPhase = (modCanvasPhase + (currentRate * clampedDelta)) % 1.0;
   
   // Sample the canvas waveform at current phase
   modCanvasValue = sampleCanvasWaveform(modCanvasPhase);
@@ -3847,7 +3919,9 @@ function applyMODCanvasEnvelopeModulation() {
     return; // No connections, skip processing
   }
   
-  const now = audioCtx.currentTime;
+    const now = audioCtx.currentTime;
+    const currentRate = getSyncedModCanvasRate();
+    const envelopeDuration = 1.0 / Math.max(currentRate, 0.0001);
   
   // Find the MOST RECENTLY STARTED voice, prioritizing 'active' over 'releasing'
   // This ensures new notes control the modulation, but releasing notes continue if no active notes
@@ -3867,7 +3941,6 @@ function applyMODCanvasEnvelopeModulation() {
         phase = voice.modCanvasEnvPhase;
       } else {
         const elapsedTime = now - voice.modCanvasEnvStartTime;
-        const envelopeDuration = 1.0 / modCanvasRate;
         phase = elapsedTime / envelopeDuration;
         
         if (phase >= 1.0) {
@@ -3905,7 +3978,6 @@ function applyMODCanvasEnvelopeModulation() {
         phase = voice.modCanvasEnvPhase;
       } else {
         const elapsedTime = now - voice.modCanvasEnvStartTime;
-        const envelopeDuration = 1.0 / modCanvasRate;
         phase = elapsedTime / envelopeDuration;
         
         if (phase >= 1.0) {
@@ -3981,7 +4053,9 @@ function applyMODCanvasTrigModulation() {
     return; // No connections, skip processing
   }
   
-  const now = audioCtx.currentTime;
+    const now = audioCtx.currentTime;
+    const currentRate = getSyncedModCanvasRate();
+    const trigDuration = 1.0 / Math.max(currentRate, 0.0001);
   
   // Find the MOST RECENTLY STARTED voice, prioritizing 'active' over 'releasing'
   let newestActiveVoicePhase = null;
@@ -3993,11 +4067,9 @@ function applyMODCanvasTrigModulation() {
   
   // Process oscillator voices
   voicePool.forEach(voice => {
-    if (voice.modCanvasTrigStartTime !== null) {
-      // Calculate phase for this voice - loops continuously
-      const elapsedTime = now - voice.modCanvasTrigStartTime;
-      const trigDuration = 1.0 / modCanvasRate;
-      
+        if (voice.modCanvasTrigStartTime !== null) {
+            // Calculate phase for this voice - loops continuously
+            const elapsedTime = now - voice.modCanvasTrigStartTime;
       // Calculate looping phase (0-1, wraps around)
       let phase = (elapsedTime / trigDuration) % 1.0;
       voice.modCanvasTrigPhase = phase;
@@ -4021,11 +4093,9 @@ function applyMODCanvasTrigModulation() {
   
   // Process sampler voices
   samplerVoicePool.forEach(voice => {
-    if (voice.modCanvasTrigStartTime !== null) {
-      // Calculate phase for this voice - loops continuously
-      const elapsedTime = now - voice.modCanvasTrigStartTime;
-      const trigDuration = 1.0 / modCanvasRate;
-      
+        if (voice.modCanvasTrigStartTime !== null) {
+            // Calculate phase for this voice - loops continuously
+            const elapsedTime = now - voice.modCanvasTrigStartTime;
       // Calculate looping phase (0-1, wraps around)
       let phase = (elapsedTime / trigDuration) % 1.0;
       voice.modCanvasTrigPhase = phase;
@@ -10358,10 +10428,10 @@ function initializeADSRPrecisionSlider(slider) {
   
   // Set initial values
     let initialTime = 0;
-    if (sliderId === 'attack') initialTime = 0.006;
+    if (sliderId === 'attack') initialTime = 0.015;
     else if (sliderId === 'decay') initialTime = 0.0;
     else if (sliderId === 'release') initialTime = 0.0;
-    else if (sliderId === 'filter-attack') initialTime = 0.006;
+    else if (sliderId === 'filter-attack') initialTime = 0.015;
   
   const initialPosition = timeToPosition(initialTime);
   newSlider.value = initialPosition * (maxTime - minTime) + minTime;

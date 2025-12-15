@@ -39,6 +39,39 @@ const rhythmDivisions = [
     '1/64', '1/32', '1/16', '1/8', '1/4', '1/2', '1/1', '2/1', '4/1', '8/1'
 ];
 const divisionModifiers = ['regular', 'dotted', 'triplet']; // regular, . (dotted), T (triplet)
+const DISALLOWED_TRIPLET_TYPES = new Set(['1/1', '2/1', '4/1', '8/1']);
+
+function normalizeDivisionModifierForType(type, modifier) {
+    if (modifier === 'triplet' && DISALLOWED_TRIPLET_TYPES.has(type)) {
+        return 'regular';
+    }
+    return modifier;
+}
+
+function buildDivisionOptionList() {
+    const options = [];
+    rhythmDivisions.forEach(type => {
+        divisionModifiers.forEach(modifier => {
+            const normalized = normalizeDivisionModifierForType(type, modifier);
+            if (modifier === 'triplet' && normalized !== modifier) {
+                return; // Skip disallowed triplet combo
+            }
+            options.push({ type, modifier: normalized });
+        });
+    });
+    return options;
+}
+
+const divisionOptionList = buildDivisionOptionList();
+
+function getDivisionOptionIndex(type, modifier) {
+    if (!divisionOptionList.length) return 0;
+    const normalized = normalizeDivisionModifierForType(type, modifier);
+    let idx = divisionOptionList.findIndex(opt => opt.type === type && opt.modifier === normalized);
+    if (idx >= 0) return idx;
+    idx = divisionOptionList.findIndex(opt => opt.type === type);
+    return idx >= 0 ? idx : 0;
+}
 const LOSS_LOG_STYLE = 'color:#4dd0ff';
 const LOSS_WARN_STYLE = 'color:#ff9800';
 const LOSS_ERR_STYLE = 'color:#ff4d4f;font-weight:bold';
@@ -2594,7 +2627,8 @@ function setDivision(destination, divisionIndex, modifierIndex = 0) {
         // Set rhythm division
         const typeIndex = divisionIndex % rhythmDivisions.length;
         const type = rhythmDivisions[typeIndex];
-        const modifier = divisionModifiers[modifierIndex % divisionModifiers.length];
+        const rawModifier = divisionModifiers[modifierIndex % divisionModifiers.length];
+        const modifier = normalizeDivisionModifierForType(type, rawModifier);
         
         divisionSettings[destination] = { type, modifier };
         
@@ -2604,6 +2638,7 @@ function setDivision(destination, divisionIndex, modifierIndex = 0) {
     
     // Update visual display
     updateDivisionDisplay();
+    applyImmediateDivisionSync(destination);
 
     if (shouldSyncLoss) {
         notifyLossIntervalChange(`set-division:${destination}`);
@@ -2778,6 +2813,35 @@ let subdivisionCounters = {
     'LFO': 0,
     'MOD': 0
 };
+
+function resetSubdivisionCountersForDestination(destination) {
+    if (!destination) return;
+    if (destination === 'GLOBAL') {
+        Object.keys(subdivisionCounters).forEach(key => {
+            subdivisionCounters[key] = 0;
+        });
+        return;
+    }
+    if (Object.prototype.hasOwnProperty.call(subdivisionCounters, destination)) {
+        subdivisionCounters[destination] = 0;
+    }
+}
+
+function applyImmediateDivisionSync(destination) {
+    resetSubdivisionCountersForDestination(destination);
+    if (destination === 'LFO' || destination === 'MOD') {
+        updateRoutedRates();
+    }
+    if (destination === 'DELAY') {
+        const delayTimeSeconds = calculateIntervalTime('DELAY') / 1000;
+        if (typeof window.delayTime !== 'undefined') {
+            window.delayTime = delayTimeSeconds;
+        }
+        if (window.delayEffect && typeof window.delayEffect.syncToTempo === 'function') {
+            window.delayEffect.syncToTempo(delayTimeSeconds);
+        }
+    }
+}
 
 function notifyDivisionTick(time) {
     // This is called on each tick (1/64th note resolution)
@@ -3028,11 +3092,9 @@ function updateDivisionKnobForDestination(destination) {
     } else {
         const settings = divisionSettings[destination];
         if (settings) {
-            const typeIndex = rhythmDivisions.indexOf(settings.type);
-            const modifierIndex = divisionModifiers.indexOf(settings.modifier);
-            const totalOptions = rhythmDivisions.length * divisionModifiers.length;
-            const index = typeIndex * divisionModifiers.length + modifierIndex;
-            value = index / (totalOptions - 1);
+            const optionIndex = getDivisionOptionIndex(settings.type, settings.modifier);
+            const totalOptions = Math.max(1, divisionOptionList.length);
+            value = totalOptions > 1 ? (optionIndex / (totalOptions - 1)) : 0;
         }
     }
     
@@ -3629,15 +3691,14 @@ function initializeSequencerUI() {
                 tooltipText = `${globalSettings.numerator}/${globalSettings.denominator}`;
             } else {
                 // Map to rhythm divisions with modifiers
-                const totalOptions = rhythmDivisions.length * divisionModifiers.length;
-                const index = Math.floor(value * (totalOptions - 1));
-                const typeIndex = Math.floor(index / divisionModifiers.length);
-                const modifierIndex = index % divisionModifiers.length;
+                const totalOptions = Math.max(1, divisionOptionList.length);
+                const clampedValue = Math.max(0, Math.min(1, value));
+                const index = Math.floor(clampedValue * (totalOptions - 1));
+                const option = divisionOptionList[index] || divisionOptionList[0];
+                const typeIndex = Math.max(0, rhythmDivisions.indexOf(option.type));
+                const modifierIndex = Math.max(0, divisionModifiers.indexOf(option.modifier));
                 setDivision(destination, typeIndex, modifierIndex);
-                const appliedSettings = divisionSettings[destination] || {
-                    type: rhythmDivisions[typeIndex],
-                    modifier: divisionModifiers[modifierIndex]
-                };
+                const appliedSettings = divisionSettings[destination] || option;
                 const modSymbol = appliedSettings.modifier === 'dotted'
                     ? '.'
                     : (appliedSettings.modifier === 'triplet' ? 'T' : '');
